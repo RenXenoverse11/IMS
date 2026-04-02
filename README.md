@@ -23,16 +23,16 @@ npm run gas:login
 Create a new Apps Script project:
 
 ```bash
-npx clasp create --rootDir .gas --type standalone --title "Internship Management System"
+npx clasp create --rootDir . --project ./appscript --title "Internship Management System"
 ```
 
 Or clone an existing Apps Script project:
 
 ```bash
-npx clasp clone YOUR_SCRIPT_ID --rootDir .gas
+npx clasp clone YOUR_SCRIPT_ID --rootDir . --project ./appscript
 ```
 
-If you prefer to create `.clasp.json` manually, copy `.clasp.json.example` to `.clasp.json` and replace `YOUR_SCRIPT_ID`.
+If you prefer to create the config manually, copy `appscript/.clasp.json.example` to `appscript/.clasp.json` and replace `YOUR_SCRIPT_ID`.
 
 ## Main workflow
 
@@ -45,7 +45,7 @@ npm run deploy:gas
 That command will:
 
 - build the Svelte app
-- generate the Apps Script-ready files in `.gas/`
+- generate the Apps Script-ready files in `appscript/`
 - `clasp push` the generated code to your linked Google Apps Script project
 - `clasp deploy` a new deployment
 
@@ -63,7 +63,7 @@ Generate the Apps Script-ready output:
 npm run build:gas
 ```
 
-Push the generated `.gas/` files to Apps Script:
+Push the generated `appscript/` files to Apps Script:
 
 ```bash
 npm run push:gas
@@ -84,9 +84,9 @@ npm run gas:open
 ## How it works
 
 - `vite build` creates the production frontend in `dist/`
-- `scripts/prepare-gas.mjs` converts that build into a self-contained `.gas/Index.html`
-- `gas/Code.js` serves the app as a Google Apps Script web app
-- `gas/appsscript.json` defines the Apps Script manifest
+- `scripts/prepare-gas.mjs` converts that build into a self-contained `appscript/Index.html`
+- `appscript/Code.js` serves the app as a Google Apps Script web app
+- `appscript/appsscript.json` defines the Apps Script manifest
 
 ## Deploy as a web app
 

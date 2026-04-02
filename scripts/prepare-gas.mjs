@@ -1,10 +1,9 @@
-import { mkdir, readFile, readdir, rm, stat, writeFile, copyFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const rootDir = process.cwd();
 const distDir = path.join(rootDir, 'dist');
-const gasSourceDir = path.join(rootDir, 'gas');
-const gasOutDir = path.join(rootDir, '.gas');
+const appscriptDir = path.join(rootDir, 'appscript');
 
 const MIME_TYPES = {
   '.css': 'text/css',
@@ -115,11 +114,8 @@ async function build() {
 
   html = replaceAssetPaths(html, assetMap);
 
-  await rm(gasOutDir, { recursive: true, force: true });
-  await mkdir(gasOutDir, { recursive: true });
-  await copyFile(path.join(gasSourceDir, 'Code.js'), path.join(gasOutDir, 'Code.js'));
-  await copyFile(path.join(gasSourceDir, 'appsscript.json'), path.join(gasOutDir, 'appsscript.json'));
-  await writeFile(path.join(gasOutDir, 'Index.html'), html);
+  await mkdir(appscriptDir, { recursive: true });
+  await writeFile(path.join(appscriptDir, 'Index.html'), html);
 }
 
 build().catch((error) => {
