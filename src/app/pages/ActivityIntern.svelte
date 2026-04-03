@@ -2,6 +2,7 @@
   import {
     AlertCircle,
     CheckCircle2,
+    ChevronDown,
     Clock,
     Clock3,
     MoreHorizontal,
@@ -46,7 +47,7 @@
       owner: 'John Rivera',
       priority: 'high',
       description: 'Test all RESTful endpoints for the new customer portal API and document findings.',
-      attachments: 2,
+      attachments: ['api-test-cases.pdf', 'endpoint-results.xlsx'],
       dailyChecklist: [
         { label: 'Validate auth and token refresh flow', done: true },
         { label: 'Run negative tests for payload validation', done: false },
@@ -60,7 +61,7 @@
       owner: 'Sarah Chen',
       priority: 'medium',
       description: 'Add core unit tests for login, refresh token, and logout handlers.',
-      attachments: 1,
+      attachments: ['auth-unit-test-plan.docx'],
       dailyChecklist: [
         { label: 'Cover successful login path', done: false },
         { label: 'Cover invalid credential path', done: false },
@@ -74,7 +75,7 @@
       owner: 'John Rivera',
       priority: 'high',
       description: 'Review pull request quality, edge cases, and performance implications.',
-      attachments: 0,
+      attachments: [],
       dailyChecklist: [
         { label: 'Reviewed logic and comments', done: true },
         { label: 'Requested final changes', done: true },
@@ -87,7 +88,7 @@
       owner: 'Maria Santos',
       priority: 'low',
       description: 'Refresh setup guide and endpoint references for the current sprint.',
-      attachments: 1,
+      attachments: ['api-guide-v2.md'],
       dailyChecklist: [
         { label: 'Update API endpoint table', done: false },
         { label: 'Revise onboarding quickstart', done: false },
@@ -100,7 +101,7 @@
       owner: 'John Rivera',
       priority: 'high',
       description: 'Summarize vulnerability checks and mitigation recommendations.',
-      attachments: 3,
+      attachments: ['vuln-scan.csv', 'risk-summary.pdf', 'mitigation-plan.docx'],
       dailyChecklist: [
         { label: 'Confirm open issues and risk level', done: true },
         { label: 'Finalize mitigation plan section', done: false },
@@ -114,7 +115,7 @@
       owner: 'Sarah Chen',
       priority: 'medium',
       description: 'Set up shared UI components and documentation examples.',
-      attachments: 2,
+      attachments: ['ui-library-spec.pdf', 'storybook-notes.txt'],
       dailyChecklist: [
         { label: 'Published initial component package', done: true },
         { label: 'Added usage examples', done: true },
@@ -153,14 +154,36 @@
   let statusFilter = 'All Status';
   let activeView = 'Overview';
   let selectedOverviewTaskTitle = '';
+  let expandedListTaskTitle = '';
+  let isViewTaskModalOpen = false;
+  let viewedTaskTitle = '';
+  let isEditingViewedTask = false;
+  let taskViewEditForm = {
+    title: '',
+    status: 'Pending',
+    dueDate: '',
+    description: '',
+    dailyChecklist: [],
+    attachments: [],
+  };
   let trackerMenuOpen = false;
   let isEditingTrackerTask = false;
+  let isAddTaskOpen = false;
+  let addTaskForm = {
+    title: '',
+    owner: '',
+    dueDate: '',
+    description: '',
+    dailyChecklist: [],
+    attachments: [],
+  };
   let trackerEditForm = {
     title: '',
     status: 'Pending',
     dueDate: '',
     description: '',
     dailyChecklist: [],
+    attachments: [],
   };
 
   function matchesStatus(task, filter) {
@@ -246,9 +269,326 @@
     return `${MONTH_NAMES[monthIndex]} ${Number(day)}, ${year}`;
   }
 
+  function getAttachmentNames(attachments) {
+    if (Array.isArray(attachments)) {
+      return attachments.map((item) => String(item || '').trim()).filter(Boolean);
+    }
+
+    return [];
+  }
+
+  function formatAttachmentCell(attachments) {
+    const names = getAttachmentNames(attachments);
+
+    if (names.length === 0) {
+      return 'No files';
+    }
+
+    return `${names.length} ${names.length === 1 ? 'file' : 'files'}`;
+  }
+
+  function formatAttachmentMeta(attachments) {
+    const count = getAttachmentNames(attachments).length;
+    return `${count} ${count === 1 ? 'attachment' : 'attachments'}`;
+  }
+
+  function formatChecklistMeta(dailyChecklist) {
+    const items = Array.isArray(dailyChecklist) ? dailyChecklist : [];
+    return `${items.length} ${items.length === 1 ? 'checklist item' : 'checklist items'}`;
+  }
+
+  function normalizeDate(date) {
+    const next = new Date(date);
+    next.setHours(0, 0, 0, 0);
+    return next;
+  }
+
+  function isSameCalendarDay(left, right) {
+    return (
+      left.getFullYear() === right.getFullYear() &&
+      left.getMonth() === right.getMonth() &&
+      left.getDate() === right.getDate()
+    );
+  }
+
+  function getUniqueTaskTitle(baseTitle) {
+    const trimmedBase = baseTitle.trim();
+
+    if (!assignedTasks.some((task) => task.title === trimmedBase)) {
+      return trimmedBase;
+    }
+
+    let suffix = 2;
+    let candidate = `${trimmedBase} (${suffix})`;
+
+    while (assignedTasks.some((task) => task.title === candidate)) {
+      suffix += 1;
+      candidate = `${trimmedBase} (${suffix})`;
+    }
+
+    return candidate;
+  }
+
+  function resetAddTaskForm() {
+    addTaskForm = {
+      title: '',
+      owner: '',
+      dueDate: '',
+      description: '',
+      dailyChecklist: [],
+      attachments: [],
+    };
+  }
+
+  function toggleAddTaskForm() {
+    isAddTaskOpen = !isAddTaskOpen;
+
+    if (!isAddTaskOpen) {
+      resetAddTaskForm();
+    }
+  }
+
+  function cancelAddTask() {
+    isAddTaskOpen = false;
+    resetAddTaskForm();
+  }
+
+  function addNewTask() {
+    const rawTitle = addTaskForm.title.trim();
+    const formattedDueDate = fromInputDate(addTaskForm.dueDate);
+
+    if (!rawTitle || !formattedDueDate) {
+      return;
+    }
+
+    const nextTask = {
+      title: getUniqueTaskTitle(rawTitle),
+      status: 'Pending',
+      dueDate: formattedDueDate,
+      owner: addTaskForm.owner.trim() || 'You',
+      priority: 'medium',
+      description: addTaskForm.description.trim() || 'No description provided yet.',
+      attachments: getAttachmentNames(addTaskForm.attachments),
+      dailyChecklist: addTaskForm.dailyChecklist
+        .filter((item) => item.label.trim())
+        .map((item) => ({ label: item.label.trim(), done: !!item.done })),
+    };
+
+    assignedTasks = [nextTask, ...assignedTasks];
+    selectedOverviewTaskTitle = nextTask.title;
+    activeView = 'Overview';
+    isAddTaskOpen = false;
+    resetAddTaskForm();
+  }
+
+  function addNewTaskChecklistItem() {
+    addTaskForm = {
+      ...addTaskForm,
+      dailyChecklist: [...addTaskForm.dailyChecklist, { label: '', done: false }],
+    };
+  }
+
+  function updateNewTaskChecklistItem(index, field, value) {
+    addTaskForm = {
+      ...addTaskForm,
+      dailyChecklist: addTaskForm.dailyChecklist.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, [field]: value } : item
+      ),
+    };
+  }
+
+  function removeNewTaskChecklistItem(index) {
+    addTaskForm = {
+      ...addTaskForm,
+      dailyChecklist: addTaskForm.dailyChecklist.filter((_, itemIndex) => itemIndex !== index),
+    };
+  }
+
+  function handleAddTaskAttachmentUpload(event) {
+    const files = Array.from(event.currentTarget.files || []);
+
+    if (files.length === 0) {
+      return;
+    }
+
+    addTaskForm = {
+      ...addTaskForm,
+      attachments: [...addTaskForm.attachments, ...files.map((file) => file.name)],
+    };
+
+    event.currentTarget.value = '';
+  }
+
+  function removeAddTaskAttachment(index) {
+    addTaskForm = {
+      ...addTaskForm,
+      attachments: addTaskForm.attachments.filter((_, itemIndex) => itemIndex !== index),
+    };
+  }
+
   function openListWithFilter(filter) {
     statusFilter = filter;
     activeView = 'List';
+  }
+
+  function toggleListTask(taskTitle) {
+    expandedListTaskTitle = expandedListTaskTitle === taskTitle ? '' : taskTitle;
+  }
+
+  function openTaskViewForm(task) {
+    viewedTaskTitle = task.title;
+    taskViewEditForm = {
+      title: task.title,
+      status: task.status,
+      dueDate: toInputDate(task.dueDate),
+      description: task.description,
+      dailyChecklist: (task.dailyChecklist || []).map((item) => ({ ...item })),
+      attachments: getAttachmentNames(task.attachments),
+    };
+    isViewTaskModalOpen = true;
+  }
+
+  function closeTaskViewForm() {
+    isViewTaskModalOpen = false;
+    viewedTaskTitle = '';
+    isEditingViewedTask = false;
+    taskViewEditForm = {
+      title: '',
+      status: 'Pending',
+      dueDate: '',
+      description: '',
+      dailyChecklist: [],
+      attachments: [],
+    };
+  }
+
+  function handleTaskViewOverlayClick(event) {
+    if (event.target === event.currentTarget) {
+      closeTaskViewForm();
+    }
+  }
+
+  function openTaskEditFromView() {
+    if (!viewedTask) {
+      return;
+    }
+
+    taskViewEditForm = {
+      title: viewedTask.title,
+      status: viewedTask.status,
+      dueDate: toInputDate(viewedTask.dueDate),
+      description: viewedTask.description,
+      dailyChecklist: viewedTask.dailyChecklist.map((item) => ({ ...item })),
+      attachments: getAttachmentNames(viewedTask.attachments),
+    };
+    isEditingViewedTask = true;
+  }
+
+  function cancelTaskEditFromView() {
+    if (viewedTask) {
+      taskViewEditForm = {
+        title: viewedTask.title,
+        status: viewedTask.status,
+        dueDate: toInputDate(viewedTask.dueDate),
+        description: viewedTask.description,
+        dailyChecklist: viewedTask.dailyChecklist.map((item) => ({ ...item })),
+        attachments: getAttachmentNames(viewedTask.attachments),
+      };
+    }
+
+    isEditingViewedTask = false;
+  }
+
+  function addTaskViewChecklistItem() {
+    taskViewEditForm = {
+      ...taskViewEditForm,
+      dailyChecklist: [...taskViewEditForm.dailyChecklist, { label: '', done: false }],
+    };
+  }
+
+  function updateTaskViewChecklistItem(index, field, value) {
+    taskViewEditForm = {
+      ...taskViewEditForm,
+      dailyChecklist: taskViewEditForm.dailyChecklist.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, [field]: value } : item
+      ),
+    };
+  }
+
+  function removeTaskViewChecklistItem(index) {
+    taskViewEditForm = {
+      ...taskViewEditForm,
+      dailyChecklist: taskViewEditForm.dailyChecklist.filter((_, itemIndex) => itemIndex !== index),
+    };
+  }
+
+  function handleTaskViewAttachmentUpload(event) {
+    const files = Array.from(event.currentTarget.files || []);
+
+    if (files.length === 0) {
+      return;
+    }
+
+    taskViewEditForm = {
+      ...taskViewEditForm,
+      attachments: [...taskViewEditForm.attachments, ...files.map((file) => file.name)],
+    };
+
+    event.currentTarget.value = '';
+  }
+
+  function removeTaskViewAttachment(index) {
+    taskViewEditForm = {
+      ...taskViewEditForm,
+      attachments: taskViewEditForm.attachments.filter((_, itemIndex) => itemIndex !== index),
+    };
+  }
+
+  function saveTaskEditFromView() {
+    if (!viewedTask) {
+      return;
+    }
+
+    const originalTitle = viewedTask.title;
+    const nextTitle = taskViewEditForm.title.trim() || originalTitle;
+    const nextTask = {
+      ...viewedTask,
+      title: nextTitle,
+      status: taskViewEditForm.status,
+      dueDate: fromInputDate(taskViewEditForm.dueDate) || viewedTask.dueDate,
+      description: taskViewEditForm.description.trim() || viewedTask.description,
+      attachments: getAttachmentNames(taskViewEditForm.attachments),
+      dailyChecklist: taskViewEditForm.dailyChecklist
+        .filter((item) => item.label.trim())
+        .map((item) => ({ label: item.label.trim(), done: !!item.done })),
+    };
+
+    assignedTasks = assignedTasks.map((task) => (task.title === originalTitle ? nextTask : task));
+
+    if (selectedOverviewTaskTitle === originalTitle) {
+      selectedOverviewTaskTitle = nextTitle;
+    }
+
+    if (expandedListTaskTitle === originalTitle) {
+      expandedListTaskTitle = nextTitle;
+    }
+
+    viewedTaskTitle = nextTitle;
+    isEditingViewedTask = false;
+  }
+
+  function archiveTaskFromView() {
+    if (!viewedTask) {
+      return;
+    }
+
+    const targetTitle = viewedTask.title;
+    closeTaskViewForm();
+    archiveTask(targetTitle);
+
+    if (expandedListTaskTitle === targetTitle) {
+      expandedListTaskTitle = '';
+    }
   }
 
   function openArchiveView() {
@@ -276,6 +616,7 @@
       dueDate: toInputDate(selectedOverviewTask.dueDate),
       description: selectedOverviewTask.description,
       dailyChecklist: selectedOverviewTask.dailyChecklist.map((item) => ({ ...item })),
+      attachments: getAttachmentNames(selectedOverviewTask.attachments),
     };
     isEditingTrackerTask = true;
     trackerMenuOpen = false;
@@ -298,6 +639,7 @@
       status: trackerEditForm.status,
       dueDate: fromInputDate(trackerEditForm.dueDate) || selectedOverviewTask.dueDate,
       description: trackerEditForm.description.trim() || selectedOverviewTask.description,
+      attachments: getAttachmentNames(trackerEditForm.attachments),
       dailyChecklist: trackerEditForm.dailyChecklist
         .filter((item) => item.label.trim())
         .map((item) => ({ label: item.label.trim(), done: !!item.done })),
@@ -340,18 +682,21 @@
       return;
     }
 
+    if (action === 'view') {
+      if (selectedOverviewTask) {
+        openTaskViewForm(selectedOverviewTask);
+      }
+
+      trackerMenuOpen = false;
+      return;
+    }
+
     if (!selectedOverviewTask) {
       trackerMenuOpen = false;
       return;
     }
 
     const targetTitle = selectedOverviewTask.title;
-
-    if (action === 'delete') {
-      assignedTasks = assignedTasks.filter((task) => task.title !== targetTitle);
-      selectedOverviewTaskTitle = '';
-      isEditingTrackerTask = false;
-    }
 
     if (action === 'archive') {
       archiveTask(targetTitle);
@@ -402,6 +747,28 @@
     };
   }
 
+  function handleEditTaskAttachmentUpload(event) {
+    const files = Array.from(event.currentTarget.files || []);
+
+    if (files.length === 0) {
+      return;
+    }
+
+    trackerEditForm = {
+      ...trackerEditForm,
+      attachments: [...trackerEditForm.attachments, ...files.map((file) => file.name)],
+    };
+
+    event.currentTarget.value = '';
+  }
+
+  function removeEditTaskAttachment(index) {
+    trackerEditForm = {
+      ...trackerEditForm,
+      attachments: trackerEditForm.attachments.filter((_, itemIndex) => itemIndex !== index),
+    };
+  }
+
   $: filteredTasks = assignedTasks.filter(
     (task) => matchesStatus(task, statusFilter) && matchesSearch(task, searchQuery)
   );
@@ -412,6 +779,14 @@
 
   $: completedCount = assignedTasks.filter((task) => task.status === 'Completed').length;
   $: completionRate = Math.round((completedCount / assignedTasks.length) * 100);
+  $: todayDate = normalizeDate(new Date());
+  $: todayTasks = assignedTasks
+    .filter((task) => task.status !== 'Completed')
+    .filter((task) => {
+      const parsedDueDate = parseDueDate(task.dueDate);
+      return parsedDueDate ? isSameCalendarDay(normalizeDate(parsedDueDate), todayDate) : false;
+    })
+    .slice(0, 4);
   $: overdueTasks = assignedTasks.filter((task) => task.status === 'Overdue').slice(0, 3);
   $: dueSoonTasks = [...assignedTasks]
     .filter((task) => task.status !== 'Completed')
@@ -425,9 +800,11 @@
     .slice(0, 4);
   $: selectedOverviewTask =
     assignedTasks.find((task) => task.title === selectedOverviewTaskTitle) ||
+    todayTasks[0] ||
     overdueTasks[0] ||
     dueSoonTasks[0] ||
     null;
+  $: viewedTask = assignedTasks.find((task) => task.title === viewedTaskTitle) || null;
 
 </script>
 
@@ -498,18 +875,106 @@
         </select>
       </label>
 
-      <button class="new-task-btn" type="button">
+      <button class="new-task-btn" type="button" on:click={toggleAddTaskForm}>
         <Plus size={15} />
         <span>Add Task</span>
       </button>
     </div>
   </div>
 
+  {#if isAddTaskOpen}
+    <form class="add-task-form" on:submit|preventDefault={addNewTask}>
+      <label>
+        <span>Task Title</span>
+        <input type="text" bind:value={addTaskForm.title} placeholder="Enter task title" required />
+      </label>
+
+      <label>
+        <span>Assigned by</span>
+        <input type="text" bind:value={addTaskForm.owner} placeholder="Who is assigning this task?" />
+      </label>
+
+      <label>
+        <span>Deadline</span>
+        <input type="date" bind:value={addTaskForm.dueDate} required />
+      </label>
+
+      <label class="full-width">
+        <span>Description</span>
+        <textarea rows="2" bind:value={addTaskForm.description} placeholder="Task details"></textarea>
+      </label>
+
+      <div class="tracker-checklist-editor full-width">
+        <div class="tracker-checklist-editor-head">
+          <span>Checklist</span>
+          <button type="button" on:click={addNewTaskChecklistItem}>+ Add item</button>
+        </div>
+
+        {#if addTaskForm.dailyChecklist.length === 0}
+          <p class="overview-empty-copy">No checklist items yet.</p>
+        {:else}
+          {#each addTaskForm.dailyChecklist as item, index}
+            <div class="tracker-checklist-editor-row">
+              <input
+                type="checkbox"
+                checked={item.done}
+                on:change={() => updateNewTaskChecklistItem(index, 'done', !item.done)}
+              />
+              <input
+                type="text"
+                value={item.label}
+                on:input={(event) => updateNewTaskChecklistItem(index, 'label', event.currentTarget.value)}
+                placeholder="Checklist item"
+              />
+              <button type="button" class="remove-item" on:click={() => removeNewTaskChecklistItem(index)}>
+                Remove
+              </button>
+            </div>
+          {/each}
+        {/if}
+      </div>
+
+      <div class="attachment-editor full-width">
+        <div class="attachment-editor-head">
+          <span>Attachments</span>
+          <label class="attachment-upload-btn" for="add-task-file-upload">Upload files</label>
+          <input
+            id="add-task-file-upload"
+            class="hidden-file-input"
+            type="file"
+            multiple
+            on:change={handleAddTaskAttachmentUpload}
+          />
+        </div>
+
+        {#if addTaskForm.attachments.length === 0}
+          <p class="overview-empty-copy">No attachments yet.</p>
+        {:else}
+          <ul class="attachment-list">
+            {#each addTaskForm.attachments as fileName, index}
+              <li>
+                <span>{fileName}</span>
+                <button type="button" class="remove-item" on:click={() => removeAddTaskAttachment(index)}>
+                  Remove
+                </button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </div>
+
+      <div class="add-task-actions">
+        <button type="button" class="secondary" on:click={cancelAddTask}>Cancel</button>
+        <button type="submit" class="primary">Save Task</button>
+      </div>
+    </form>
+  {/if}
+
   <div class="documents-grid">
     <section class="panel tasks-panel">
       <header class="panel-header tasks-header">
         <h3>My Tasks</h3>
-        {#if activeView === 'List' || activeView === 'Archive'}
+        {#if activeView === 'Archive'}
           <div class="tasks-header-columns" aria-hidden="true">
             <span>Status</span>
             <span>{activeView === 'Archive' ? 'Restore' : 'Attachment'}</span>
@@ -522,12 +987,12 @@
         <div class="overview-shell">
           <div class="overview-panels">
             <section class="overview-panel">
-              <h4>Urgent Tasks</h4>
-              {#if overdueTasks.length === 0}
-                <p class="overview-empty-copy">No overdue tasks.</p>
+              <h4>Today's Task</h4>
+              {#if todayTasks.length === 0}
+                <p class="overview-empty-copy">No tasks with today's deadline.</p>
               {:else}
                 <ul>
-                  {#each overdueTasks as task}
+                  {#each todayTasks as task}
                     <li>
                       <button
                         type="button"
@@ -579,7 +1044,7 @@
           {#if selectedOverviewTask}
             <section class="overview-tracker">
               <div class="overview-tracker-head">
-                <h4>Daily Task Tracker</h4>
+                <h4>Let's Get Things Done!</h4>
                 <div class="tracker-head-actions">
                   <span class={`status-pill ${statusClassMap[selectedOverviewTask.status]}`}>
                     {selectedOverviewTask.status}
@@ -596,11 +1061,9 @@
 
                   {#if trackerMenuOpen}
                     <div class="tracker-menu">
-                      <button type="button" on:click={() => handleTrackerAction('edit')}>Edit Task</button>
-                      <button type="button" on:click={() => handleTrackerAction('delete')} class="danger">
-                        Delete Task
+                      <button type="button" on:click={() => handleTrackerAction('view')}>
+                        View Task
                       </button>
-                      <button type="button" on:click={() => handleTrackerAction('archive')}>Archive Task</button>
                     </div>
                   {/if}
                 </div>
@@ -660,6 +1123,35 @@
                     {/each}
                   </div>
 
+                  <div class="attachment-editor">
+                    <div class="attachment-editor-head">
+                      <span>Attachments</span>
+                      <label class="attachment-upload-btn" for="edit-task-file-upload">Upload files</label>
+                      <input
+                        id="edit-task-file-upload"
+                        class="hidden-file-input"
+                        type="file"
+                        multiple
+                        on:change={handleEditTaskAttachmentUpload}
+                      />
+                    </div>
+
+                    {#if trackerEditForm.attachments.length === 0}
+                      <p class="overview-empty-copy">No attachments yet.</p>
+                    {:else}
+                      <ul class="attachment-list">
+                        {#each trackerEditForm.attachments as fileName, index}
+                          <li>
+                            <span>{fileName}</span>
+                            <button type="button" class="remove-item" on:click={() => removeEditTaskAttachment(index)}>
+                              Remove
+                            </button>
+                          </li>
+                        {/each}
+                      </ul>
+                    {/if}
+                  </div>
+
                   <div class="tracker-form-actions">
                     <button type="button" class="secondary" on:click={cancelTrackerEdit}>Cancel</button>
                     <button type="button" class="primary" on:click={saveTrackerEdit}>Save</button>
@@ -669,6 +1161,8 @@
                 <p class="tracker-title">{selectedOverviewTask.title}</p>
                 <p class="tracker-meta">
                   Due {formatDueDate(selectedOverviewTask.dueDate)}
+                  <span aria-hidden="true">•</span>
+                  {formatAttachmentMeta(selectedOverviewTask.attachments)}
                 </p>
                 <p class="tracker-description">{selectedOverviewTask.description}</p>
 
@@ -694,11 +1188,44 @@
             <p class="empty-state">No tasks found for current filter.</p>
           {:else}
             {#each filteredTasks as task}
-              <div class="task-row" role="row">
-                <span role="cell" class="task-name">{task.title}</span>
-                <span role="cell" class={`status-pill ${statusClassMap[task.status]}`}>{task.status}</span>
-                <button role="cell" type="button" class="attachment-btn">Add Attachment</button>
-                <span role="cell" class="task-due">{formatDueDate(task.dueDate)}</span>
+              <div class="task-accordion-item" class:expanded={expandedListTaskTitle === task.title}>
+                <button
+                  class="task-accordion-trigger"
+                  type="button"
+                  on:click={() => toggleListTask(task.title)}
+                >
+                  <span class="task-trigger-left">
+                    <span class="task-dot"></span>
+                    <span class="task-trigger-title">{task.title}</span>
+                  </span>
+                  <svelte:component
+                    this={ChevronDown}
+                    size={15}
+                    class={expandedListTaskTitle === task.title ? 'chevron-open' : ''}
+                  />
+                </button>
+
+                {#if expandedListTaskTitle === task.title}
+                  <div class="task-accordion-body-modern">
+                    <div class="task-accordion-meta-modern">
+                      <span class={`status-chip ${statusClassMap[task.status]}`}>{task.status}</span>
+                      <span>Due {task.dueDate}</span>
+                      <span>Assigned by {task.owner}</span>
+                      {#if task.attachments && task.attachments.length > 0}
+                        <span>{formatAttachmentMeta(task.attachments)}</span>
+                      {/if}
+                      {#if task.dailyChecklist && task.dailyChecklist.length > 0}
+                        <span>{formatChecklistMeta(task.dailyChecklist)}</span>
+                      {/if}
+                    </div>
+                    <div class="task-description-row">
+                      <p class="task-description-modern">{task.description}</p>
+                      <button type="button" class="task-view-form-btn" on:click={() => openTaskViewForm(task)}>
+                        View Task
+                      </button>
+                    </div>
+                  </div>
+                {/if}
               </div>
             {/each}
           {/if}
@@ -724,6 +1251,156 @@
     </section>
   </div>
 </section>
+
+{#if isViewTaskModalOpen && viewedTask}
+  <div class="task-view-modal-overlay" role="presentation" on:click={handleTaskViewOverlayClick}>
+    <div
+      class="task-view-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Task details form"
+    >
+      <div class="task-view-modal-head">
+        <h4>Task Details</h4>
+        <div class="task-view-head-actions">
+          {#if isEditingViewedTask}
+            <button type="button" class="task-view-action" on:click={saveTaskEditFromView}>Save</button>
+            <button type="button" class="task-view-action" on:click={cancelTaskEditFromView}>Cancel</button>
+          {:else}
+            <button type="button" class="task-view-action" on:click={openTaskEditFromView}>Edit Task</button>
+            <button type="button" class="task-view-action danger" on:click={archiveTaskFromView}>Archive Task</button>
+          {/if}
+          <button type="button" class="task-view-close" on:click={closeTaskViewForm}>Close</button>
+        </div>
+      </div>
+
+      <div class="task-view-grid">
+        <label>
+          <span>Task Title</span>
+          <input type="text" bind:value={taskViewEditForm.title} readonly={!isEditingViewedTask} />
+        </label>
+
+        <label>
+          <span>Status</span>
+          {#if isEditingViewedTask}
+            <select bind:value={taskViewEditForm.status}>
+              {#each editStatusOptions as option}
+                <option value={option}>{option}</option>
+              {/each}
+            </select>
+          {:else}
+            <input type="text" value={viewedTask.status} readonly />
+          {/if}
+        </label>
+
+        <label>
+          <span>Due Date</span>
+          {#if isEditingViewedTask}
+            <input type="date" bind:value={taskViewEditForm.dueDate} />
+          {:else}
+            <input type="text" value={formatDueDate(viewedTask.dueDate)} readonly />
+          {/if}
+        </label>
+
+        <label>
+          <span>Assigned by</span>
+          <input type="text" value={viewedTask.owner} readonly />
+        </label>
+      </div>
+
+      <label class="task-view-description">
+        <span>Description</span>
+        <textarea rows="3" bind:value={taskViewEditForm.description} readonly={!isEditingViewedTask}></textarea>
+      </label>
+
+      <div class="task-view-section">
+        <span>Checklist</span>
+        {#if isEditingViewedTask}
+          <div class="tracker-checklist-editor">
+            <div class="tracker-checklist-editor-head">
+              <button type="button" on:click={addTaskViewChecklistItem}>+ Add item</button>
+            </div>
+
+            {#if taskViewEditForm.dailyChecklist.length === 0}
+              <p class="overview-empty-copy">No checklist items.</p>
+            {:else}
+              {#each taskViewEditForm.dailyChecklist as item, index}
+                <div class="tracker-checklist-editor-row">
+                  <input
+                    type="checkbox"
+                    checked={item.done}
+                    on:change={() => updateTaskViewChecklistItem(index, 'done', !item.done)}
+                  />
+                  <input
+                    type="text"
+                    value={item.label}
+                    on:input={(event) => updateTaskViewChecklistItem(index, 'label', event.currentTarget.value)}
+                    placeholder="Checklist item"
+                  />
+                  <button type="button" class="remove-item" on:click={() => removeTaskViewChecklistItem(index)}>
+                    Remove
+                  </button>
+                </div>
+              {/each}
+            {/if}
+          </div>
+        {:else if viewedTask.dailyChecklist.length === 0}
+          <p class="overview-empty-copy">No checklist items.</p>
+        {:else}
+          <ul>
+            {#each viewedTask.dailyChecklist as item}
+              <li>
+                <input type="checkbox" checked={item.done} disabled />
+                <span>{item.label}</span>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </div>
+
+      <div class="task-view-section">
+        <span>Attachments</span>
+        {#if isEditingViewedTask}
+          <div class="attachment-editor">
+            <div class="attachment-editor-head">
+              <label class="attachment-upload-btn" for="view-task-file-upload">Upload files</label>
+              <input
+                id="view-task-file-upload"
+                class="hidden-file-input"
+                type="file"
+                multiple
+                on:change={handleTaskViewAttachmentUpload}
+              />
+            </div>
+
+            {#if taskViewEditForm.attachments.length === 0}
+              <p class="overview-empty-copy">No attachments.</p>
+            {:else}
+              <ul class="attachment-list">
+                {#each taskViewEditForm.attachments as fileName, index}
+                  <li>
+                    <span>{fileName}</span>
+                    <button type="button" class="remove-item" on:click={() => removeTaskViewAttachment(index)}>
+                      Remove
+                    </button>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+          </div>
+        {:else if viewedTask.attachments.length === 0}
+          <p class="overview-empty-copy">No attachments.</p>
+        {:else}
+          <ul class="attachment-list">
+            {#each viewedTask.attachments as fileName}
+              <li><span>{fileName}</span></li>
+            {/each}
+          </ul>
+        {/if}
+      </div>
+    </div>
+  </div>
+{/if}
 
 <style>
   .documents-page {
@@ -877,6 +1554,69 @@
     border-color: #4338ca;
   }
 
+  .add-task-form {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.65rem;
+    padding: 0.8rem;
+    border: 1px solid var(--color-border);
+    background: #ffffff;
+    border-radius: 0.8rem;
+  }
+
+  .add-task-form label {
+    display: grid;
+    gap: 0.25rem;
+  }
+
+  .add-task-form label span {
+    color: #64748b;
+    font-size: 0.74rem;
+    font-weight: 600;
+  }
+
+  .add-task-form input,
+  .add-task-form textarea {
+    border: 1px solid #dbe2f0;
+    border-radius: 0.55rem;
+    background: #ffffff;
+    color: #1f2937;
+    font-size: 0.82rem;
+    padding: 0.45rem 0.55rem;
+    outline: none;
+  }
+
+  .add-task-form .full-width {
+    grid-column: 1 / -1;
+  }
+
+  .add-task-actions {
+    grid-column: 1 / -1;
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.45rem;
+  }
+
+  .add-task-actions button {
+    border-radius: 0.5rem;
+    padding: 0.35rem 0.65rem;
+    font-size: 0.76rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .add-task-actions .secondary {
+    border: 1px solid #dbe2f0;
+    background: #ffffff;
+    color: #475569;
+  }
+
+  .add-task-actions .primary {
+    border: 1px solid #4f46e5;
+    background: #4f46e5;
+    color: #ffffff;
+  }
+
   .view-toggle {
     display: inline-flex;
     align-items: center;
@@ -986,7 +1726,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 0.6rem;
-    font-size: 0.76rem;
+    font-size: 0.81rem;
     color: #334155;
     text-align: left;
     border: 1px solid transparent;
@@ -1011,7 +1751,7 @@
 
   .overview-panel li small {
     color: #64748b;
-    font-size: 0.72rem;
+    font-size: 0.77rem;
   }
 
   .overview-empty-copy {
@@ -1090,10 +1830,6 @@
 
   .tracker-menu button:hover {
     background: #f8fafc;
-  }
-
-  .tracker-menu .danger {
-    color: #dc2626;
   }
 
   .overview-tracker-head h4 {
@@ -1255,6 +1991,67 @@
     width: 100%;
   }
 
+  .attachment-editor {
+    display: grid;
+    gap: 0.5rem;
+  }
+
+  .attachment-editor-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+  }
+
+  .attachment-editor-head span {
+    color: #64748b;
+    font-size: 0.74rem;
+    font-weight: 600;
+  }
+
+  .attachment-upload-btn {
+    border: 1px solid #dbe2f0;
+    background: #ffffff;
+    color: #475569;
+    border-radius: 0.45rem;
+    padding: 0.32rem 0.5rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .hidden-file-input {
+    display: none;
+  }
+
+  .attachment-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.35rem;
+  }
+
+  .attachment-list li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.45rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    padding: 0.32rem 0.45rem;
+    background: #f8fafc;
+  }
+
+  .attachment-list li span {
+    color: #334155;
+    font-size: 0.78rem;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   .completion-value {
     margin: 0.35rem 0 0;
     color: #4f46e5;
@@ -1276,7 +2073,9 @@
 
   .task-list {
     display: grid;
-    background: #fafbff;
+    background: #f8fafc;
+    padding: 0.4rem;
+    gap: 0.45rem;
   }
 
   .task-row {
@@ -1284,15 +2083,296 @@
     grid-template-columns: minmax(0, 1fr) 8rem 7.5rem 8.75rem;
     align-items: center;
     gap: 1.1rem;
-    padding: 0.85rem 1.8rem 0.85rem 1rem;
+    padding: 0.9rem 1rem;
+    border: 1px solid #e6ebf3;
+    border-radius: 0.65rem;
+    background: #ffffff;
+    transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
   }
 
-  .task-row {
-    border-top: 1px solid var(--color-border);
+  .task-row:hover {
+    border-color: #d6deea;
+    background: #f8fafc;
+    box-shadow: 0 8px 22px -20px rgba(15, 23, 42, 0.35);
+  }
+
+  .task-accordion-item {
+    border: 1px solid #e6ebf3;
+    border-radius: 0.65rem;
+    background: #ffffff;
+    overflow: hidden;
+    transition: border-color 140ms ease, box-shadow 140ms ease;
+  }
+
+  .task-accordion-item.expanded {
+    border-color: #d6deea;
+    box-shadow: 0 8px 22px -20px rgba(15, 23, 42, 0.45);
+  }
+
+  .task-accordion-trigger {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.7rem;
+    text-align: left;
+    background: #ffffff;
+    padding: 0.9rem 1rem;
+    cursor: pointer;
+    transition: background-color 140ms ease;
+  }
+
+  .task-accordion-trigger:hover {
+    background: #f8fafc;
+  }
+
+  .task-trigger-left {
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+  }
+
+  .task-dot {
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 999px;
+    background: #9ca3af;
+    flex-shrink: 0;
+  }
+
+  .task-trigger-title {
+    color: #0f172a;
+    font-size: 0.9rem;
+    font-weight: 650;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .task-accordion-trigger :global(svg) {
+    color: #94a3b8;
+    transition: transform 140ms ease;
+    flex-shrink: 0;
+  }
+
+  .task-accordion-trigger :global(svg.chevron-open) {
+    transform: rotate(180deg);
+  }
+
+  .task-accordion-body-modern {
+    display: grid;
+    gap: 0.75rem;
+    padding: 0.1rem 1rem 1rem 2rem;
+    border-top: 1px solid #eef2f7;
+    background: #fcfdff;
+  }
+
+  .task-accordion-meta-modern {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+    color: #7b8aa0;
+    font-size: 0.79rem;
+    font-weight: 600;
+  }
+
+  .status-chip {
+    padding: 0;
+    font-size: 0.79rem;
+    font-weight: 700;
+    border: 0;
+    background: transparent;
+  }
+
+  .task-description-modern {
+    margin: 0;
+    color: #1f2937;
+    font-size: 0.87rem;
+    line-height: 1.45;
+    flex: 1 1 auto;
+    min-width: 0;
+    display: -webkit-box;
+    line-clamp: 2;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .task-description-row {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+
+  .task-view-form-btn {
+    border: 0;
+    background: transparent;
+    color: #6b7280;
+    font-size: 0.76rem;
+    font-weight: 700;
+    padding: 0;
+    cursor: pointer;
+    width: auto;
+    flex-shrink: 0;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .task-view-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.3);
+    display: grid;
+    place-items: center;
+    z-index: 40;
+    padding: 1rem;
+  }
+
+  .task-view-modal {
+    width: min(38rem, 100%);
+    max-height: calc(100vh - 2rem);
+    overflow: auto;
+    background: #ffffff;
+    border: 1px solid #dbe2f0;
+    border-radius: 0.9rem;
+    box-shadow: 0 24px 40px -30px rgba(15, 23, 42, 0.45);
+    padding: 1rem;
+    display: grid;
+    gap: 0.9rem;
+  }
+
+  .task-view-modal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+
+  .task-view-head-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .task-view-modal-head h4 {
+    margin: 0;
+    color: #0f172a;
+    font-size: 1rem;
+    font-weight: 700;
+  }
+
+  .task-view-close {
+    border: 1px solid #dbe2f0;
+    border-radius: 999px;
+    background: #f8fafc;
+    color: #475569;
+    padding: 0.3rem 0.7rem;
+    font-size: 0.74rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .task-view-action {
+    border: 1px solid #dbe2f0;
+    border-radius: 999px;
+    background: #ffffff;
+    color: #475569;
+    padding: 0.3rem 0.65rem;
+    font-size: 0.74rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .task-view-action.danger {
+    border-color: #dbe2f0;
+    color: #475569;
+    background: #ffffff;
+  }
+
+  .task-view-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.65rem;
+  }
+
+  .task-view-grid label,
+  .task-view-description {
+    display: grid;
+    gap: 0.35rem;
+  }
+
+  .task-view-grid label span,
+  .task-view-description span {
+    color: #64748b;
+    font-size: 0.74rem;
+    font-weight: 600;
+  }
+
+  .task-view-section > span {
+    color: #64748b;
+    font-size: 0.74rem;
+    font-weight: 600;
+  }
+
+  .task-view-grid input,
+  .task-view-grid select,
+  .task-view-description textarea {
+    width: 100%;
+    border: 1px solid #dbe2f0;
+    border-radius: 0.55rem;
+    background: #ffffff;
+    color: #1f2937;
+    font-size: 0.82rem;
+    padding: 0.45rem 0.55rem;
+  }
+
+  .task-view-description textarea {
+    resize: vertical;
+  }
+
+  .task-view-section {
+    display: grid;
+    gap: 0.4rem;
+  }
+
+  .task-view-section ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 0.35rem;
+  }
+
+  .task-view-section li {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    color: #1f2937;
+    font-size: 0.82rem;
+  }
+
+  .task-view-section .attachment-list li {
+    background: #ffffff;
+  }
+
+  .task-view-section .attachment-list li span {
+    color: #1f2937;
+    font-size: 0.82rem;
+  }
+
+  .task-view-section li input[type='checkbox'] {
+    width: 0.9rem;
+    height: 0.9rem;
   }
 
   .archived-row {
-    background: #fcfcff;
+    background: #ffffff;
   }
 
   .task-name {
@@ -1318,6 +2398,12 @@
     margin-left: 0;
   }
 
+  @media (max-width: 900px) {
+    .add-task-form {
+      grid-template-columns: 1fr;
+    }
+  }
+
   .task-due {
     justify-self: center;
     text-align: center;
@@ -1338,6 +2424,16 @@
     font-weight: 600;
     cursor: pointer;
     white-space: nowrap;
+  }
+
+  .attachment-text {
+    justify-self: center;
+    color: #475569;
+    font-size: 0.78rem;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .attachment-btn:hover {
