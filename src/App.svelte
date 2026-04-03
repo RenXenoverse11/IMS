@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import Layout from './app/components/Layout.svelte';
   import Dashboard from './app/pages/Dashboard.svelte';
-  import Documents from './app/pages/Documents.svelte';
+  import Documents from './app/pages/ActivityIntern.svelte';
   import Evaluation from './app/pages/Evaluation.svelte';
   import LoginPage from './app/pages/LoginPage.svelte';
   import Settings from './app/pages/Settings.svelte';

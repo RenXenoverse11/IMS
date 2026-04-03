@@ -21,7 +21,7 @@
   const navItems = [
     { path: '/', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/time-log', label: 'Time Log', icon: Clock },
-    { path: '/documents', label: 'Documents', icon: FileText },
+    { path: '/documents', label: 'Activity Log', icon: FileText },
     { path: '/evaluation', label: 'Evaluation', icon: Star },
     { path: '/settings', label: 'Settings', icon: Settings },
   ];

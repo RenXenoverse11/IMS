@@ -16,8 +16,8 @@ export const pageMeta = {
     description: 'Track and manage your daily work hours.',
   },
   '/documents': {
-    title: 'Documents',
-    description: 'Manage your files, reports, and assigned tasks.',
+    title: 'Activity Log',
+    description: 'Review your task updates, timeline, and work activity.',
   },
   '/evaluation': {
     title: 'Evaluation',
