@@ -2144,7 +2144,7 @@
   .task-trigger-title {
     color: #0f172a;
     font-size: 0.9rem;
-    font-weight: 650;
+    font-weight: 500;
     min-width: 0;
     white-space: nowrap;
     overflow: hidden;
