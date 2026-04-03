@@ -1,7 +1,3 @@
-@import './fonts.css';
-@import './theme.css';
-@import './tailwind.css';
-
 html,
 body,
 #app {
@@ -33,14 +29,19 @@ button {
 .layout-main {
   margin-left: 15rem;
   min-height: 100vh;
+  background: var(--color-app-bg);
+  transition: margin-left 180ms ease;
 }
 
 .layout-content {
   padding-top: 4rem;
   min-height: 100vh;
+  background: var(--color-app-bg);
 }
 
 .layout-content > * {
+  box-sizing: border-box;
+  min-height: calc(100vh - 4rem);
   padding: 1.5rem;
 }
 
@@ -50,9 +51,16 @@ button {
   width: 15rem;
   display: flex;
   flex-direction: column;
+  overflow: visible;
   background: var(--color-surface);
   border-right: 1px solid var(--color-border);
+  box-sizing: border-box;
   z-index: 30;
+  transition: width 180ms ease;
+}
+
+.layout-shell.sidebar-collapsed .sidebar {
+  width: 5rem;
 }
 
 .sidebar-brand {
@@ -64,9 +72,35 @@ button {
   border-bottom: 1px solid var(--color-border);
 }
 
+.sidebar-collapse-btn {
+  position: absolute;
+  top: 4.9rem;
+  right: -0.7rem;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-active-text);
+  background: var(--color-active-bg);
+  border: 1px solid color-mix(in srgb, var(--color-active-text) 28%, transparent);
+  box-shadow: 0 6px 14px -10px color-mix(in srgb, var(--color-active-text) 75%, transparent);
+  cursor: pointer;
+  z-index: 35;
+  transition: background-color 150ms ease, transform 150ms ease, color 150ms ease;
+}
+
+.sidebar-collapse-btn:hover {
+  background: color-mix(in srgb, var(--color-active-bg) 82%, var(--color-active-text));
+  color: #ffffff;
+  transform: scale(1.04);
+}
+
 .sidebar-brand span {
   color: var(--color-heading);
-  font-size: 0.9375rem;
+  font-size: 0.8rem;
+  line-height: 1.2;
   font-weight: 600;
 }
 
@@ -97,9 +131,10 @@ button {
   padding: 0 0.75rem;
   margin: 0 0 0.5rem;
   color: var(--color-muted);
-  font-size: 0.6875rem;
+  font-size: 0.8125rem;
+  line-height: 1.35;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
@@ -229,10 +264,20 @@ button {
   align-items: center;
   gap: 1rem;
   padding: 0 1.5rem;
-  background: rgba(255, 255, 255, 0.96);
+  background: var(--color-header-bg);
   border-bottom: 1px solid var(--color-border);
   backdrop-filter: blur(12px);
+  box-sizing: border-box;
   z-index: 20;
+  transition: left 180ms ease;
+}
+
+.layout-shell.sidebar-collapsed .layout-main {
+  margin-left: 5rem;
+}
+
+.layout-shell.sidebar-collapsed .header {
+  left: 5rem;
 }
 
 .header-copy {
@@ -285,6 +330,22 @@ button {
   gap: 0.5rem;
 }
 
+.profile-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  border-radius: 0.875rem;
+  padding: 0.35rem 0.5rem;
+  color: var(--color-heading);
+  cursor: pointer;
+}
+
+.profile-name {
+  color: var(--color-heading);
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
 .menu-shell {
   position: relative;
 }
@@ -319,7 +380,7 @@ button {
   right: 0.45rem;
   width: 0.5rem;
   height: 0.5rem;
-  box-shadow: 0 0 0 2px white;
+  box-shadow: 0 0 0 2px var(--color-surface);
 }
 
 .backdrop {
@@ -413,7 +474,7 @@ button {
   align-items: flex-start;
   gap: 0.75rem;
   padding: 0.875rem 1rem;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid var(--color-border);
   text-align: left;
   cursor: pointer;
   transition: background-color 150ms ease;
@@ -425,7 +486,7 @@ button {
 }
 
 .notification-unread {
-  background: rgba(99, 102, 241, 0.05);
+  background: color-mix(in srgb, var(--color-active-text) 10%, transparent);
 }
 
 .notif-badge {
@@ -524,7 +585,7 @@ button {
   min-height: calc(100vh - 4rem);
   border-radius: 1.5rem;
   background: var(--color-surface-muted);
-  border: 1px dashed var(--color-border);
+  border: 1px solid var(--color-border);
   padding: 1.5rem;
 }
 
@@ -543,11 +604,52 @@ button {
   color: var(--color-sidebar-text);
 }
 
+.layout-shell.sidebar-collapsed .sidebar-brand {
+  padding-inline: 0.9rem;
+}
+
+.layout-shell.sidebar-collapsed .sidebar .sidebar-text {
+  display: none;
+}
+
+.layout-shell.sidebar-collapsed .sidebar-label {
+  padding-inline: 0;
+}
+
+.layout-shell.sidebar-collapsed .nav-button {
+  justify-content: center;
+  gap: 0;
+  padding-inline: 0;
+}
+
+.layout-shell.sidebar-collapsed .nav-button svg {
+  margin: 0;
+}
+
+.layout-shell.sidebar-collapsed .nav-dot {
+  display: none;
+}
+
+.layout-shell.sidebar-collapsed .sidebar-profile {
+  padding-inline: 0.5rem;
+}
+
+.layout-shell.sidebar-collapsed .sidebar-profile-button {
+  justify-content: center;
+  padding-inline: 0;
+}
+
 @media (max-width: 960px) {
   .sidebar {
     position: static;
     width: auto;
     height: auto;
+  }
+
+  .sidebar-collapse-btn {
+    position: static;
+    margin: 0.5rem 0.75rem 0 0;
+    align-self: flex-end;
   }
 
   .layout-main {

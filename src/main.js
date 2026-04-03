@@ -1,4 +1,7 @@
 import { mount } from 'svelte'
+import './styles/theme.css'
+import './styles/fonts.css'
+import './styles/tailwind.css'
 import './styles/index.css'
 import App from './App.svelte'
 

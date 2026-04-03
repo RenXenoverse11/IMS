@@ -1,1 +1,3 @@
-/* Add your font-face declarations here. */
+* {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
