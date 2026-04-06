@@ -1511,15 +1511,21 @@
 {/if}
 
 <style>
+  :global(html) {
+    scrollbar-gutter: stable;
+  }
+
   .documents-page {
     display: grid;
     gap: 1rem;
+    align-content: start;
   }
 
   .stats-grid {
     display: grid;
     gap: 1rem;
     grid-template-columns: repeat(4, minmax(0, 1fr));
+    align-items: stretch;
   }
 
   .stat-card,
@@ -1535,6 +1541,7 @@
     align-items: center;
     gap: 0.75rem;
     padding: 1rem 1.1rem;
+    min-height: 5.45rem;
   }
 
   .stat-icon,
