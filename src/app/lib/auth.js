@@ -1,6 +1,93 @@
 // @ts-nocheck
 let currentUser = null;
 const AUTH_USER_CHANGED_EVENT = 'ims-auth-user-changed';
+const AUTH_SESSION_STORAGE_KEY = 'ims-auth-session-user';
+
+function normalizeStoredUser(user) {
+  if (!user || typeof user !== 'object') {
+    return null;
+  }
+
+  const userId = String(user.user_id || '').trim();
+  if (!userId) {
+    return null;
+  }
+
+  return {
+    ...user,
+    user_id: userId,
+  };
+}
+
+function persistCurrentUser() {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  if (currentUser) {
+    window.localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(currentUser));
+    return;
+  }
+
+  window.localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
+}
+
+export function hydrateAuthSession() {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const raw = window.localStorage.getItem(AUTH_SESSION_STORAGE_KEY);
+  if (!raw) {
+    currentUser = null;
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    const normalized = normalizeStoredUser(parsed);
+
+    if (!normalized) {
+      currentUser = null;
+      window.localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
+      return null;
+    }
+
+    currentUser = normalized;
+    return currentUser;
+  } catch {
+    currentUser = null;
+    window.localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
+    return null;
+  }
+}
+
+export async function restoreAuthSession() {
+  var restoredUser = hydrateAuthSession();
+
+  if (!restoredUser || !restoredUser.user_id) {
+    return null;
+  }
+
+  try {
+    const result = await postAction('get_user_by_id', {
+      user_id: String(restoredUser.user_id || '').trim(),
+    });
+
+    if (result?.user) {
+      currentUser = normalizeStoredUser({
+        ...restoredUser,
+        ...result.user,
+      });
+      persistCurrentUser();
+      notifyCurrentUserChanged();
+    }
+  } catch {
+    // Keep the restored local session even if profile refresh fails.
+  }
+
+  return currentUser;
+}
 
 function notifyCurrentUserChanged() {
   if (typeof window === 'undefined') {
@@ -151,6 +238,7 @@ export function isAuthenticated() {
 
 export function signOut() {
   currentUser = null;
+  persistCurrentUser();
   notifyCurrentUserChanged();
 }
 
@@ -163,7 +251,8 @@ export async function loginWithCredentials(emailInput, passwordInput) {
     password,
   });
 
-  currentUser = result.user || null;
+  currentUser = normalizeStoredUser(result.user) || null;
+  persistCurrentUser();
   notifyCurrentUserChanged();
   return currentUser;
 }
@@ -177,10 +266,11 @@ export async function updateProfilePhoto(photoInput) {
   });
 
   if (result?.user && currentUser && String(currentUser.user_id || '') === String(result.user.user_id || '')) {
-    currentUser = {
+    currentUser = normalizeStoredUser({
       ...currentUser,
       ...result.user,
-    };
+    });
+    persistCurrentUser();
     notifyCurrentUserChanged();
   }
 
@@ -198,10 +288,11 @@ export async function updateUserProfile(profileInput) {
   });
 
   if (result?.user && currentUser && String(currentUser.user_id || '') === String(result.user.user_id || '')) {
-    currentUser = {
+    currentUser = normalizeStoredUser({
       ...currentUser,
       ...result.user,
-    };
+    });
+    persistCurrentUser();
     notifyCurrentUserChanged();
   }
 

@@ -48,6 +48,10 @@ function dispatchAction_(payload) {
     return handleLoginAccount_(payload);
   }
 
+  if (action === 'get_user_by_id') {
+    return handleGetUserById_(payload);
+  }
+
   if (action === 'verify_email_otp') {
     return handleVerifyEmailOtp_(payload);
   }
@@ -238,6 +242,39 @@ function handleLoginAccount_(payload) {
       status: String(found.status || ''),
       created_at: String(found.created_at || ''),
       profile_photo_url: String(found.profile_photo_url || ''),
+      ojt: profile
+    }
+  };
+}
+
+function handleGetUserById_(payload) {
+  var userId = String(payload.user_id || '').trim();
+
+  if (!userId) {
+    return { ok: false, error: 'user_id is required.' };
+  }
+
+  var record = findUserRecordByUserId_(userId);
+  if (!record) {
+    return { ok: false, error: 'User not found.' };
+  }
+
+  var profile = getStudentProfileByUserId_(String(record.user.user_id || ''));
+
+  return {
+    ok: true,
+    user: {
+      user_id: String(record.user.user_id || ''),
+      full_name: String(record.user.full_name || ''),
+      email: String(record.user.email || ''),
+      phone: String(record.user.phone || ''),
+      department: String(record.user.department || ''),
+      location: String(record.user.location || ''),
+      bio: String(record.user.bio || ''),
+      role: String(record.user.role || ''),
+      status: String(record.user.status || ''),
+      created_at: String(record.user.created_at || ''),
+      profile_photo_url: String(record.user.profile_photo_url || ''),
       ojt: profile
     }
   };

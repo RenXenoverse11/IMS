@@ -10,7 +10,7 @@
   import SignUpPage from './app/pages/SignUpPage.svelte';
   import TimeLog from './app/pages/TimeLog.svelte';
   import { getPageMeta, normalizePath } from './app/routes.js';
-  import { isAuthenticated } from './app/lib/auth.js';
+  import { isAuthenticated, restoreAuthSession } from './app/lib/auth.js';
   import { initializeTheme } from './app/context/ThemeContext.js';
 
   const pageComponents = {
@@ -58,6 +58,7 @@
 
   onMount(() => {
     initializeTheme();
+    restoreAuthSession();
     syncRoute();
     window.addEventListener('hashchange', syncRoute);
 
@@ -74,9 +75,13 @@
     if (isAuthPage) {
       document.documentElement.classList.add('dark', 'auth-page');
       document.body.classList.add('dark', 'auth-page');
+      document.documentElement.classList.remove('inside-page');
+      document.body.classList.remove('inside-page');
     } else {
       document.documentElement.classList.remove('auth-page');
       document.body.classList.remove('auth-page');
+      document.documentElement.classList.add('inside-page');
+      document.body.classList.add('inside-page');
       initializeTheme();
     }
   }
