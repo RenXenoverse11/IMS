@@ -20,12 +20,19 @@
   export let currentPath = '/';
   export let collapsed = false;
 
-  const navItems = [
+  const studentNavItems = [
     { path: '/', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/time-log', label: 'Time Log', icon: Clock },
     { path: '/requests', label: 'Requests', icon: FileCheck },
     { path: '/documents', label: 'Activity Log', icon: FileText },
     { path: '/evaluation', label: 'Evaluation', icon: Star },
+    { path: '/settings', label: 'Settings', icon: Settings },
+  ];
+
+  const supervisorNavItems = [
+    { path: '/', label: 'Supervisor Dashboard', icon: LayoutDashboard },
+    { path: '/time-log', label: 'Time Log Management', icon: Clock },
+    { path: '/requests', label: 'Requests', icon: FileCheck },
     { path: '/settings', label: 'Settings', icon: Settings },
   ];
 
@@ -62,6 +69,8 @@
   $: userRole = formatRole(currentUser?.role);
   $: userPhotoUrl = String(currentUser?.profile_photo_url || '').trim();
   $: userInitials = buildInitials(userName);
+  $: isSupervisorUser = String(currentUser?.role || '').trim() === 'Supervisor';
+  $: navItems = isSupervisorUser ? supervisorNavItems : studentNavItems;
 
   function goTo(path) {
     window.location.hash = path;

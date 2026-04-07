@@ -384,3 +384,53 @@ export async function deleteTimeLog(userId, timelogId) {
 
   return result;
 }
+
+export async function listStudentsForAssignment(supervisorUserId, filters = {}) {
+  const result = await postAction('list_students_for_assignment', {
+    supervisor_user_id: String(supervisorUserId || '').trim(),
+    company: String(filters?.company || '').trim(),
+    department: String(filters?.department || '').trim(),
+  });
+
+  return Array.isArray(result.students) ? result.students : [];
+}
+
+export async function assignStudentsToSupervisor(supervisorUserId, studentUserIds, options = {}) {
+  const result = await postAction('assign_students_to_supervisor', {
+    supervisor_user_id: String(supervisorUserId || '').trim(),
+    student_user_ids: Array.isArray(studentUserIds)
+      ? studentUserIds.map((value) => String(value || '').trim()).filter(Boolean)
+      : [],
+    company: String(options?.company || '').trim(),
+    department: String(options?.department || '').trim(),
+  });
+
+  return result;
+}
+
+export async function listSupervisorAssignedStudents(supervisorUserId) {
+  const result = await postAction('list_supervisor_assigned_students', {
+    supervisor_user_id: String(supervisorUserId || '').trim(),
+  });
+
+  return Array.isArray(result.students) ? result.students : [];
+}
+
+export async function listSupervisorTimeLogs(supervisorUserId, studentUserId) {
+  const result = await postAction('list_supervisor_time_logs', {
+    supervisor_user_id: String(supervisorUserId || '').trim(),
+    student_user_id: String(studentUserId || '').trim(),
+  });
+
+  return Array.isArray(result.logs) ? result.logs : [];
+}
+
+export async function deleteSupervisorTimeLog(supervisorUserId, studentUserId, timelogId) {
+  const result = await postAction('delete_supervisor_time_log', {
+    supervisor_user_id: String(supervisorUserId || '').trim(),
+    student_user_id: String(studentUserId || '').trim(),
+    timelog_id: String(timelogId || '').trim(),
+  });
+
+  return result;
+}

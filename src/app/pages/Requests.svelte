@@ -1,7 +1,8 @@
 <script>
+  import { onDestroy, onMount } from 'svelte';
   import { Calendar, Clock3, FileText, ShieldCheck } from 'lucide-svelte';
+  import { getCurrentUser, subscribeToCurrentUser } from '../lib/auth.js';
 
-  const ROLE_OPTIONS = ['Student', 'Supervisor'];
   const REQUEST_TYPES = ['Absence', 'Overtime'];
 
   const STATUS_META = {
@@ -24,6 +25,7 @@
       time: '',
       reason: 'Medical check-up and travel time after appointment.',
       status: 'Pending',
+      requester_name: 'Laurence Jan',
     },
     {
       id: 'REQ-1002',
@@ -32,6 +34,7 @@
       time: '19:00',
       reason: 'Need to complete API testing and submit the consolidated report.',
       status: 'Approved',
+      requester_name: 'Kris Santos',
     },
     {
       id: 'REQ-1003',
@@ -40,11 +43,13 @@
       time: '',
       reason: 'Personal errand requested at short notice.',
       status: 'Rejected',
+      requester_name: 'Mika Dela Cruz',
     },
   ];
 
   let activeTab = 'my-requests';
-  let activeRole = 'Student';
+  let currentUser = null;
+  let unsubscribeAuth;
   let requests = SAMPLE_REQUESTS;
   let formError = '';
   let formSuccess = '';
@@ -80,13 +85,13 @@
   }
 
   function setTab(tab) {
+    if (isSupervisor && tab === 'create-request') {
+      return;
+    }
+
     activeTab = tab;
     formError = '';
     formSuccess = '';
-  }
-
-  function setRole(role) {
-    activeRole = role;
   }
 
   function validateForm() {
@@ -111,6 +116,12 @@
   }
 
   function submitRequest() {
+    if (isSupervisor) {
+      formError = 'Supervisor accounts cannot create requests.';
+      formSuccess = '';
+      return;
+    }
+
     const errorMessage = validateForm();
     formError = errorMessage;
     formSuccess = '';
@@ -126,6 +137,7 @@
       time: form.requestType === 'Overtime' ? form.time : '',
       reason: String(form.reason || '').trim(),
       status: 'Pending',
+      requester_name: String(currentUser?.full_name || '').trim() || 'Student',
     };
 
     requests = [request, ...requests];
@@ -147,6 +159,28 @@
       };
     });
   }
+
+  onMount(() => {
+    currentUser = getCurrentUser();
+    unsubscribeAuth = subscribeToCurrentUser((user) => {
+      currentUser = user;
+    });
+  });
+
+  onDestroy(() => {
+    if (typeof unsubscribeAuth === 'function') {
+      unsubscribeAuth();
+    }
+  });
+
+  $: isSupervisor = String(currentUser?.role || '').trim() === 'Supervisor';
+  $: if (isSupervisor && activeTab === 'create-request') {
+    activeTab = 'my-requests';
+  }
+  $: listTabLabel = isSupervisor ? 'Student Requests' : 'My Requests';
+  $: pageSubtitle = isSupervisor
+    ? 'Review and resolve assigned student requests'
+    : 'Manage your absence and overtime requests';
 </script>
 
 <section class="flex flex-col gap-6">
@@ -155,24 +189,11 @@
       <FileText size={18} />
     </div>
     <h2 class="requests-heading mt-4 text-2xl font-bold tracking-tight">Requests</h2>
-    <p class="requests-subtitle mt-1 text-sm">Manage your absence and overtime requests</p>
+    <p class="requests-subtitle mt-1 text-sm">{pageSubtitle}</p>
   </section>
 
   <section class="requests-panel rounded-xl border p-5 shadow-md">
-    <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-      <div class="inline-flex w-full rounded-xl border role-switch lg:w-auto">
-        {#each ROLE_OPTIONS as role}
-          <button
-            type="button"
-            class="role-button"
-            class:role-button-active={activeRole === role}
-            on:click={() => setRole(role)}
-          >
-            {role}
-          </button>
-        {/each}
-      </div>
-
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-end">
       <div class="inline-flex w-full rounded-xl border tab-switch lg:w-auto">
         <button
           type="button"
@@ -180,16 +201,18 @@
           class:tab-button-active={activeTab === 'my-requests'}
           on:click={() => setTab('my-requests')}
         >
-          My Requests
+          {listTabLabel}
         </button>
-        <button
-          type="button"
-          class="tab-button"
-          class:tab-button-active={activeTab === 'create-request'}
-          on:click={() => setTab('create-request')}
-        >
-          Create Request
-        </button>
+        {#if !isSupervisor}
+          <button
+            type="button"
+            class="tab-button"
+            class:tab-button-active={activeTab === 'create-request'}
+            on:click={() => setTab('create-request')}
+          >
+            Create Request
+          </button>
+        {/if}
       </div>
     </div>
   </section>
@@ -198,7 +221,7 @@
     <p class="alert-success rounded-xl border px-4 py-3 text-sm font-medium">{formSuccess}</p>
   {/if}
 
-  {#if activeTab === 'create-request'}
+  {#if activeTab === 'create-request' && !isSupervisor}
     <section class="requests-panel rounded-xl border p-6 shadow-md">
       <h3 class="requests-heading text-base font-semibold">Create Request</h3>
       <p class="requests-subtitle mt-1 text-sm">Fill out the request details before submission.</p>
@@ -269,10 +292,13 @@
                 {#if request.time}
                   <p class="requests-subtitle text-sm">Time: {request.time}</p>
                 {/if}
+                {#if isSupervisor}
+                  <p class="requests-subtitle text-sm">Student: {request.requester_name || 'Unknown'}</p>
+                {/if}
               </div>
             </div>
 
-            {#if activeRole === 'Supervisor'}
+            {#if isSupervisor}
               <div class="inline-flex items-center gap-2">
                 <button
                   type="button"
@@ -329,15 +355,13 @@
     color: #c7d2fe;
   }
 
-  .tab-switch,
-  .role-switch {
+  .tab-switch {
     border-color: var(--color-border);
     background: var(--color-soft);
     padding: 0.2rem;
   }
 
-  .tab-button,
-  .role-button {
+  .tab-button {
     border: none;
     background: transparent;
     color: var(--color-sidebar-text);
@@ -346,14 +370,12 @@
     transition: all 0.2s ease;
   }
 
-  .tab-button:hover,
-  .role-button:hover {
+  .tab-button:hover {
     background: var(--color-hover);
     color: var(--color-heading);
   }
 
-  .tab-button-active,
-  .role-button-active {
+  .tab-button-active {
     background: var(--color-active-bg);
     color: var(--color-active-text);
     font-weight: 700;

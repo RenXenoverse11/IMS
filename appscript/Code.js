@@ -13,6 +13,8 @@ var PROFILE_PHOTO_MAX_MB_ = Math.floor(PROFILE_PHOTO_MAX_BYTES_ / (1024 * 1024))
 var PROFILE_PHOTOS_FOLDER_NAME_ = 'IMS Profile Photos';
 var TIME_LOGS_SHEET_ = 'time_logs';
 var TIME_LOGS_HEADERS_ = ['timelog_id', 'user_id', 'log_date', 'time_in', 'time_out', 'hours_rendered', 'status', 'notes', 'created_at'];
+var SUPERVISOR_ASSIGNMENTS_SHEET_ = 'supervisor_assignments';
+var SUPERVISOR_ASSIGNMENTS_HEADERS_ = ['assignment_id', 'supervisor_user_id', 'student_user_id', 'company', 'department', 'status', 'created_at'];
 
 function doPost(e) {
   try {
@@ -82,6 +84,26 @@ function dispatchAction_(payload) {
 
   if (action === 'delete_time_log') {
     return handleDeleteTimeLog_(payload);
+  }
+
+  if (action === 'list_students_for_assignment') {
+    return handleListStudentsForAssignment_(payload);
+  }
+
+  if (action === 'assign_students_to_supervisor') {
+    return handleAssignStudentsToSupervisor_(payload);
+  }
+
+  if (action === 'list_supervisor_assigned_students') {
+    return handleListSupervisorAssignedStudents_(payload);
+  }
+
+  if (action === 'list_supervisor_time_logs') {
+    return handleListSupervisorTimeLogs_(payload);
+  }
+
+  if (action === 'delete_supervisor_time_log') {
+    return handleDeleteSupervisorTimeLog_(payload);
   }
 
   return { ok: false, error: 'Unknown action: ' + action };
@@ -767,6 +789,368 @@ function handleDeleteTimeLog_(payload) {
   return { ok: true, message: 'Time log deleted.' };
 }
 
+function handleListStudentsForAssignment_(payload) {
+  var supervisorUserId = String(payload.supervisor_user_id || '').trim();
+  var companyFilter = String(payload.company || '').trim().toLowerCase();
+  var departmentFilter = String(payload.department || '').trim().toLowerCase();
+
+  if (!supervisorUserId) {
+    return { ok: false, error: 'supervisor_user_id is required.' };
+  }
+
+  var supervisorRecord = findUserRecordByUserId_(supervisorUserId);
+  if (!supervisorRecord) {
+    return { ok: false, error: 'Supervisor not found.' };
+  }
+
+  if (String(supervisorRecord.user.role || '').trim() !== 'Supervisor') {
+    return { ok: false, error: 'Only supervisors can assign students.' };
+  }
+
+  var usersSheet = getSheet_('users');
+  ensureSheetColumns_(usersSheet, ['company']);
+
+  var assignedIds = {};
+  var assignments = getActiveSupervisorAssignments_(supervisorUserId);
+  for (var i = 0; i < assignments.length; i++) {
+    assignedIds[String(assignments[i].student_user_id || '').trim()] = true;
+  }
+
+  var users = readSheetObjects_(usersSheet);
+  var students = users
+    .filter(function (row) {
+      return String(row.role || '').trim() === 'Student';
+    })
+    .filter(function (row) {
+      if (!companyFilter) {
+        return true;
+      }
+      return String(row.company || '').trim().toLowerCase() === companyFilter;
+    })
+    .filter(function (row) {
+      if (!departmentFilter) {
+        return true;
+      }
+      return String(row.department || '').trim().toLowerCase() === departmentFilter;
+    })
+    .map(function (row) {
+      var studentUserId = String(row.user_id || '').trim();
+      return {
+        user_id: studentUserId,
+        full_name: String(row.full_name || ''),
+        email: String(row.email || ''),
+        company: String(row.company || ''),
+        department: String(row.department || ''),
+        is_assigned: Boolean(assignedIds[studentUserId])
+      };
+    })
+    .sort(function (a, b) {
+      return String(a.full_name || '').localeCompare(String(b.full_name || ''));
+    });
+
+  return { ok: true, students: students };
+}
+
+function handleAssignStudentsToSupervisor_(payload) {
+  var supervisorUserId = String(payload.supervisor_user_id || '').trim();
+  var studentUserIdsInput = Array.isArray(payload.student_user_ids) ? payload.student_user_ids : [];
+  var company = String(payload.company || '').trim();
+  var department = String(payload.department || '').trim();
+
+  if (!supervisorUserId) {
+    return { ok: false, error: 'supervisor_user_id is required.' };
+  }
+
+  var supervisorRecord = findUserRecordByUserId_(supervisorUserId);
+  if (!supervisorRecord) {
+    return { ok: false, error: 'Supervisor not found.' };
+  }
+
+  if (String(supervisorRecord.user.role || '').trim() !== 'Supervisor') {
+    return { ok: false, error: 'Only supervisors can assign students.' };
+  }
+
+  var studentUserIds = [];
+  var seen = {};
+  for (var i = 0; i < studentUserIdsInput.length; i++) {
+    var studentUserId = String(studentUserIdsInput[i] || '').trim();
+    if (!studentUserId || seen[studentUserId]) {
+      continue;
+    }
+    seen[studentUserId] = true;
+    studentUserIds.push(studentUserId);
+  }
+
+  var usersSheet = getSheet_('users');
+  ensureSheetColumns_(usersSheet, ['company']);
+  var users = readSheetObjects_(usersSheet);
+  var validStudents = {};
+  for (var j = 0; j < users.length; j++) {
+    if (String(users[j].role || '').trim() === 'Student') {
+      validStudents[String(users[j].user_id || '').trim()] = users[j];
+    }
+  }
+
+  for (var k = 0; k < studentUserIds.length; k++) {
+    if (!validStudents[studentUserIds[k]]) {
+      return { ok: false, error: 'Invalid student user_id: ' + studentUserIds[k] };
+    }
+  }
+
+  var sheet = getSupervisorAssignmentsSheet_();
+  var headers = getHeaders_(sheet);
+  var values = getSheetValues_(sheet);
+  var supervisorCol = findColumnIndex_(headers, 'supervisor_user_id');
+
+  if (supervisorCol === 0) {
+    throw new Error('supervisor_assignments sheet must include supervisor_user_id column.');
+  }
+
+  var rowsToDelete = [];
+  for (var rowIndex = 1; rowIndex < values.length; rowIndex++) {
+    if (String(values[rowIndex][supervisorCol - 1] || '').trim() === supervisorUserId) {
+      rowsToDelete.push(rowIndex + 1);
+    }
+  }
+
+  for (var r = rowsToDelete.length - 1; r >= 0; r--) {
+    sheet.deleteRow(rowsToDelete[r]);
+  }
+
+  var createdAt = isoNow_();
+  for (var s = 0; s < studentUserIds.length; s++) {
+    var studentRow = validStudents[studentUserIds[s]];
+    appendObjectRow_(sheet, {
+      assignment_id: createId_('ASG'),
+      supervisor_user_id: supervisorUserId,
+      student_user_id: studentUserIds[s],
+      company: company || String(studentRow.company || ''),
+      department: department || String(studentRow.department || ''),
+      status: 'active',
+      created_at: createdAt,
+    });
+  }
+
+  return {
+    ok: true,
+    message: 'Assigned students saved successfully.',
+    assigned_count: studentUserIds.length,
+  };
+}
+
+function handleListSupervisorAssignedStudents_(payload) {
+  var supervisorUserId = String(payload.supervisor_user_id || '').trim();
+  if (!supervisorUserId) {
+    return { ok: false, error: 'supervisor_user_id is required.' };
+  }
+
+  var supervisorRecord = findUserRecordByUserId_(supervisorUserId);
+  if (!supervisorRecord) {
+    return { ok: false, error: 'Supervisor not found.' };
+  }
+
+  if (String(supervisorRecord.user.role || '').trim() !== 'Supervisor') {
+    return { ok: false, error: 'Only supervisors can view assigned students.' };
+  }
+
+  var assignments = getActiveSupervisorAssignments_(supervisorUserId);
+  if (!assignments.length) {
+    return { ok: true, students: [] };
+  }
+
+  var studentIds = [];
+  var seenIds = {};
+  for (var i = 0; i < assignments.length; i++) {
+    var studentId = String(assignments[i].student_user_id || '').trim();
+    if (!studentId || seenIds[studentId]) {
+      continue;
+    }
+    seenIds[studentId] = true;
+    studentIds.push(studentId);
+  }
+
+  var users = readSheetObjects_(getSheet_('users'));
+  var userLookup = {};
+  for (var j = 0; j < users.length; j++) {
+    userLookup[String(users[j].user_id || '').trim()] = users[j];
+  }
+
+  var completedHoursLookup = getCompletedHoursLookupByUserIds_(studentIds);
+  var students = [];
+
+  for (var k = 0; k < assignments.length; k++) {
+    var assignment = assignments[k];
+    var assignmentStudentId = String(assignment.student_user_id || '').trim();
+    var student = userLookup[assignmentStudentId];
+
+    if (!student || String(student.role || '').trim() !== 'Student') {
+      continue;
+    }
+
+    var profile = getStudentProfileByUserId_(assignmentStudentId);
+    var requiredHours = Number(profile && profile.total_ojt_hours ? profile.total_ojt_hours : 0);
+    var completedHours = Number(completedHoursLookup[assignmentStudentId] || 0);
+
+    students.push({
+      user_id: assignmentStudentId,
+      full_name: String(student.full_name || ''),
+      email: String(student.email || ''),
+      company: String(assignment.company || student.company || ''),
+      department: String(assignment.department || student.department || ''),
+      required_hours: requiredHours,
+      completed_hours: completedHours,
+      remaining_hours: Math.max(0, requiredHours - completedHours),
+      estimated_end_date: String((profile && profile.estimated_end_date) || ''),
+      assignment_id: String(assignment.assignment_id || ''),
+    });
+  }
+
+  students.sort(function (a, b) {
+    return String(a.full_name || '').localeCompare(String(b.full_name || ''));
+  });
+
+  return { ok: true, students: students };
+}
+
+function handleListSupervisorTimeLogs_(payload) {
+  var supervisorUserId = String(payload.supervisor_user_id || '').trim();
+  var studentUserId = String(payload.student_user_id || '').trim();
+
+  if (!supervisorUserId || !studentUserId) {
+    return { ok: false, error: 'supervisor_user_id and student_user_id are required.' };
+  }
+
+  var supervisorRecord = findUserRecordByUserId_(supervisorUserId);
+  if (!supervisorRecord) {
+    return { ok: false, error: 'Supervisor not found.' };
+  }
+
+  if (String(supervisorRecord.user.role || '').trim() !== 'Supervisor') {
+    return { ok: false, error: 'Only supervisors can view student time logs.' };
+  }
+
+  if (!isStudentAssignedToSupervisor_(supervisorUserId, studentUserId)) {
+    return { ok: false, error: 'This student is not assigned to you.' };
+  }
+
+  var sheet = getTimeLogsSheet_();
+  var rows = readSheetObjects_(sheet)
+    .filter(function (row) {
+      return String(serializeCellValue_(row.user_id) || '').trim() === studentUserId;
+    })
+    .map(function (row) {
+      return sanitizeObjectForClient_(row);
+    });
+
+  return { ok: true, logs: rows };
+}
+
+function handleDeleteSupervisorTimeLog_(payload) {
+  var supervisorUserId = String(payload.supervisor_user_id || '').trim();
+  var studentUserId = String(payload.student_user_id || '').trim();
+  var timelogId = String(payload.timelog_id || '').trim();
+
+  if (!supervisorUserId || !studentUserId || !timelogId) {
+    return { ok: false, error: 'supervisor_user_id, student_user_id, and timelog_id are required.' };
+  }
+
+  var supervisorRecord = findUserRecordByUserId_(supervisorUserId);
+  if (!supervisorRecord) {
+    return { ok: false, error: 'Supervisor not found.' };
+  }
+
+  if (String(supervisorRecord.user.role || '').trim() !== 'Supervisor') {
+    return { ok: false, error: 'Only supervisors can delete student time logs.' };
+  }
+
+  if (!isStudentAssignedToSupervisor_(supervisorUserId, studentUserId)) {
+    return { ok: false, error: 'This student is not assigned to you.' };
+  }
+
+  var sheet = getTimeLogsSheet_();
+  var headers = getHeaders_(sheet);
+  var values = getSheetValues_(sheet);
+  var timelogCol = findColumnIndex_(headers, 'timelog_id');
+  var userCol = findColumnIndex_(headers, 'user_id');
+
+  if (timelogCol === 0 || userCol === 0) {
+    throw new Error('time_logs sheet must include timelog_id and user_id columns.');
+  }
+
+  var rowIndex = -1;
+  for (var i = 1; i < values.length; i++) {
+    var rowTimelogId = String(values[i][timelogCol - 1] || '').trim();
+    var rowUserId = String(values[i][userCol - 1] || '').trim();
+    if (rowTimelogId === timelogId && rowUserId === studentUserId) {
+      rowIndex = i + 1;
+      break;
+    }
+  }
+
+  if (rowIndex <= 0) {
+    return { ok: false, error: 'Time log not found for selected student.' };
+  }
+
+  sheet.deleteRow(rowIndex);
+  return { ok: true, message: 'Student time log deleted.' };
+}
+
+function getCompletedHoursLookupByUserIds_(userIds) {
+  var lookup = {};
+  if (!Array.isArray(userIds) || !userIds.length) {
+    return lookup;
+  }
+
+  var allowed = {};
+  for (var i = 0; i < userIds.length; i++) {
+    var userId = String(userIds[i] || '').trim();
+    if (userId) {
+      allowed[userId] = true;
+      lookup[userId] = 0;
+    }
+  }
+
+  var rows = readSheetObjects_(getTimeLogsSheet_());
+  for (var j = 0; j < rows.length; j++) {
+    var rowUserId = String(rows[j].user_id || '').trim();
+    if (!allowed[rowUserId]) {
+      continue;
+    }
+    lookup[rowUserId] += Number(rows[j].hours_rendered || 0);
+  }
+
+  return lookup;
+}
+
+function getActiveSupervisorAssignments_(supervisorUserId) {
+  var targetSupervisorId = String(supervisorUserId || '').trim();
+  if (!targetSupervisorId) {
+    return [];
+  }
+
+  var rows = readSheetObjects_(getSupervisorAssignmentsSheet_());
+  return rows.filter(function (row) {
+    var status = String(row.status || 'active').trim().toLowerCase();
+    return String(row.supervisor_user_id || '').trim() === targetSupervisorId && status !== 'inactive';
+  });
+}
+
+function isStudentAssignedToSupervisor_(supervisorUserId, studentUserId) {
+  var targetStudentId = String(studentUserId || '').trim();
+  if (!targetStudentId) {
+    return false;
+  }
+
+  var assignments = getActiveSupervisorAssignments_(supervisorUserId);
+  for (var i = 0; i < assignments.length; i++) {
+    if (String(assignments[i].student_user_id || '').trim() === targetStudentId) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function saveStudentOjtProfile_(rowObject) {
   var sheet = getSheet_('student_ojt_profile');
   var headers = getHeaders_(sheet);
@@ -985,6 +1369,10 @@ function getOrCreateSheetWithHeaders_(sheetName, headers) {
 
 function getTimeLogsSheet_() {
   return getOrCreateSheetWithHeaders_(TIME_LOGS_SHEET_, TIME_LOGS_HEADERS_);
+}
+
+function getSupervisorAssignmentsSheet_() {
+  return getOrCreateSheetWithHeaders_(SUPERVISOR_ASSIGNMENTS_SHEET_, SUPERVISOR_ASSIGNMENTS_HEADERS_);
 }
 
 function ensureSheetColumns_(sheet, columnNames) {

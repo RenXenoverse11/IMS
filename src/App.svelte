@@ -8,9 +8,16 @@
   import Requests from './app/pages/Requests.svelte';
   import Settings from './app/pages/Settings.svelte';
   import SignUpPage from './app/pages/SignUpPage.svelte';
+  import SupervisorDashboard from './app/pages/SupervisorDashboard.svelte';
+  import SupervisorTimeLog from './app/pages/SupervisorTimeLog.svelte';
   import TimeLog from './app/pages/TimeLog.svelte';
   import { getPageMeta, normalizePath } from './app/routes.js';
-  import { isAuthenticated, restoreAuthSession } from './app/lib/auth.js';
+  import {
+    getCurrentUser,
+    isAuthenticated,
+    restoreAuthSession,
+    subscribeToCurrentUser,
+  } from './app/lib/auth.js';
   import { initializeTheme } from './app/context/ThemeContext.js';
 
   const pageComponents = {
@@ -27,6 +34,8 @@
   const authPaths = new Set(['/login', '/signup']);
 
   let currentPath = '/';
+  let currentUser = null;
+  let unsubscribeAuth;
 
   function syncRoute() {
     const hash = window.location.hash.replace(/^#/, '') || '/login';
@@ -58,17 +67,45 @@
 
   onMount(() => {
     initializeTheme();
+    currentUser = getCurrentUser();
+
+    unsubscribeAuth = subscribeToCurrentUser((user) => {
+      currentUser = user;
+      syncRoute();
+    });
+
     restoreAuthSession();
     syncRoute();
     window.addEventListener('hashchange', syncRoute);
 
     return () => {
       window.removeEventListener('hashchange', syncRoute);
+      if (typeof unsubscribeAuth === 'function') {
+        unsubscribeAuth();
+      }
     };
   });
 
-  $: CurrentPage = pageComponents[currentPath] ?? Dashboard;
-  $: pageMeta = getPageMeta(currentPath);
+  $: currentUserRole = String(currentUser?.role || '').trim();
+  $: isSupervisorUser = currentUserRole === 'Supervisor';
+  $: effectivePageComponents = isSupervisorUser
+    ? {
+        ...pageComponents,
+        '/': SupervisorDashboard,
+        '/time-log': SupervisorTimeLog,
+      }
+    : pageComponents;
+  $: CurrentPage = effectivePageComponents[currentPath] ?? (isSupervisorUser ? SupervisorDashboard : Dashboard);
+  $: basePageMeta = getPageMeta(currentPath);
+  $: pageMeta = isSupervisorUser
+    ? currentPath === '/'
+      ? { title: 'Supervisor Dashboard', description: 'Assign students and monitor internship progress.' }
+      : currentPath === '/time-log'
+        ? { title: 'Time Log Management', description: 'Review and manage assigned student time entries.' }
+        : currentPath === '/requests'
+          ? { title: 'Requests', description: 'Approve or reject assigned student requests.' }
+          : basePageMeta
+    : basePageMeta;
   $: isAuthPage = authPaths.has(currentPath);
 
   $: if (typeof document !== 'undefined') {
