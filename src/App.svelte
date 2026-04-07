@@ -5,6 +5,7 @@
   import Documents from './app/pages/ActivityIntern.svelte';
   import Evaluation from './app/pages/Evaluation.svelte';
   import LoginPage from './app/pages/LoginPage.svelte';
+  import Requests from './app/pages/Requests.svelte';
   import Settings from './app/pages/Settings.svelte';
   import SignUpPage from './app/pages/SignUpPage.svelte';
   import TimeLog from './app/pages/TimeLog.svelte';
@@ -18,6 +19,7 @@
     '/': Dashboard,
     '/documents': Documents,
     '/evaluation': Evaluation,
+    '/requests': Requests,
     '/settings': Settings,
     '/time-log': TimeLog,
   };
@@ -67,6 +69,17 @@
   $: CurrentPage = pageComponents[currentPath] ?? Dashboard;
   $: pageMeta = getPageMeta(currentPath);
   $: isAuthPage = authPaths.has(currentPath);
+
+  $: if (typeof document !== 'undefined') {
+    if (isAuthPage) {
+      document.documentElement.classList.add('dark', 'auth-page');
+      document.body.classList.add('dark', 'auth-page');
+    } else {
+      document.documentElement.classList.remove('auth-page');
+      document.body.classList.remove('auth-page');
+      initializeTheme();
+    }
+  }
 </script>
 
 {#if isAuthPage}

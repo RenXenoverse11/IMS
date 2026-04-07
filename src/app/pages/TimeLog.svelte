@@ -23,20 +23,10 @@
   let requiredHours = DEFAULT_REQUIRED_HOURS;
 
   const statusMeta = {
-    pending: {
-      label: 'Pending',
-      badgeClass: 'status-badge status-pending',
-      icon: Clock,
-    },
-    approved: {
-      label: 'Approved',
-      badgeClass: 'status-badge status-approved',
+    recorded: {
+      label: 'Recorded',
+      badgeClass: 'status-badge status-recorded',
       icon: CheckCircle2,
-    },
-    rejected: {
-      label: 'Rejected',
-      badgeClass: 'status-badge status-rejected',
-      icon: AlertCircle,
     },
   };
 
@@ -102,30 +92,95 @@
   }
 
   function normalizeDateOnly(value) {
+    function toLocalIsoDate(dateObj) {
+      const year = dateObj.getFullYear();
+      const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const day = String(dateObj.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+
     const text = String(value || '').trim();
     if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
       return text;
     }
 
-    const dateObj = new Date(text);
-    if (Number.isNaN(dateObj.getTime())) {
-      return new Date().toISOString().slice(0, 10);
+    const isoWithTimeMatch = text.match(/^(\d{4}-\d{2}-\d{2})T/);
+    if (isoWithTimeMatch) {
+      return isoWithTimeMatch[1];
     }
 
-    return dateObj.toISOString().slice(0, 10);
+    const serial = Number(value);
+    if (Number.isFinite(serial) && serial > 1) {
+      const millis = Math.round((serial - 25569) * 86400000);
+      const serialDate = new Date(millis);
+      if (!Number.isNaN(serialDate.getTime())) {
+        return toLocalIsoDate(serialDate);
+      }
+    }
+
+    const dateObj = new Date(text);
+    if (Number.isNaN(dateObj.getTime())) {
+      return toLocalIsoDate(new Date());
+    }
+
+    return toLocalIsoDate(dateObj);
   }
 
   function normalizeTimeValue(value, fallback) {
+    const to24HourString = (hours, minutes) => {
+      return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+    };
+
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+      return to24HourString(value.getHours(), value.getMinutes());
+    }
+
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric >= 0) {
+      const fraction = ((numeric % 1) + 1) % 1;
+      const totalMinutes = Math.round(fraction * 24 * 60) % (24 * 60);
+      const hours = Math.floor(totalMinutes / 60);
+      const minutes = totalMinutes % 60;
+      return to24HourString(hours, minutes);
+    }
+
     const text = String(value || '').trim();
     if (!text) {
       return fallback;
     }
 
-    if (/^\d{2}:\d{2}$/.test(text)) {
-      return text;
+    const isoTime = text.match(/T(\d{2}):(\d{2})/);
+    if (isoTime) {
+      return `${isoTime[1]}:${isoTime[2]}`;
     }
 
-    return text.slice(0, 5);
+    const amPmTime = text.match(/(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)/i);
+    if (amPmTime) {
+      let hours = Number(amPmTime[1]);
+      const minutes = Number(amPmTime[2]);
+      const marker = String(amPmTime[3] || '').toUpperCase();
+
+      if (marker === 'PM' && hours < 12) {
+        hours += 12;
+      }
+      if (marker === 'AM' && hours === 12) {
+        hours = 0;
+      }
+
+      return to24HourString(hours, minutes);
+    }
+
+    const h24Time = text.match(/\b(\d{1,2}):(\d{2})(?::\d{2})?\b/);
+    if (h24Time) {
+      const hours = Number(h24Time[1]);
+      const minutes = Number(h24Time[2]);
+
+      if (Number.isFinite(hours) && Number.isFinite(minutes) && hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
+        return to24HourString(hours, minutes);
+      }
+    }
+
+    return fallback;
   }
 
   function mapApiLogToEntry(row) {
@@ -135,7 +190,7 @@
       timeIn: normalizeTimeValue(row?.time_in, '08:00'),
       timeOut: normalizeTimeValue(row?.time_out, '17:00'),
       hours: Number(row?.hours_rendered || 0),
-      status: String(row?.status || 'pending').toLowerCase(),
+      status: 'recorded',
       notes: String(row?.notes || ''),
     };
   }
@@ -155,7 +210,6 @@
       logSyncError = '';
     } catch (err) {
       logSyncError = err?.message || 'Unable to load time logs right now.';
-      entries = [];
     }
   }
 
@@ -191,7 +245,6 @@
         time_in: timeIn,
         time_out: timeOut,
         hours_rendered: hours,
-        status: 'pending',
         notes: trimmedNotes,
       });
 
@@ -236,10 +289,7 @@
   $: formHours = calculateHours(timeIn, timeOut);
   $: trimmedNotes = todayNotes.trim();
   $: canAddEntry = Boolean(date && timeIn && timeOut && trimmedNotes);
-  $: approvedNewHours = entries
-    .filter((entry) => entry.status === 'approved')
-    .reduce((sum, entry) => sum + entry.hours, 0);
-  $: completedHours = INITIAL_COMPLETED_HOURS + approvedNewHours;
+  $: completedHours = INITIAL_COMPLETED_HOURS + entries.reduce((sum, entry) => sum + entry.hours, 0);
   $: remainingHours = Math.max(0, requiredHours - completedHours);
   $: progressPercent = Math.min(100, Math.round((completedHours / requiredHours) * 100));
   $: effectiveRemaining = Math.max(0, remainingHours - overtimeHours);
@@ -324,7 +374,7 @@
       <div>
         <h3 class="theme-heading text-base font-semibold">Hours Progress</h3>
         <p class="theme-text mt-1 text-sm">{completedHours} of {requiredHours} required hours completed</p>
-        <p class="mt-1 text-xs font-medium text-violet-600">Only supervisor-approved entries count toward your OJT hours.</p>
+        <p class="mt-1 text-xs font-medium text-violet-600">All logged entries are counted immediately toward your OJT hours.</p>
       </div>
       <span class="progress-percent-chip rounded-full px-3 py-1 text-lg font-extrabold">{progressPercent}%</span>
     </div>
@@ -394,8 +444,8 @@
         </button>
 
         <p class="theme-text text-xs leading-6">
-          Add Entry stays disabled until you fill in the date, time, and today's notes. New entries start as
-          <strong class="theme-heading font-semibold"> Pending</strong> until your supervisor approves them.
+          Add Entry stays disabled until you fill in the date, time, and today's notes. Once submitted, the entry is
+          recorded immediately.
         </p>
       </div>
     </section>
@@ -503,7 +553,7 @@
 
         <tbody>
           {#each entries as entry (entry.id)}
-            {@const meta = statusMeta[entry.status]}
+            {@const meta = statusMeta[entry.status] ?? statusMeta.recorded}
             {@const StatusIcon = meta.icon}
             <tr class="theme-table-row border-b transition">
               <td class="theme-text px-6 py-4 text-sm">{formatTableDate(entry.date)}</td>
@@ -518,16 +568,14 @@
                 </span>
               </td>
               <td class="px-6 py-4">
-                {#if entry.status === 'pending'}
-                  <button
-                    class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-500 dark:text-slate-500 dark:hover:bg-red-500/15 dark:hover:text-red-300"
-                    type="button"
-                    on:click={() => handleDelete(entry.id)}
-                    aria-label="Delete time entry"
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                {/if}
+                <button
+                  class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-500 dark:text-slate-500 dark:hover:bg-red-500/15 dark:hover:text-red-300"
+                  type="button"
+                  on:click={() => handleDelete(entry.id)}
+                  aria-label="Delete time entry"
+                >
+                  <Trash2 size={13} />
+                </button>
               </td>
             </tr>
           {/each}
@@ -796,40 +844,16 @@
     line-height: 1.15;
   }
 
-  .status-approved {
+  .status-recorded {
     background: #16a34a;
     color: #ffffff;
     border: 1px solid #15803d;
   }
 
-  .status-pending {
-    background: #fbbf24;
-    color: #78350f;
-    border: 1px solid #f59e0b;
-  }
-
-  .status-rejected {
-    background: #ef4444;
-    color: #ffffff;
-    border: 1px solid #dc2626;
-  }
-
-  :global(.dark) .status-approved {
+  :global(.dark) .status-recorded {
     background: rgba(16, 185, 129, 0.2);
     color: #a7f3d0;
     border: 1px solid rgba(16, 185, 129, 0.45);
-  }
-
-  :global(.dark) .status-pending {
-    background: rgba(245, 158, 11, 0.2);
-    color: #fcd34d;
-    border: 1px solid rgba(245, 158, 11, 0.45);
-  }
-
-  :global(.dark) .status-rejected {
-    background: rgba(239, 68, 68, 0.2);
-    color: #fca5a5;
-    border: 1px solid rgba(239, 68, 68, 0.45);
   }
 
   :global(.dark) .progress-percent-chip {

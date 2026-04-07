@@ -11,6 +11,8 @@ var PENDING_REG_TTL_HOURS_ = 24;
 var PROFILE_PHOTO_MAX_BYTES_ = 5 * 1024 * 1024;
 var PROFILE_PHOTO_MAX_MB_ = Math.floor(PROFILE_PHOTO_MAX_BYTES_ / (1024 * 1024));
 var PROFILE_PHOTOS_FOLDER_NAME_ = 'IMS Profile Photos';
+var TIME_LOGS_SHEET_ = 'time_logs';
+var TIME_LOGS_HEADERS_ = ['timelog_id', 'user_id', 'log_date', 'time_in', 'time_out', 'hours_rendered', 'status', 'notes', 'created_at'];
 
 function doPost(e) {
   try {
@@ -22,9 +24,13 @@ function doPost(e) {
 }
 
 function apiAction(action, payload) {
-  var requestPayload = payload || {};
-  requestPayload.action = String(action || '').trim();
-  return dispatchAction_(requestPayload);
+  try {
+    var requestPayload = payload || {};
+    requestPayload.action = String(action || '').trim();
+    return dispatchAction_(requestPayload);
+  } catch (err) {
+    return { ok: false, error: err && err.message ? err.message : String(err) };
+  }
 }
 
 function dispatchAction_(payload) {
@@ -624,7 +630,7 @@ function handleCreateTimeLog_(payload) {
   var timeIn = String(payload.time_in || '').trim();
   var timeOut = String(payload.time_out || '').trim();
   var hoursRendered = Number(payload.hours_rendered || 0);
-  var status = String(payload.status || 'pending').trim();
+  var status = 'recorded';
   var notes = String(payload.notes || '').trim();
   var timelogId = String(payload.timelog_id || createId_('TL'));
   var createdAt = String(payload.created_at || isoNow_());
@@ -633,7 +639,16 @@ function handleCreateTimeLog_(payload) {
     return { ok: false, error: 'user_id, log_date, time_in, time_out, and hours_rendered are required.' };
   }
 
-  var sheet = getSheet_('time_logs');
+  var userRecord = findUserRecordByUserId_(userId);
+  if (!userRecord) {
+    return { ok: false, error: 'User not found.' };
+  }
+
+  if (!isEmailVerifiedValue_(userRecord.user.email_verified, userRecord.user)) {
+    return { ok: false, error: 'Please verify your email before creating a time log.' };
+  }
+
+  var sheet = getTimeLogsSheet_();
   var rowObject = {
     timelog_id: timelogId,
     user_id: userId,
@@ -648,7 +663,11 @@ function handleCreateTimeLog_(payload) {
 
   appendObjectRow_(sheet, rowObject);
 
-  return { ok: true, message: 'Time log saved.', timelog: rowObject };
+  return {
+    ok: true,
+    message: 'Time log saved successfully.',
+    timelog: rowObject,
+  };
 }
 
 function handleListTimeLogsByUser_(payload) {
@@ -657,12 +676,21 @@ function handleListTimeLogsByUser_(payload) {
     return { ok: false, error: 'user_id is required.' };
   }
 
-  var sheet = getSheet_('time_logs');
-  var rows = readSheetObjects_(sheet).filter(function (row) {
-    return String(row.user_id || '') === userId;
-  });
+  try {
+    var sheet = getTimeLogsSheet_();
+    var rows = readSheetObjects_(sheet).filter(function (row) {
+      return String(serializeCellValue_(row.user_id) || '').trim() === userId;
+    }).map(function (row) {
+      return sanitizeObjectForClient_(row);
+    });
 
-  return { ok: true, logs: rows };
+    return { ok: true, logs: rows };
+  } catch (err) {
+    return {
+      ok: false,
+      error: 'Unable to load time logs. ' + (err && err.message ? err.message : String(err))
+    };
+  }
 }
 
 function handleDeleteTimeLog_(payload) {
@@ -673,7 +701,7 @@ function handleDeleteTimeLog_(payload) {
     return { ok: false, error: 'user_id and timelog_id are required.' };
   }
 
-  var sheet = getSheet_('time_logs');
+  var sheet = getTimeLogsSheet_();
   var headers = getHeaders_(sheet);
   var values = getSheetValues_(sheet);
   var timelogCol = findColumnIndex_(headers, 'timelog_id');
@@ -896,6 +924,32 @@ function getSheet_(sheetName) {
   return sheet;
 }
 
+function getOrCreateSheetWithHeaders_(sheetName, headers) {
+  var spreadsheet = getSpreadsheet_();
+  var sheet = spreadsheet.getSheetByName(sheetName);
+
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet(sheetName);
+  }
+
+  var expectedHeaders = Array.isArray(headers) ? headers : [];
+  if (expectedHeaders.length) {
+    if (sheet.getLastColumn() === 0) {
+      sheet.getRange(1, 1, 1, expectedHeaders.length).setValues([expectedHeaders]);
+    } else if (sheet.getLastRow() === 0) {
+      sheet.getRange(1, 1, 1, expectedHeaders.length).setValues([expectedHeaders]);
+    }
+
+    ensureSheetColumns_(sheet, expectedHeaders);
+  }
+
+  return sheet;
+}
+
+function getTimeLogsSheet_() {
+  return getOrCreateSheetWithHeaders_(TIME_LOGS_SHEET_, TIME_LOGS_HEADERS_);
+}
+
 function ensureSheetColumns_(sheet, columnNames) {
   if (!sheet || !columnNames || !columnNames.length) {
     return;
@@ -1101,6 +1155,40 @@ function mapRowValuesToObject_(headers, rowValues) {
     obj[normalizeHeader_(headers[i])] = rowValues[i];
   }
   return obj;
+}
+
+function sanitizeObjectForClient_(obj) {
+  var clean = {};
+  if (!obj || typeof obj !== 'object') {
+    return clean;
+  }
+
+  for (var key in obj) {
+    if (Object.prototype.hasOwnProperty.call(obj, key)) {
+      clean[key] = serializeCellValue_(obj[key]);
+    }
+  }
+
+  return clean;
+}
+
+function serializeCellValue_(value) {
+  if (value === null || typeof value === 'undefined') {
+    return '';
+  }
+
+  if (Object.prototype.toString.call(value) === '[object Date]') {
+    if (isNaN(value.getTime())) {
+      return '';
+    }
+    return Utilities.formatDate(value, Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss");
+  }
+
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return value;
+  }
+
+  return String(value);
 }
 
 function normalizeEmail_(value) {

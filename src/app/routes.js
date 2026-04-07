@@ -15,6 +15,10 @@ export const pageMeta = {
     title: 'Time Log',
     description: 'Track and manage your daily work hours.',
   },
+  '/requests': {
+    title: 'Requests',
+    description: 'Manage your absence and overtime requests',
+  },
   '/documents': {
     title: 'Activity Log',
     description: 'Review your task updates, timeline, and work activity.',

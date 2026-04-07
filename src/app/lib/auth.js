@@ -73,8 +73,14 @@ async function callGoogleScriptAction(action, payload = {}) {
 async function postAction(action, payload = {}) {
   if (isAppsScriptHost()) {
     const result = await callGoogleScriptAction(action, payload);
-    if (!result?.ok) {
-      throw new Error(result?.error || 'Request failed.');
+    if (!result || typeof result !== 'object') {
+      throw new Error(`Invalid response while running ${action}.`);
+    }
+
+    if (result.ok !== true) {
+      const errorMessage = typeof result.error === 'string' ? result.error.trim() : '';
+      const fallbackMessage = typeof result.message === 'string' ? result.message.trim() : '';
+      throw new Error(errorMessage || fallbackMessage || `Request failed while running ${action}.`);
     }
     return result;
   }
@@ -107,7 +113,7 @@ async function postAction(action, payload = {}) {
   }
 
   if (!response.ok || !result?.ok) {
-    throw new Error(result?.error || 'Request failed.');
+    throw new Error(result?.error || `Request failed while running ${action}.`);
   }
 
   return result;
@@ -264,7 +270,7 @@ export async function createTimeLog(logInput) {
     time_in: String(logInput?.time_in || '').trim(),
     time_out: String(logInput?.time_out || '').trim(),
     hours_rendered: Number(logInput?.hours_rendered || 0),
-    status: String(logInput?.status || 'pending').trim(),
+    status: String(logInput?.status || 'recorded').trim(),
     notes: String(logInput?.notes || '').trim(),
   });
 

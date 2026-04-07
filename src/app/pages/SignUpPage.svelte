@@ -522,7 +522,10 @@
 <style>
 	.signup-shell {
 		position: relative;
+		width: 100%;
+		height: 100dvh;
 		min-height: 100vh;
+		background: #020617;
 		isolation: isolate;
 		overflow: hidden;
 	}
@@ -551,6 +554,7 @@
 
 	.signup-layout {
 		width: min(1240px, 100%);
+		box-sizing: border-box;
 		min-height: 100vh;
 		margin: 0 auto;
 		padding: clamp(1rem, 3.8vw, 3.5rem);
