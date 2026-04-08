@@ -12,7 +12,6 @@
     TrendingUp,
     Zap,
   } from 'lucide-svelte';
-  import { theme } from '../context/ThemeContext.js';
   import * as authApi from '../lib/auth.js';
 
   const DEFAULT_REQUIRED_HOURS = 500;
@@ -305,62 +304,42 @@
       value: `${requiredHours}h`,
       sub: 'Per internship agreement',
       icon: Target,
-      cardStyle: $theme === 'dark'
-        ? 'background: linear-gradient(135deg, #1f2937 0%, #1f2937 100%); border-color: #334155;'
-        : 'background: linear-gradient(135deg, #eef2ff 0%, #ffffff 100%); border-color: #c7d2fe;',
-      iconStyle: $theme === 'dark'
-        ? 'background: rgba(99, 102, 241, 0.15); color: #c7d2fe;'
-        : 'background: #e0e7ff; color: #4f46e5;',
+      tone: 'primary',
     },
     {
       label: 'Hours Completed',
       value: `${completedHours}h`,
       sub: `${remainingHours}h remaining`,
       icon: CheckCircle2,
-      cardStyle: $theme === 'dark'
-        ? 'background: linear-gradient(135deg, #1f2937 0%, #1f2937 100%); border-color: #334155;'
-        : 'background: linear-gradient(135deg, #ecfdf5 0%, #ffffff 100%); border-color: #a7f3d0;',
-      iconStyle: $theme === 'dark'
-        ? 'background: rgba(16, 185, 129, 0.15); color: #a7f3d0;'
-        : 'background: #d1fae5; color: #059669;',
+      tone: 'success',
     },
     {
       label: 'Avg. Daily Hours',
       value: `${AVERAGE_DAILY_HOURS}h`,
       sub: 'Based on schedule',
       icon: Clock,
-      cardStyle: $theme === 'dark'
-        ? 'background: linear-gradient(135deg, #1f2937 0%, #1f2937 100%); border-color: #334155;'
-        : 'background: linear-gradient(135deg, #eff6ff 0%, #ffffff 100%); border-color: #bfdbfe;',
-      iconStyle: $theme === 'dark'
-        ? 'background: rgba(59, 130, 246, 0.15); color: #bfdbfe;'
-        : 'background: #dbeafe; color: #2563eb;',
+      tone: 'info',
     },
     {
       label: 'Est. Completion',
       value: formatShortDate(estimatedDate),
       sub: String(estimatedDate.getFullYear()),
       icon: Calendar,
-      cardStyle: $theme === 'dark'
-        ? 'background: linear-gradient(135deg, #1f2937 0%, #1f2937 100%); border-color: #334155;'
-        : 'background: linear-gradient(135deg, #f5f3ff 0%, #ffffff 100%); border-color: #ddd6fe;',
-      iconStyle: $theme === 'dark'
-        ? 'background: rgba(139, 92, 246, 0.15); color: #c4b5fd;'
-        : 'background: #ede9fe; color: #7c3aed;',
+      tone: 'forecast',
     },
   ];
 </script>
 
-<section class="flex flex-col gap-6">
+<section class="timelog-shell flex flex-col gap-6">
   <div class="grid grid-cols-1 gap-4 md:grid-cols-2 2xl:grid-cols-4">
     {#each statCards as card (card.label)}
-      <article class="rounded-xl border p-5 shadow-md" style={card.cardStyle}>
-        <div class="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl" style={card.iconStyle}>
+      <article class={`stat-card stat-${card.tone} rounded-2xl border p-5 shadow-md`}>
+        <div class={`stat-icon stat-icon-${card.tone} mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl`}>
           <svelte:component this={card.icon} size={18} />
         </div>
         <p class="theme-heading text-3xl font-bold tracking-tight">{card.value}</p>
         <p class="theme-text mt-2 text-sm font-medium">{card.label}</p>
-        <p class={`mt-1 text-xs ${card.label === 'Hours Completed' ? 'text-orange-500 dark:text-orange-400' : 'theme-muted'}`}>{card.sub}</p>
+        <p class={`mt-1 text-xs ${card.tone === 'success' ? 'stat-sub-emphasis' : 'theme-muted'}`}>{card.sub}</p>
       </article>
     {/each}
   </div>
@@ -371,26 +350,26 @@
     </p>
   {/if}
 
-  <section class="theme-panel rounded-xl border p-6 shadow-md">
+  <section class="theme-panel progress-panel rounded-2xl border p-6 shadow-md">
     <div class="mb-4 flex items-start justify-between gap-4">
       <div>
         <h3 class="theme-heading text-base font-semibold">Hours Progress</h3>
         <p class="theme-text mt-1 text-sm">{completedHours} of {requiredHours} required hours completed</p>
-        <p class="mt-1 text-xs font-medium text-violet-600">All logged entries are counted immediately toward your OJT hours.</p>
+        <p class="mt-1 text-xs font-medium progress-helper">All logged entries are counted immediately toward your OJT hours.</p>
       </div>
       <span class="progress-percent-chip rounded-full px-3 py-1 text-lg font-extrabold">{progressPercent}%</span>
     </div>
 
-    <div class="theme-soft h-4 w-full overflow-hidden rounded-full">
+    <div class="theme-soft progress-track h-4 w-full overflow-hidden rounded-full">
       <div
-        class="h-full rounded-full bg-linear-to-r from-violet-500 via-indigo-500 to-blue-500 transition-all duration-700"
+        class="progress-fill h-full rounded-full transition-all duration-700"
         style={`width: ${progressPercent}%`}
       ></div>
     </div>
 
     <div class="theme-muted mt-3 flex items-center justify-between text-xs">
       <span>0h</span>
-      <span class="font-semibold text-orange-500 dark:text-orange-400">{remainingHours}h remaining</span>
+      <span class="progress-remaining font-semibold">{remainingHours}h remaining</span>
       <span>{requiredHours}h</span>
     </div>
   </section>
@@ -405,7 +384,7 @@
           <input
             bind:value={date}
             type="date"
-            class="theme-input entry-input w-full rounded-xl border px-4 py-3 outline-none transition focus:border-violet-200 focus:ring-2 focus:ring-violet-400/30"
+              class="theme-input entry-input w-full rounded-xl border px-4 py-3 outline-none transition"
           />
         </label>
 
@@ -415,7 +394,7 @@
             <input
               bind:value={timeIn}
               type="time"
-              class="theme-input entry-input w-full rounded-xl border px-4 py-3 outline-none transition focus:border-violet-200 focus:ring-2 focus:ring-violet-400/30"
+              class="theme-input entry-input w-full rounded-xl border px-4 py-3 outline-none transition"
             />
           </label>
 
@@ -424,13 +403,13 @@
             <input
               bind:value={timeOut}
               type="time"
-              class="theme-input entry-input w-full rounded-xl border px-4 py-3 outline-none transition focus:border-violet-200 focus:ring-2 focus:ring-violet-400/30"
+              class="theme-input entry-input w-full rounded-xl border px-4 py-3 outline-none transition"
             />
           </label>
         </div>
 
         {#if timeIn && timeOut && formHours > 0}
-          <div class="rounded-xl border border-violet-400 bg-violet-200 px-4 py-3 text-sm text-violet-900 shadow-sm dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-300">
+          <div class="duration-chip rounded-xl border px-4 py-3 text-sm shadow-sm">
             Duration: <strong class="font-semibold">{formHours} hours</strong>
           </div>
         {/if}
@@ -452,9 +431,9 @@
       </div>
     </section>
 
-    <section class="rounded-xl border p-6 shadow-md" style={$theme === 'dark' ? 'background: linear-gradient(135deg, #1f2937 0%, #1f2937 100%); border-color: #334155;' : 'background: linear-gradient(135deg, #ffffff 0%, rgba(245, 243, 255, 0.55) 100%); border-color: #ddd6fe;'}>
+    <section class="theme-panel notes-panel rounded-2xl border p-6 shadow-md">
       <div class="flex items-start gap-3">
-        <div class="inline-flex h-11 w-11 items-center justify-center rounded-xl" style={$theme === 'dark' ? 'background: rgba(139, 92, 246, 0.15); color: #c4b5fd;' : 'background: #ede9fe; color: #7c3aed;'}>
+        <div class="feature-icon notes-icon inline-flex h-11 w-11 items-center justify-center rounded-xl">
           <ClipboardList size={18} />
         </div>
         <div>
@@ -464,7 +443,7 @@
       </div>
 
       <textarea
-        class="theme-input theme-placeholder mt-5 min-h-55 w-full rounded-xl border px-4 py-4 outline-none transition focus:border-violet-300 focus:ring-2 focus:ring-violet-400/30"
+        class="theme-input theme-placeholder mt-5 min-h-55 w-full rounded-xl border px-4 py-4 outline-none transition"
         bind:value={todayNotes}
         rows="7"
         placeholder="Describe your tasks and activities for today..."
@@ -475,7 +454,7 @@
 
     <section class="theme-panel rounded-xl border p-6 shadow-md">
       <div class="flex items-start gap-3">
-        <div class="inline-flex h-11 w-11 items-center justify-center rounded-xl" style={$theme === 'dark' ? 'background: rgba(139, 92, 246, 0.15); color: #c4b5fd;' : 'background: #ede9fe; color: #7c3aed;'}>
+        <div class="feature-icon predictor-icon inline-flex h-11 w-11 items-center justify-center rounded-xl">
           <Zap size={18} />
         </div>
         <div>
@@ -533,7 +512,7 @@
     </section>
   </div>
 
-  <section class="theme-panel overflow-hidden rounded-xl border shadow-md">
+  <section class="theme-panel history-panel overflow-hidden rounded-2xl border shadow-md">
     <div class="theme-divider flex items-center justify-between border-b px-6 py-4">
       <h3 class="theme-heading text-base font-semibold">Time Log History</h3>
       <span class="theme-muted text-sm">{entries.length} entries</span>
@@ -571,7 +550,7 @@
               </td>
               <td class="px-6 py-4">
                 <button
-                  class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-500 dark:text-slate-500 dark:hover:bg-red-500/15 dark:hover:text-red-300"
+                  class="history-delete-btn inline-flex h-8 w-8 items-center justify-center rounded-lg transition"
                   type="button"
                   on:click={() => handleDelete(entry.id)}
                   aria-label="Delete time entry"
@@ -588,43 +567,233 @@
 </section>
 
 <style>
-  .theme-panel {
-    background: var(--color-surface);
-    border-color: var(--color-border);
+  .timelog-shell {
+    --tl-surface: #ffffff;
+    --tl-surface-soft: #f4f8fc;
+    --tl-border: #d8e2ef;
+    --tl-text: #0f172a;
+    --tl-muted: #5f7188;
+    --tl-accent: #0f6cbd;
+    --tl-accent-soft: #d8ebff;
+    position: relative;
+    border-radius: 1.25rem;
+    padding: 0.35rem;
+    isolation: isolate;
+  }
+
+  .timelog-shell::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -2;
+    border-radius: 1.25rem;
+    background: radial-gradient(120% 120% at 0% 0%, #e4f1ff 0%, #f6fafe 55%, #ecf3fb 100%);
+  }
+
+  .timelog-shell::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: 1.25rem;
+    background-image: linear-gradient(110deg, rgba(15, 108, 189, 0.07), transparent 52%),
+      repeating-linear-gradient(90deg, transparent 0, transparent 28px, rgba(15, 108, 189, 0.04) 28px, rgba(15, 108, 189, 0.04) 29px);
+    pointer-events: none;
+  }
+
+  .theme-panel,
+  .stat-card {
+    background: var(--tl-surface);
+    border-color: var(--tl-border);
+    box-shadow: 0 18px 38px -32px rgba(15, 23, 42, 0.42);
+  }
+
+  .stat-card {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .stat-card::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 3px;
+    opacity: 0.9;
+  }
+
+  .stat-primary::before {
+    background: linear-gradient(90deg, #0f6cbd, #38bdf8);
+  }
+
+  .stat-success::before {
+    background: linear-gradient(90deg, #0f766e, #10b981);
+  }
+
+  .stat-info::before {
+    background: linear-gradient(90deg, #1d4ed8, #3b82f6);
+  }
+
+  .stat-forecast::before {
+    background: linear-gradient(90deg, #0f766e, #06b6d4);
+  }
+
+  .stat-icon {
+    border: 1px solid transparent;
+  }
+
+  .stat-icon-primary {
+    background: #e0efff;
+    color: #0f6cbd;
+    border-color: #bfdbfe;
+  }
+
+  .stat-icon-success {
+    background: #dcfce7;
+    color: #0f766e;
+    border-color: #86efac;
+  }
+
+  .stat-icon-info {
+    background: #dbeafe;
+    color: #1d4ed8;
+    border-color: #93c5fd;
+  }
+
+  .stat-icon-forecast {
+    background: #cffafe;
+    color: #0f766e;
+    border-color: #67e8f9;
+  }
+
+  .stat-sub-emphasis {
+    color: #0f766e;
+    font-weight: 700;
+  }
+
+  .progress-panel {
+    background: linear-gradient(145deg, #ffffff, #f6fbff);
+  }
+
+  .progress-helper {
+    color: #0f6cbd;
+  }
+
+  .progress-track {
+    border: 1px solid #c4d9f2;
+    background: #ecf4fd;
+  }
+
+  .progress-fill {
+    background: linear-gradient(90deg, #0f6cbd, #14b8a6 55%, #06b6d4);
+  }
+
+  .progress-remaining {
+    color: #0f6cbd;
+  }
+
+  .progress-percent-chip {
+    background: var(--tl-accent-soft);
+    color: #0f3868;
+    border: 1px solid #93c5fd;
+    line-height: 1;
   }
 
   .entry-panel {
-    background: #ffffff;
-    border-color: #c7d2fe;
+    background: linear-gradient(145deg, #ffffff, #f3f8ff);
+  }
+
+  .notes-panel,
+  .history-panel {
+    background: linear-gradient(145deg, #ffffff, #f8fbff);
   }
 
   .entry-input {
-    background: #eaf0ff;
-    border-color: #a5b4fc;
-    color: #0f172a;
-    font-weight: 400;
-    letter-spacing: 0;
+    background: #edf4fb;
+    border-color: #bed2e8;
+    color: var(--tl-text);
+    font-weight: 500;
   }
 
-  .entry-input[type='date'],
-  .entry-input[type='time'] {
-    font-weight: 400;
+  .entry-input:focus,
+  .theme-input:focus {
+    border-color: #60a5fa;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
   }
 
-  .entry-input::placeholder {
-    color: #475569;
-    opacity: 1;
-    font-weight: 400;
+  .entry-input::placeholder,
+  .theme-placeholder::placeholder,
+  .theme-muted {
+    color: var(--tl-muted);
   }
 
-  .predictor-panel {
-    background: #ffffff;
-    border-color: #c7d2fe;
+  .theme-heading {
+    color: var(--tl-text);
   }
 
-  .predictor-metric {
-    background: #f5f7ff;
-    border-color: #a5b4fc;
+  .theme-text {
+    color: var(--tl-text);
+  }
+
+  .theme-soft,
+  .theme-soft-panel {
+    background: var(--tl-surface-soft);
+  }
+
+  .theme-soft-panel,
+  .theme-divider,
+  .theme-table-row,
+  .theme-input {
+    border-color: var(--tl-border);
+  }
+
+  .theme-input {
+    background: #eef5fc;
+    color: var(--tl-text);
+  }
+
+  .theme-table-row:hover {
+    background: #f3f8ff;
+  }
+
+  .feature-icon {
+    border: 1px solid transparent;
+  }
+
+  .notes-icon {
+    background: #e0efff;
+    color: #0f6cbd;
+    border-color: #bfdbfe;
+  }
+
+  .predictor-icon {
+    background: #cffafe;
+    color: #0f766e;
+    border-color: #67e8f9;
+  }
+
+  .duration-chip {
+    background: #e0efff;
+    border-color: #93c5fd;
+    color: #0f3868;
+  }
+
+  .theme-button-soft {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #e2edf9;
+    border-color: #bfd5ec;
+    color: #11406d;
+    font-size: 1.05rem;
+    line-height: 1;
+    font-weight: 800;
+  }
+
+  .predictor-step:hover,
+  .theme-button-soft:hover {
+    background: #d2e4f7;
   }
 
   .predictor-chip {
@@ -644,195 +813,47 @@
   }
 
   .predictor-chip-ahead {
-    background: #d1fae5;
-    color: #047857;
-    border-color: #6ee7b7;
-  }
-
-  .theme-soft,
-  .theme-soft-panel {
-    background: var(--color-soft);
-  }
-
-  .theme-soft-panel {
-    border-color: var(--color-border);
-  }
-
-  .theme-input {
-    background: var(--color-soft);
-    border-color: var(--color-border);
-    color: var(--color-heading);
-  }
-
-  .theme-placeholder::placeholder,
-  .theme-muted {
-    color: var(--color-sidebar-text);
-  }
-
-  .theme-heading {
-    color: var(--color-heading);
-  }
-
-  .theme-text {
-    color: var(--color-text);
-  }
-
-  .theme-divider,
-  .theme-table-row {
-    border-color: var(--color-border);
-  }
-
-  .theme-table-row:hover {
-    background: var(--color-hover);
-  }
-
-  .theme-button-soft {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    background: #dbe4ff;
-    border-color: #a5b4fc;
-    color: #312e81;
-    font-size: 1.05rem;
-    line-height: 1;
-    font-weight: 800;
-  }
-
-  .predictor-step {
-    background: #c7d2fe;
-    border-color: #818cf8;
-    color: #312e81;
-  }
-
-  .predictor-step:hover {
-    background: #a5b4fc;
-  }
-
-  .theme-button-soft:hover {
-    background: #c7d2fe;
-  }
-
-  :global(.dark) .theme-button-soft {
-    background: #9ca3af;
-    border-color: #b3bac6;
-    color: #4f46e5;
-    font-weight: 800;
-  }
-
-  :global(.dark) .predictor-panel {
-    background: var(--color-surface);
-    border-color: #334155;
-  }
-
-  :global(.dark) .entry-panel {
-    background: var(--color-surface);
-    border-color: #334155;
-  }
-
-  :global(.dark) .entry-input {
-    background: #1b2638;
-    border-color: #334155;
-    color: #e2e8f0;
-    font-weight: 400;
-  }
-
-  :global(.dark) .entry-input::placeholder {
-    color: #94a3b8;
-  }
-
-  :global(.dark) .predictor-metric {
-    background: #1b2638;
-    border-color: #334155;
-  }
-
-  :global(.dark) .predictor-chip-delay {
-    background: rgba(239, 68, 68, 0.2);
-    color: #fca5a5;
-    border-color: rgba(239, 68, 68, 0.45);
-  }
-
-  :global(.dark) .predictor-chip-ahead {
-    background: rgba(16, 185, 129, 0.2);
-    color: #6ee7b7;
-    border-color: rgba(16, 185, 129, 0.45);
-  }
-
-  :global(.dark) .predictor-step {
-    background: #9ca3af;
-    border-color: #b3bac6;
-    color: #4f46e5;
-  }
-
-  :global(.dark) .predictor-step:hover {
-    background: #b3bac6;
-  }
-
-  :global(.dark) .theme-button-soft:hover {
-    background: #b3bac6;
+    background: #dcfce7;
+    color: #0f766e;
+    border-color: #86efac;
   }
 
   .predictor-estimate {
-    background: linear-gradient(135deg, #ddd6fe 0%, #c7d2fe 100%);
-    border-color: #8b5cf6;
+    background: linear-gradient(145deg, #dbeafe, #cffafe);
+    border-color: #7dd3fc;
   }
 
   .predictor-estimate-label {
-    color: #5b21b6;
+    color: #0f6cbd;
   }
 
   .predictor-estimate-sub {
-    color: #6d28d9;
+    color: #0f766e;
   }
 
   .predictor-estimate-pill {
-    background: #312e81;
+    background: #0f3868;
     color: #ffffff;
-    border: 1px solid #4338ca;
-  }
-
-  :global(.dark) .predictor-estimate {
-    background: linear-gradient(135deg, rgba(139, 92, 246, 0.16) 0%, rgba(59, 130, 246, 0.14) 100%);
-    border-color: rgba(139, 92, 246, 0.45);
-  }
-
-  :global(.dark) .predictor-estimate-label {
-    color: #c4b5fd;
-  }
-
-  :global(.dark) .predictor-estimate-sub {
-    color: #c4b5fd;
-  }
-
-  :global(.dark) .predictor-estimate-pill {
-    background: #312e81;
-    color: #e0e7ff;
-    border-color: #4338ca;
+    border: 1px solid #0f6cbd;
   }
 
   .timelog-submit-btn {
-    background: #4f46e5;
+    background: linear-gradient(90deg, #0f6cbd, #0ea5e9);
     color: #ffffff;
-    box-shadow: 0 12px 24px -16px rgba(79, 70, 229, 0.95);
+    box-shadow: 0 14px 28px -16px rgba(15, 108, 189, 0.9);
   }
 
   .timelog-submit-btn:hover:not(:disabled) {
-    background: #4338ca;
+    filter: brightness(1.05);
     transform: translateY(-1px);
   }
 
   .timelog-submit-btn:disabled {
-    background: #312e81;
-    color: #c7d2fe;
+    background: #6b7280;
+    color: #e5e7eb;
     cursor: not-allowed;
     opacity: 1;
     box-shadow: none;
-  }
-
-  .progress-percent-chip {
-    background: #ddd6fe;
-    color: #111827;
-    border: 1px solid #a78bfa;
-    line-height: 1;
   }
 
   .status-badge {
@@ -847,20 +868,186 @@
   }
 
   .status-recorded {
-    background: #16a34a;
-    color: #ffffff;
-    border: 1px solid #15803d;
+    background: #dcfce7;
+    color: #0f766e;
+    border: 1px solid #86efac;
+  }
+
+  .history-delete-btn {
+    color: #7b8ea8;
+  }
+
+  .history-delete-btn:hover {
+    background: #fee2e2;
+    color: #dc2626;
+  }
+
+  :global(.dark) .timelog-shell {
+    --tl-surface: #162338;
+    --tl-surface-soft: #1b2a42;
+    --tl-border: #2b3c57;
+    --tl-text: #e5edf8;
+    --tl-muted: #9ab0cb;
+    --tl-accent: #5bb1ff;
+    --tl-accent-soft: rgba(91, 177, 255, 0.18);
+  }
+
+  :global(.dark) .timelog-shell::before {
+    background: radial-gradient(130% 130% at 0% 0%, #173459 0%, #101a2b 48%, #0b1422 100%);
+  }
+
+  :global(.dark) .timelog-shell::after {
+    background-image: linear-gradient(110deg, rgba(91, 177, 255, 0.12), transparent 55%),
+      repeating-linear-gradient(90deg, transparent 0, transparent 32px, rgba(148, 163, 184, 0.07) 32px, rgba(148, 163, 184, 0.07) 33px);
+  }
+
+  :global(.dark) .theme-panel,
+  :global(.dark) .stat-card {
+    box-shadow: 0 20px 38px -30px rgba(2, 8, 23, 0.95);
+  }
+
+  :global(.dark) .progress-panel,
+  :global(.dark) .entry-panel,
+  :global(.dark) .notes-panel,
+  :global(.dark) .history-panel {
+    background: linear-gradient(150deg, rgba(22, 35, 56, 0.96), rgba(19, 30, 49, 0.98));
+  }
+
+  :global(.dark) .progress-track {
+    background: #1a2c46;
+    border-color: #335174;
+  }
+
+  :global(.dark) .progress-fill {
+    background: linear-gradient(90deg, #5bb1ff, #2dd4bf 58%, #22d3ee);
+  }
+
+  :global(.dark) .progress-helper,
+  :global(.dark) .progress-remaining {
+    color: #7cc3ff;
+  }
+
+  :global(.dark) .progress-percent-chip {
+    color: #dbeafe;
+    border-color: rgba(125, 211, 252, 0.45);
+  }
+
+  :global(.dark) .stat-icon-primary {
+    background: rgba(91, 177, 255, 0.18);
+    color: #93c5fd;
+    border-color: rgba(125, 211, 252, 0.38);
+  }
+
+  :global(.dark) .stat-icon-success {
+    background: rgba(16, 185, 129, 0.16);
+    color: #6ee7b7;
+    border-color: rgba(110, 231, 183, 0.4);
+  }
+
+  :global(.dark) .stat-icon-info {
+    background: rgba(59, 130, 246, 0.18);
+    color: #93c5fd;
+    border-color: rgba(147, 197, 253, 0.4);
+  }
+
+  :global(.dark) .stat-icon-forecast {
+    background: rgba(45, 212, 191, 0.16);
+    color: #67e8f9;
+    border-color: rgba(103, 232, 249, 0.42);
+  }
+
+  :global(.dark) .stat-sub-emphasis {
+    color: #6ee7b7;
+  }
+
+  :global(.dark) .entry-input,
+  :global(.dark) .theme-input {
+    background: #1a2c45;
+    border-color: #334b6b;
+    color: #e2e8f0;
+  }
+
+  :global(.dark) .entry-input:focus,
+  :global(.dark) .theme-input:focus {
+    border-color: #7cc3ff;
+    box-shadow: 0 0 0 3px rgba(91, 177, 255, 0.24);
+  }
+
+  :global(.dark) .theme-table-row:hover {
+    background: rgba(43, 60, 87, 0.45);
+  }
+
+  :global(.dark) .duration-chip {
+    background: rgba(91, 177, 255, 0.16);
+    border-color: rgba(125, 211, 252, 0.42);
+    color: #bfdbfe;
+  }
+
+  :global(.dark) .theme-button-soft {
+    background: #2a3f5d;
+    border-color: #426389;
+    color: #cfe6ff;
+  }
+
+  :global(.dark) .predictor-step:hover,
+  :global(.dark) .theme-button-soft:hover {
+    background: #365276;
+  }
+
+  :global(.dark) .predictor-chip-delay {
+    background: rgba(239, 68, 68, 0.2);
+    color: #fca5a5;
+    border-color: rgba(239, 68, 68, 0.45);
+  }
+
+  :global(.dark) .predictor-chip-ahead {
+    background: rgba(16, 185, 129, 0.2);
+    color: #6ee7b7;
+    border-color: rgba(16, 185, 129, 0.45);
+  }
+
+  :global(.dark) .predictor-estimate {
+    background: linear-gradient(145deg, rgba(30, 64, 102, 0.65), rgba(19, 78, 74, 0.6));
+    border-color: rgba(103, 232, 249, 0.45);
+  }
+
+  :global(.dark) .predictor-estimate-label {
+    color: #93c5fd;
+  }
+
+  :global(.dark) .predictor-estimate-sub {
+    color: #99f6e4;
+  }
+
+  :global(.dark) .predictor-estimate-pill {
+    background: #0b2746;
+    border-color: #2563eb;
+  }
+
+  :global(.dark) .timelog-submit-btn:disabled {
+    background: #374151;
+    color: #cbd5e1;
   }
 
   :global(.dark) .status-recorded {
     background: rgba(16, 185, 129, 0.2);
-    color: #a7f3d0;
-    border: 1px solid rgba(16, 185, 129, 0.45);
+    color: #86efac;
+    border-color: rgba(16, 185, 129, 0.45);
   }
 
-  :global(.dark) .progress-percent-chip {
-    background: color-mix(in srgb, #8b5cf6 20%, transparent);
-    color: #ddd6fe;
-    border: 1px solid color-mix(in srgb, #8b5cf6 45%, transparent);
+  :global(.dark) .history-delete-btn {
+    color: #9caec7;
+  }
+
+  :global(.dark) .history-delete-btn:hover {
+    background: rgba(239, 68, 68, 0.2);
+    color: #fca5a5;
+  }
+
+  @media (max-width: 768px) {
+    .timelog-shell {
+      border-radius: 1rem;
+      padding: 0;
+    }
   }
 </style>
