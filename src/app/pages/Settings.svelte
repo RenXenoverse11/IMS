@@ -4,22 +4,17 @@
     Bell,
     Building,
     Camera,
-    Eye,
-    EyeOff,
     Mail,
     MapPin,
     Moon,
     Phone,
     Save,
-    Shield,
     Sun,
     User,
   } from 'lucide-svelte';
   import { subscribeToCurrentUser, updateProfilePhoto, updateUserProfile } from '../lib/auth.js';
   import { setTheme, theme, toggleTheme } from '../context/ThemeContext.js';
 
-  let showCurrentPassword = false;
-  let showNewPassword = false;
   let saved = false;
   let saveTimer;
   let unsubscribeAuth;
@@ -163,6 +158,19 @@
     systemUpdates: true,
   };
 
+  const MAIN_DB_URL = 'https://docs.google.com/spreadsheets/d/1cHfXzp8gRD-x8sVf_j_WtNf-1h_JUqt_O_MOEfBlNVk/edit?pli=1&gid=0#gid=0';
+  let copyMessage = '';
+  let copyTimer;
+
+  function copyToClipboard() {
+    navigator.clipboard.writeText(MAIN_DB_URL);
+    copyMessage = 'Copied!';
+    clearTimeout(copyTimer);
+    copyTimer = setTimeout(() => {
+      copyMessage = '';
+    }, 2000);
+  }
+
 
   const profileFields = [
     { key: 'firstName', label: 'First Name', icon: User, type: 'text' },
@@ -245,6 +253,7 @@
 
   onDestroy(() => {
     clearTimeout(saveTimer);
+    clearTimeout(copyTimer);
     if (typeof unsubscribeAuth === 'function') {
       unsubscribeAuth();
     }
@@ -272,8 +281,9 @@
     .join('') || 'U';
 </script>
 
-<section class="mr-auto w-full max-w-5xl space-y-6">
-  <section class="theme-section rounded-2xl border shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
+<section class="settings-shell grid grid-cols-1 gap-6 lg:grid-cols-3">
+  <div class="lg:col-span-2 space-y-6">
+  <section class="theme-section settings-panel settings-panel-profile rounded-2xl border shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
     <header class="theme-divider border-b px-6 py-4">
       <div class="flex items-center gap-2">
         <User size={16} class="text-indigo-600" />
@@ -356,73 +366,7 @@
     </div>
   </section>
 
-  <section class="theme-section rounded-2xl border shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
-    <header class="theme-divider border-b px-6 py-4">
-      <div class="flex items-center gap-2">
-        <Shield size={16} class="text-indigo-600" />
-        <h2 class="theme-heading text-[15px] font-semibold">Security</h2>
-      </div>
-      <p class="theme-text mt-1 text-[13px]">Manage your password and account security settings.</p>
-    </header>
-
-    <div class="space-y-4 px-6 py-5">
-      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <label class="block">
-          <span class="theme-text mb-1.5 block text-[13px]">Current Password</span>
-          <span class="relative block">
-            <input
-              type={showCurrentPassword ? 'text' : 'password'}
-              placeholder="********"
-              class="theme-input w-full rounded-xl border px-3 py-2.5 pr-10 text-[14px] outline-none transition-colors focus:border-indigo-400"
-            />
-            <button
-              type="button"
-              class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition-colors hover:text-slate-600"
-              on:click={() => (showCurrentPassword = !showCurrentPassword)}
-              aria-label={showCurrentPassword ? 'Hide current password' : 'Show current password'}
-            >
-              {#if showCurrentPassword}
-                <EyeOff size={14} />
-              {:else}
-                <Eye size={14} />
-              {/if}
-            </button>
-          </span>
-        </label>
-
-        <label class="block">
-          <span class="theme-text mb-1.5 block text-[13px]">New Password</span>
-          <span class="relative block">
-            <input
-              type={showNewPassword ? 'text' : 'password'}
-              placeholder="********"
-              class="theme-input w-full rounded-xl border px-3 py-2.5 pr-10 text-[14px] outline-none transition-colors focus:border-indigo-400"
-            />
-            <button
-              type="button"
-              class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition-colors hover:text-slate-600"
-              on:click={() => (showNewPassword = !showNewPassword)}
-              aria-label={showNewPassword ? 'Hide new password' : 'Show new password'}
-            >
-              {#if showNewPassword}
-                <EyeOff size={14} />
-              {:else}
-                <Eye size={14} />
-              {/if}
-            </button>
-          </span>
-        </label>
-      </div>
-
-      <div class="rounded-xl border border-amber-200 bg-amber-50 p-3">
-        <p class="text-[13px] text-amber-700">
-          Password must be at least 8 characters and include uppercase, lowercase, number, and special character.
-        </p>
-      </div>
-    </div>
-  </section>
-
-  <section class="theme-section rounded-2xl border shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
+  <section class="theme-section settings-panel settings-panel-appearance rounded-2xl border shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
     <header class="theme-divider border-b px-6 py-4">
       <div class="flex items-center gap-2">
         {#if $theme === 'dark'}
@@ -499,7 +443,7 @@
     </div>
   </section>
 
-  <section class="theme-section rounded-2xl border shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
+  <section class="theme-section settings-panel settings-panel-notify rounded-2xl border shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
     <header class="theme-divider border-b px-6 py-4">
       <div class="flex items-center gap-2">
         <Bell size={16} class="text-indigo-600" />
@@ -534,8 +478,7 @@
     <button
       type="button"
       on:click={handleCancel}
-      class="rounded-xl px-5 py-2.5 text-[14px] font-medium transition-colors"
-      style={`border: 1px solid ${$theme === 'dark' ? '#334155' : '#CBD5E1'}; background-color: ${$theme === 'dark' ? '#1E293B' : '#FFFFFF'}; color: ${$theme === 'dark' ? '#E2E8F0' : '#475569'};`}
+      class="settings-btn settings-btn-ghost rounded-xl px-5 py-2.5 text-[14px] font-medium"
       disabled={isSavingProfile}
     >
       Cancel
@@ -543,8 +486,8 @@
     <button
       type="button"
       on:click={handleSave}
-      class="inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-[14px] font-medium text-white transition-all duration-200"
-      style={`background-color: ${saved ? '#059669' : '#4F46E5'};`}
+      class="settings-btn settings-btn-primary inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-[14px] font-medium text-white"
+      class:settings-btn-success={saved}
       disabled={isSavingProfile}
     >
       <Save size={14} />
@@ -555,30 +498,255 @@
   {#if saveError}
     <p class="text-right text-[12px] text-rose-600">{saveError}</p>
   {/if}
+  </div>
+
+  <!-- MAIN_DB Section on Right -->
+  <div class="lg:col-span-1">
+    <section class="theme-section settings-panel settings-panel-database rounded-2xl border shadow-[0_1px_2px_rgba(15,23,42,0.05)] p-6 sticky top-6">
+      <h3 class="theme-heading text-[16px] font-bold mb-4">MAIN_DB</h3>
+      <p class="theme-text text-[13px] mb-4">Access the main database spreadsheet for this project.</p>
+      
+      <div class="mb-4 p-4 rounded-lg settings-link-box border">
+        <a 
+          href={MAIN_DB_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="settings-link text-[13px] font-medium break-all line-clamp-3 hover:underline"
+        >
+          {MAIN_DB_URL}
+        </a>
+      </div>
+
+      <button
+        type="button"
+        on:click={copyToClipboard}
+        class="settings-btn settings-copy-button w-full rounded-lg px-4 py-2.5 text-[14px] font-medium text-white"
+      >
+        {copyMessage || 'Copy Link'}
+      </button>
+      
+      {#if copyMessage}
+        <p class="settings-copy-note mt-2 text-[12px] text-center font-medium">{copyMessage}</p>
+      {/if}
+    </section>
+  </div>
 </section>
 
 <style>
+  .settings-shell {
+    --st-surface: #ffffff;
+    --st-surface-soft: #f3f8ff;
+    --st-border: #d7e3f1;
+    --st-heading: #0f172a;
+    --st-text: #1f2937;
+    --st-muted: #60748e;
+    position: relative;
+    border-radius: 1.25rem;
+    padding: 0.35rem;
+    isolation: isolate;
+  }
+
+  .settings-shell::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -2;
+    border-radius: 1.25rem;
+    background: radial-gradient(130% 130% at 0% 0%, #e4f1ff 0%, #f7fbff 58%, #eef4fb 100%);
+  }
+
+  .settings-shell::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: 1.25rem;
+    background-image: linear-gradient(112deg, rgba(15, 108, 189, 0.08), transparent 52%),
+      repeating-linear-gradient(90deg, transparent 0, transparent 30px, rgba(15, 108, 189, 0.04) 30px, rgba(15, 108, 189, 0.04) 31px);
+    pointer-events: none;
+  }
+
   .theme-section {
-    background: var(--color-surface);
-    border-color: var(--color-border);
+    background: var(--st-surface);
+    border-color: var(--st-border);
+    box-shadow: 0 18px 36px -30px rgba(15, 23, 42, 0.42);
+  }
+
+  .settings-panel {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .settings-panel::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 3px;
+  }
+
+  .settings-panel-profile::before {
+    background: linear-gradient(90deg, #0f6cbd, #38bdf8);
+  }
+
+  .settings-panel-appearance::before {
+    background: linear-gradient(90deg, #0f766e, #14b8a6);
+  }
+
+  .settings-panel-notify::before {
+    background: linear-gradient(90deg, #d97706, #f59e0b);
+  }
+
+  .settings-panel-database::before {
+    background: linear-gradient(90deg, #1d4ed8, #06b6d4);
   }
 
   .theme-divider,
   .theme-border {
-    border-color: var(--color-border);
+    border-color: var(--st-border);
   }
 
   .theme-input {
-    background: var(--color-soft);
-    border-color: var(--color-border);
-    color: var(--color-heading);
+    background: #edf4fb;
+    border-color: #bed2e8;
+    color: var(--st-heading);
+  }
+
+  .theme-input:focus {
+    border-color: #60a5fa;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
   }
 
   .theme-heading {
-    color: var(--color-heading);
+    color: var(--st-heading);
   }
 
   .theme-text {
-    color: var(--color-text);
+    color: var(--st-text);
+  }
+
+  .settings-btn {
+    transition: all 0.2s ease;
+  }
+
+  .settings-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+
+  .settings-btn-ghost {
+    border: 1px solid #bfd5ec;
+    background: #f7fbff;
+    color: #355472;
+  }
+
+  .settings-btn-ghost:hover:not(:disabled) {
+    background: #edf4fb;
+    border-color: #9fc2e5;
+  }
+
+  .settings-btn-primary,
+  .settings-copy-button {
+    background: linear-gradient(90deg, #0f6cbd, #0ea5e9);
+    border: 1px solid #0f6cbd;
+    box-shadow: 0 14px 28px -16px rgba(15, 108, 189, 0.9);
+  }
+
+  .settings-btn-primary:hover:not(:disabled),
+  .settings-copy-button:hover:not(:disabled) {
+    filter: brightness(1.06);
+    transform: translateY(-1px);
+  }
+
+  .settings-btn-success {
+    background: linear-gradient(90deg, #0f766e, #10b981);
+    border-color: #0f766e;
+  }
+
+  .settings-link-box {
+    background: #f1f7fd;
+    border-color: #c9d9ec;
+  }
+
+  .settings-link {
+    color: #0f6cbd;
+  }
+
+  .settings-link:hover {
+    color: #0a4f8d;
+  }
+
+  .settings-copy-note {
+    color: #0f766e;
+  }
+
+  :global(.dark) .settings-shell {
+    --st-surface: #162338;
+    --st-surface-soft: #1b2a42;
+    --st-border: #2b3c57;
+    --st-heading: #e5edf8;
+    --st-text: #cfdceb;
+    --st-muted: #9ab0cb;
+  }
+
+  :global(.dark) .settings-shell::before {
+    background: radial-gradient(130% 130% at 0% 0%, #173459 0%, #101a2b 48%, #0b1422 100%);
+  }
+
+  :global(.dark) .settings-shell::after {
+    background-image: linear-gradient(112deg, rgba(91, 177, 255, 0.12), transparent 55%),
+      repeating-linear-gradient(90deg, transparent 0, transparent 32px, rgba(148, 163, 184, 0.07) 32px, rgba(148, 163, 184, 0.07) 33px);
+  }
+
+  :global(.dark) .theme-section {
+    box-shadow: 0 20px 38px -30px rgba(2, 8, 23, 0.95);
+  }
+
+  :global(.dark) .theme-input {
+    background: #1a2c45;
+    border-color: #334b6b;
+    color: #dbe7f5;
+  }
+
+  :global(.dark) .theme-input:focus {
+    border-color: #7cc3ff;
+    box-shadow: 0 0 0 3px rgba(91, 177, 255, 0.24);
+  }
+
+  :global(.dark) .settings-btn-ghost {
+    border-color: #365276;
+    background: #1a2c45;
+    color: #cfe0f2;
+  }
+
+  :global(.dark) .settings-btn-ghost:hover:not(:disabled) {
+    background: #223653;
+    border-color: #4a6789;
+  }
+
+  :global(.dark) .settings-link-box {
+    background: #1a2c45;
+    border-color: #334b6b;
+  }
+
+  :global(.dark) .settings-link {
+    color: #7cc3ff;
+  }
+
+  :global(.dark) .settings-link:hover {
+    color: #a5d8ff;
+  }
+
+  :global(.dark) .settings-copy-note {
+    color: #6ee7b7;
+  }
+
+  @media (max-width: 768px) {
+    .settings-shell {
+      border-radius: 1rem;
+      padding: 0;
+    }
   }
 </style>

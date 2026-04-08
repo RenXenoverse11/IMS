@@ -1,7 +1,8 @@
 <script>
   import { onDestroy, onMount } from 'svelte';
   import { Calendar, Clock3, FileText, ShieldCheck } from 'lucide-svelte';
-  import { getCurrentUser, subscribeToCurrentUser } from '../lib/auth.js';
+  import { callApiAction, getCurrentUser, subscribeToCurrentUser } from '../lib/auth.js';
+  import { subscribeToSync } from '../lib/sync.js';
 
   const REQUEST_TYPES = ['Absence', 'Overtime'];
 
@@ -17,42 +18,15 @@
     },
   };
 
-  const SAMPLE_REQUESTS = [
-    {
-      id: 'REQ-1001',
-      requestType: 'Absence',
-      date: '2026-04-08',
-      time: '',
-      reason: 'Medical check-up and travel time after appointment.',
-      status: 'Pending',
-      requester_name: 'Laurence Jan',
-    },
-    {
-      id: 'REQ-1002',
-      requestType: 'Overtime',
-      date: '2026-04-05',
-      time: '19:00',
-      reason: 'Need to complete API testing and submit the consolidated report.',
-      status: 'Approved',
-      requester_name: 'Kris Santos',
-    },
-    {
-      id: 'REQ-1003',
-      requestType: 'Absence',
-      date: '2026-04-02',
-      time: '',
-      reason: 'Personal errand requested at short notice.',
-      status: 'Rejected',
-      requester_name: 'Mika Dela Cruz',
-    },
-  ];
-
   let activeTab = 'my-requests';
   let currentUser = null;
   let unsubscribeAuth;
-  let requests = SAMPLE_REQUESTS;
+  let unsubscribeSync;
+  let requests = [];
+  let isLoading = false;
   let formError = '';
   let formSuccess = '';
+  let isSubmitting = false;
 
   let form = {
     requestType: 'Absence',
@@ -63,15 +37,58 @@
 
   $: showTimeField = form.requestType === 'Overtime';
 
+  async function callBackend(action, payload) {
+    return callApiAction(action, payload || {});
+  }
+
+  async function loadRequests() {
+    if (!currentUser) return;
+
+    isLoading = true;
+    try {
+      const isSupervisor = String(currentUser?.role || '').trim() === 'Supervisor';
+      let result;
+
+      if (isSupervisor) {
+        result = await callBackend('list_assigned_student_requests', {
+          supervisor_user_id: currentUser.user_id,
+        });
+      } else {
+        result = await callBackend('list_requests_by_user', {
+          user_id: currentUser.user_id,
+        });
+      }
+
+      if (result && result.ok) {
+        requests = result.requests || [];
+      }
+    } catch (err) {
+      console.error('Failed to load requests:', err);
+      requests = [];
+    } finally {
+      isLoading = false;
+    }
+  }
+
   function formatDate(dateValue) {
-    const parsed = new Date(`${dateValue}T00:00:00`);
+    const dateString = String(dateValue || '').trim();
+    if (!dateString) return '';
+
+    // Extract just the date part if it's a full datetime string
+    let dateToFormat = dateString;
+    if (dateString.includes('T') || dateString.includes(' ')) {
+      dateToFormat = dateString.split('T')[0].split(' ')[0];
+    }
+
+    const parsed = new Date(`${dateToFormat}T00:00:00`);
     if (Number.isNaN(parsed.getTime())) {
       return dateValue;
     }
 
     return new Intl.DateTimeFormat('en-US', {
+      weekday: 'short',
       month: 'short',
-      day: 'numeric',
+      day: '2-digit',
       year: 'numeric',
     }).format(parsed);
   }
@@ -115,7 +132,7 @@
     };
   }
 
-  function submitRequest() {
+  async function submitRequest() {
     if (isSupervisor) {
       formError = 'Supervisor accounts cannot create requests.';
       formSuccess = '';
@@ -130,46 +147,77 @@
       return;
     }
 
-    const request = {
-      id: `REQ-${Date.now()}`,
-      requestType: form.requestType,
-      date: form.date,
-      time: form.requestType === 'Overtime' ? form.time : '',
-      reason: String(form.reason || '').trim(),
-      status: 'Pending',
-      requester_name: String(currentUser?.full_name || '').trim() || 'Student',
-    };
+    isSubmitting = true;
+    try {
+      const result = await callBackend('create_request', {
+        user_id: currentUser.user_id,
+        requester_name: String(currentUser?.full_name || '').trim() || 'Student',
+        request_type: form.requestType,
+        request_date: form.date,
+        request_time: form.requestType === 'Overtime' ? form.time : '',
+        reason: String(form.reason || '').trim(),
+      });
 
-    requests = [request, ...requests];
-    formSuccess = 'Request submitted. Status is set to Pending.';
-    formError = '';
-    resetForm();
-    activeTab = 'my-requests';
+      if (result && result.ok) {
+        formSuccess = 'Request submitted successfully!';
+        formError = '';
+        resetForm();
+        await loadRequests();
+        activeTab = 'my-requests';
+      } else {
+        formError = result?.error || 'Failed to submit request.';
+        formSuccess = '';
+      }
+    } catch (err) {
+      console.error('Submit request error:', err);
+      formError = err?.message || 'An error occurred while submitting the request.';
+      formSuccess = '';
+    } finally {
+      isSubmitting = false;
+    }
   }
 
-  function updateRequestStatus(requestId, nextStatus) {
-    requests = requests.map((request) => {
-      if (request.id !== requestId) {
-        return request;
-      }
-
-      return {
-        ...request,
+  async function updateRequestStatus(requestId, nextStatus) {
+    try {
+      const result = await callBackend('update_request_status', {
+        request_id: requestId,
         status: nextStatus,
-      };
-    });
+      });
+
+      if (result && result.ok) {
+        await loadRequests();
+      } else {
+        console.error('Failed to update request status:', result?.error);
+      }
+    } catch (err) {
+      console.error('Update request status error:', err);
+    }
   }
 
   onMount(() => {
     currentUser = getCurrentUser();
     unsubscribeAuth = subscribeToCurrentUser((user) => {
       currentUser = user;
+      if (user) {
+        loadRequests();
+      }
     });
+
+    unsubscribeSync = subscribeToSync(() => {
+      loadRequests();
+    });
+
+    if (currentUser) {
+      loadRequests();
+    }
   });
 
   onDestroy(() => {
     if (typeof unsubscribeAuth === 'function') {
       unsubscribeAuth();
+    }
+    if (typeof unsubscribeSync === 'function') {
+      unsubscribeSync();
     }
   });
 
@@ -181,10 +229,16 @@
   $: pageSubtitle = isSupervisor
     ? 'Review and resolve assigned student requests'
     : 'Manage your absence and overtime requests';
+  $: totalRequests = requests.length;
+  $: pendingRequests = requests.filter((request) => String(request?.status || '').toLowerCase() === 'pending').length;
+  $: resolvedRequests = requests.filter((request) => {
+    const status = String(request?.status || '').toLowerCase();
+    return status === 'approved' || status === 'rejected';
+  }).length;
 </script>
 
-<section class="flex flex-col gap-6">
-  <section class="requests-header-card rounded-xl border p-6 shadow-md">
+<section class="requests-shell flex flex-col gap-6">
+  <section class="requests-header-card rounded-2xl border p-6 shadow-md">
     <div class="inline-flex h-11 w-11 items-center justify-center rounded-xl requests-header-icon">
       <FileText size={18} />
     </div>
@@ -192,7 +246,7 @@
     <p class="requests-subtitle mt-1 text-sm">{pageSubtitle}</p>
   </section>
 
-  <section class="requests-panel rounded-xl border p-5 shadow-md">
+  <section class="requests-panel rounded-2xl border p-5 shadow-md">
     <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-end">
       <div class="inline-flex w-full rounded-xl border tab-switch lg:w-auto">
         <button
@@ -217,12 +271,38 @@
     </div>
   </section>
 
+  <section class="requests-kpi-grid grid grid-cols-1 gap-4 md:grid-cols-3">
+    <article class="request-kpi request-kpi-total rounded-2xl border p-5 shadow-sm">
+      <div class="request-kpi-icon inline-flex h-10 w-10 items-center justify-center rounded-xl">
+        <FileText size={16} />
+      </div>
+      <p class="requests-heading mt-4 text-3xl font-bold tracking-tight">{totalRequests}</p>
+      <p class="requests-subtitle mt-1 text-sm font-medium">Total Requests</p>
+    </article>
+
+    <article class="request-kpi request-kpi-pending rounded-2xl border p-5 shadow-sm">
+      <div class="request-kpi-icon inline-flex h-10 w-10 items-center justify-center rounded-xl">
+        <Clock3 size={16} />
+      </div>
+      <p class="requests-heading mt-4 text-3xl font-bold tracking-tight">{pendingRequests}</p>
+      <p class="requests-subtitle mt-1 text-sm font-medium">Pending Review</p>
+    </article>
+
+    <article class="request-kpi request-kpi-resolved rounded-2xl border p-5 shadow-sm">
+      <div class="request-kpi-icon inline-flex h-10 w-10 items-center justify-center rounded-xl">
+        <ShieldCheck size={16} />
+      </div>
+      <p class="requests-heading mt-4 text-3xl font-bold tracking-tight">{resolvedRequests}</p>
+      <p class="requests-subtitle mt-1 text-sm font-medium">Resolved</p>
+    </article>
+  </section>
+
   {#if formSuccess}
     <p class="alert-success rounded-xl border px-4 py-3 text-sm font-medium">{formSuccess}</p>
   {/if}
 
   {#if activeTab === 'create-request' && !isSupervisor}
-    <section class="requests-panel rounded-xl border p-6 shadow-md">
+    <section class="requests-panel request-form-panel rounded-2xl border p-6 shadow-md">
       <h3 class="requests-heading text-base font-semibold">Create Request</h3>
       <p class="requests-subtitle mt-1 text-sm">Fill out the request details before submission.</p>
 
@@ -264,146 +344,246 @@
       {/if}
 
       <div class="mt-5 flex justify-end">
-        <button type="button" class="submit-button rounded-xl px-5 py-2.5 text-sm font-semibold" on:click={submitRequest}>
-          Submit Request
+        <button 
+          type="button" 
+          class="submit-button rounded-xl px-5 py-2.5 text-sm font-semibold" 
+          on:click={submitRequest}
+          disabled={isSubmitting}
+        >
+          {isSubmitting ? 'Submitting...' : 'Submit Request'}
         </button>
       </div>
     </section>
   {:else}
     <section class="flex flex-col gap-4">
-      {#each requests as request (request.id)}
-        {@const statusMeta = STATUS_META[request.status] ?? STATUS_META.Pending}
-        <article class="requests-panel request-card rounded-xl border p-5 shadow-md">
-          <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div class="flex items-start gap-3">
-              <div class="inline-flex h-10 w-10 items-center justify-center rounded-lg request-type-icon">
-                {#if request.requestType === 'Overtime'}
-                  <Clock3 size={16} />
-                {:else}
-                  <Calendar size={16} />
-                {/if}
-              </div>
-              <div>
-                <div class="flex flex-wrap items-center gap-2">
-                  <h4 class="requests-heading text-base font-semibold">{request.requestType}</h4>
-                  <span class={statusMeta.badgeClass}>{request.status}</span>
+      {#if isLoading}
+        <p class="requests-empty-state requests-subtitle text-center py-8">Loading requests...</p>
+      {:else if requests.length === 0}
+        <p class="requests-empty-state requests-subtitle text-center py-8">No requests yet.</p>
+      {:else}
+        {#each requests as request (request.id)}
+          {@const statusMeta = STATUS_META[request.status] ?? STATUS_META.Pending}
+          {@const statusTone = String(request.status || 'Pending').toLowerCase()}
+          <article class={`requests-panel request-card request-card-${statusTone} rounded-2xl border p-5 shadow-md`}>
+            <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div class="flex items-start gap-3">
+                <div class="inline-flex h-10 w-10 items-center justify-center rounded-lg request-type-icon">
+                  {#if request.requestType === 'Overtime'}
+                    <Clock3 size={16} />
+                  {:else}
+                    <Calendar size={16} />
+                  {/if}
                 </div>
-                <p class="requests-subtitle mt-1 text-sm">Date: {formatDate(request.date)}</p>
-                {#if request.time}
-                  <p class="requests-subtitle text-sm">Time: {request.time}</p>
-                {/if}
-                {#if isSupervisor}
-                  <p class="requests-subtitle text-sm">Student: {request.requester_name || 'Unknown'}</p>
-                {/if}
+                <div class="request-copy">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <h4 class="requests-heading text-base font-semibold">{request.requestType}</h4>
+                    <span class={statusMeta.badgeClass}>{request.status}</span>
+                  </div>
+                  <div class="request-meta mt-2 flex flex-wrap items-center gap-2">
+                    <span class="meta-pill">Date: {formatDate(request.date)}</span>
+                    {#if request.time}
+                      <span class="meta-pill">Time: {request.time}</span>
+                    {/if}
+                    {#if isSupervisor}
+                      <span class="meta-pill">Student: {request.requester_name || 'Unknown'}</span>
+                    {/if}
+                  </div>
+                </div>
               </div>
+
+              {#if isSupervisor && request.status === 'Pending'}
+                <div class="inline-flex items-center gap-2">
+                  <button
+                    type="button"
+                    class="action-button action-approve rounded-lg px-3 py-2 text-xs font-semibold"
+                    on:click={() => updateRequestStatus(request.id, 'Approved')}
+                  >
+                    <ShieldCheck size={13} />
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    class="action-button action-reject rounded-lg px-3 py-2 text-xs font-semibold"
+                    on:click={() => updateRequestStatus(request.id, 'Rejected')}
+                  >
+                    Reject
+                  </button>
+                </div>
+              {/if}
             </div>
 
-            {#if isSupervisor}
-              <div class="inline-flex items-center gap-2">
-                <button
-                  type="button"
-                  class="action-button action-approve rounded-lg px-3 py-2 text-xs font-semibold"
-                  on:click={() => updateRequestStatus(request.id, 'Approved')}
-                >
-                  <ShieldCheck size={13} />
-                  Approve
-                </button>
-                <button
-                  type="button"
-                  class="action-button action-reject rounded-lg px-3 py-2 text-xs font-semibold"
-                  on:click={() => updateRequestStatus(request.id, 'Rejected')}
-                >
-                  Reject
-                </button>
-              </div>
-            {/if}
-          </div>
-
-          <div class="mt-4 rounded-lg border reason-box px-4 py-3">
-            <p class="requests-label text-xs font-semibold uppercase tracking-[0.08em]">Reason</p>
-            <p class="requests-subtitle mt-1 text-sm">{previewReason(request.reason)}</p>
-          </div>
-        </article>
-      {/each}
+            <div class="mt-4 rounded-lg border reason-box px-4 py-3">
+              <p class="requests-label text-xs font-semibold uppercase tracking-[0.08em]">Reason</p>
+              <p class="requests-subtitle mt-1 text-sm">{previewReason(request.reason)}</p>
+            </div>
+          </article>
+        {/each}
+      {/if}
     </section>
   {/if}
 </section>
 
 <style>
+  .requests-shell {
+    --rq-surface: #ffffff;
+    --rq-surface-soft: #f3f8ff;
+    --rq-border: #d7e3f1;
+    --rq-heading: #0f172a;
+    --rq-text: #1f2937;
+    --rq-muted: #60748e;
+    position: relative;
+    border-radius: 1.25rem;
+    padding: 0.35rem;
+    isolation: isolate;
+  }
+
+  .requests-shell::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -2;
+    border-radius: 1.25rem;
+    background: radial-gradient(130% 130% at 0% 0%, #e4f1ff 0%, #f7fbff 58%, #eef4fb 100%);
+  }
+
+  .requests-shell::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: 1.25rem;
+    background-image: linear-gradient(112deg, rgba(15, 108, 189, 0.08), transparent 52%),
+      repeating-linear-gradient(90deg, transparent 0, transparent 30px, rgba(15, 108, 189, 0.04) 30px, rgba(15, 108, 189, 0.04) 31px);
+    pointer-events: none;
+  }
+
   .requests-header-card,
-  .requests-panel {
-    background: var(--color-surface);
-    border-color: var(--color-border);
+  .requests-panel,
+  .request-kpi {
+    background: var(--rq-surface);
+    border-color: var(--rq-border);
+    box-shadow: 0 18px 36px -30px rgba(15, 23, 42, 0.42);
   }
 
   .requests-heading {
-    color: var(--color-heading);
+    color: var(--rq-heading);
   }
 
   .requests-subtitle,
   .requests-label {
-    color: var(--color-sidebar-text);
+    color: var(--rq-text);
   }
 
   .requests-header-icon {
-    background: #e0e7ff;
-    color: #4338ca;
-  }
-
-  :global(.dark) .requests-header-icon {
-    background: rgba(99, 102, 241, 0.16);
-    color: #c7d2fe;
+    background: #e0efff;
+    color: #0f6cbd;
+    border: 1px solid #bfdbfe;
   }
 
   .tab-switch {
-    border-color: var(--color-border);
-    background: var(--color-soft);
+    border-color: var(--rq-border);
+    background: #e9f2fc;
     padding: 0.2rem;
   }
 
   .tab-button {
     border: none;
     background: transparent;
-    color: var(--color-sidebar-text);
+    color: #34506e;
     padding: 0.55rem 1rem;
     border-radius: 0.7rem;
     transition: all 0.2s ease;
   }
 
   .tab-button:hover {
-    background: var(--color-hover);
-    color: var(--color-heading);
+    background: #dbeafe;
+    color: #0f6cbd;
   }
 
   .tab-button-active {
-    background: var(--color-active-bg);
-    color: var(--color-active-text);
+    background: linear-gradient(90deg, #0f6cbd, #0ea5e9);
+    color: #ffffff;
     font-weight: 700;
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-active-text) 18%, transparent);
+    box-shadow: 0 10px 20px -14px rgba(15, 108, 189, 0.9);
+  }
+
+  .request-kpi {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .request-kpi::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 3px;
+  }
+
+  .request-kpi-total::before {
+    background: linear-gradient(90deg, #0f6cbd, #38bdf8);
+  }
+
+  .request-kpi-pending::before {
+    background: linear-gradient(90deg, #d97706, #f59e0b);
+  }
+
+  .request-kpi-resolved::before {
+    background: linear-gradient(90deg, #0f766e, #10b981);
+  }
+
+  .request-kpi-icon {
+    background: #e8f2fd;
+    color: #0f6cbd;
+    border: 1px solid #bfdbfe;
+  }
+
+  .request-kpi-pending .request-kpi-icon {
+    background: #fff3dd;
+    color: #b45309;
+    border-color: #fcd34d;
+  }
+
+  .request-kpi-resolved .request-kpi-icon {
+    background: #ddfbea;
+    color: #0f766e;
+    border-color: #86efac;
+  }
+
+  .request-form-panel {
+    background: linear-gradient(145deg, #ffffff, #f3f8ff);
   }
 
   .requests-input {
-    background: var(--color-soft);
-    border-color: var(--color-border);
-    color: var(--color-heading);
+    background: #edf4fb;
+    border-color: #bed2e8;
+    color: var(--rq-heading);
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
   }
 
   .requests-input:focus {
-    border-color: #818cf8;
-    box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.25);
+    border-color: #60a5fa;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
   }
 
   .submit-button {
-    background: #4f46e5;
+    background: linear-gradient(90deg, #0f6cbd, #0ea5e9);
     color: #ffffff;
-    border: 1px solid #4338ca;
+    border: 1px solid #0f6cbd;
+    box-shadow: 0 14px 28px -16px rgba(15, 108, 189, 0.9);
     transition: all 0.2s ease;
   }
 
-  .submit-button:hover {
-    background: #4338ca;
+  .submit-button:hover:not(:disabled) {
+    filter: brightness(1.06);
     transform: translateY(-1px);
+  }
+
+  .submit-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    box-shadow: none;
   }
 
   .alert-error {
@@ -418,40 +598,70 @@
     color: #15803d;
   }
 
-  :global(.dark) .alert-error {
-    background: rgba(239, 68, 68, 0.2);
-    border-color: rgba(239, 68, 68, 0.45);
-    color: #fca5a5;
-  }
-
-  :global(.dark) .alert-success {
-    background: rgba(34, 197, 94, 0.2);
-    border-color: rgba(34, 197, 94, 0.45);
-    color: #86efac;
+  .requests-empty-state {
+    background: var(--rq-surface);
+    border: 1px dashed var(--rq-border);
+    border-radius: 1rem;
   }
 
   .request-card {
+    position: relative;
+    overflow: hidden;
     transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .request-card::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 3px;
+    background: linear-gradient(90deg, #93c5fd, #38bdf8);
+  }
+
+  .request-card-pending::before {
+    background: linear-gradient(90deg, #f59e0b, #facc15);
+  }
+
+  .request-card-approved::before {
+    background: linear-gradient(90deg, #10b981, #34d399);
+  }
+
+  .request-card-rejected::before {
+    background: linear-gradient(90deg, #ef4444, #f97316);
   }
 
   .request-card:hover {
     transform: translateY(-2px);
-    box-shadow: var(--shadow-lg);
+    box-shadow: 0 18px 36px -26px rgba(15, 23, 42, 0.45);
   }
 
   .request-type-icon {
-    background: #e0e7ff;
-    color: #4338ca;
+    background: #e8f2fd;
+    color: #0f6cbd;
+    border: 1px solid #bfdbfe;
   }
 
-  :global(.dark) .request-type-icon {
-    background: rgba(99, 102, 241, 0.16);
-    color: #c7d2fe;
+  .request-meta {
+    gap: 0.5rem;
+  }
+
+  .meta-pill {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    border: 1px solid #bfd5ec;
+    background: #edf4fb;
+    color: #355472;
+    padding: 0.2rem 0.65rem;
+    font-size: 0.74rem;
+    font-weight: 600;
   }
 
   .reason-box {
-    background: var(--color-soft);
-    border-color: var(--color-border);
+    background: #f1f7fd;
+    border-color: #c9d9ec;
   }
 
   .status-badge {
@@ -466,21 +676,142 @@
   }
 
   .status-pending {
-    background: #fef9c3;
-    border-color: #fde047;
-    color: #854d0e;
+    background: #fff3dd;
+    border-color: #fcd34d;
+    color: #9a3412;
   }
 
   .status-approved {
-    background: #dcfce7;
+    background: #ddfbea;
     border-color: #86efac;
-    color: #166534;
+    color: #0f766e;
   }
 
   .status-rejected {
     background: #fee2e2;
     border-color: #fca5a5;
-    color: #991b1b;
+    color: #b91c1c;
+  }
+
+  .action-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.32rem;
+    border: 1px solid transparent;
+    transition: all 0.2s ease;
+  }
+
+  .action-approve {
+    background: linear-gradient(90deg, #0f766e, #10b981);
+    color: #ffffff;
+    border-color: #0f766e;
+  }
+
+  .action-approve:hover {
+    filter: brightness(1.06);
+    transform: translateY(-1px);
+  }
+
+  .action-reject {
+    background: linear-gradient(90deg, #dc2626, #f97316);
+    color: #ffffff;
+    border-color: #dc2626;
+  }
+
+  .action-reject:hover {
+    filter: brightness(1.06);
+    transform: translateY(-1px);
+  }
+
+  :global(.dark) .requests-shell {
+    --rq-surface: #162338;
+    --rq-surface-soft: #1b2a42;
+    --rq-border: #2b3c57;
+    --rq-heading: #e5edf8;
+    --rq-text: #cfdceb;
+    --rq-muted: #9ab0cb;
+  }
+
+  :global(.dark) .requests-shell::before {
+    background: radial-gradient(130% 130% at 0% 0%, #173459 0%, #101a2b 48%, #0b1422 100%);
+  }
+
+  :global(.dark) .requests-shell::after {
+    background-image: linear-gradient(112deg, rgba(91, 177, 255, 0.12), transparent 55%),
+      repeating-linear-gradient(90deg, transparent 0, transparent 32px, rgba(148, 163, 184, 0.07) 32px, rgba(148, 163, 184, 0.07) 33px);
+  }
+
+  :global(.dark) .requests-header-card,
+  :global(.dark) .requests-panel,
+  :global(.dark) .request-kpi {
+    box-shadow: 0 20px 38px -30px rgba(2, 8, 23, 0.95);
+  }
+
+  :global(.dark) .requests-header-icon,
+  :global(.dark) .request-kpi-icon,
+  :global(.dark) .request-type-icon {
+    background: rgba(91, 177, 255, 0.16);
+    color: #93c5fd;
+    border-color: rgba(125, 211, 252, 0.4);
+  }
+
+  :global(.dark) .request-kpi-pending .request-kpi-icon {
+    background: rgba(245, 158, 11, 0.2);
+    color: #fcd34d;
+    border-color: rgba(245, 158, 11, 0.45);
+  }
+
+  :global(.dark) .request-kpi-resolved .request-kpi-icon {
+    background: rgba(16, 185, 129, 0.2);
+    color: #6ee7b7;
+    border-color: rgba(16, 185, 129, 0.45);
+  }
+
+  :global(.dark) .request-form-panel {
+    background: linear-gradient(150deg, rgba(22, 35, 56, 0.96), rgba(19, 30, 49, 0.98));
+  }
+
+  :global(.dark) .tab-switch {
+    background: #1a2c46;
+    border-color: #335174;
+  }
+
+  :global(.dark) .tab-button {
+    color: #b3c7df;
+  }
+
+  :global(.dark) .tab-button:hover {
+    background: #233652;
+    color: #e2ebf7;
+  }
+
+  :global(.dark) .requests-input,
+  :global(.dark) .meta-pill,
+  :global(.dark) .reason-box {
+    background: #1a2c45;
+    border-color: #334b6b;
+    color: #dbe7f5;
+  }
+
+  :global(.dark) .requests-input:focus {
+    border-color: #7cc3ff;
+    box-shadow: 0 0 0 3px rgba(91, 177, 255, 0.24);
+  }
+
+  :global(.dark) .requests-empty-state {
+    border-color: #365276;
+  }
+
+  :global(.dark) .alert-error {
+    background: rgba(239, 68, 68, 0.2);
+    border-color: rgba(239, 68, 68, 0.45);
+    color: #fca5a5;
+  }
+
+  :global(.dark) .alert-success {
+    background: rgba(34, 197, 94, 0.2);
+    border-color: rgba(34, 197, 94, 0.45);
+    color: #86efac;
   }
 
   :global(.dark) .status-pending {
@@ -501,33 +832,10 @@
     color: #fca5a5;
   }
 
-  .action-button {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.32rem;
-    border: 1px solid transparent;
-    transition: all 0.2s ease;
-  }
-
-  .action-approve {
-    background: #16a34a;
-    color: #ffffff;
-    border-color: #15803d;
-  }
-
-  .action-approve:hover {
-    background: #15803d;
-    transform: translateY(-1px);
-  }
-
-  .action-reject {
-    background: #ef4444;
-    color: #ffffff;
-    border-color: #dc2626;
-  }
-
-  .action-reject:hover {
-    background: #dc2626;
-    transform: translateY(-1px);
+  @media (max-width: 768px) {
+    .requests-shell {
+      border-radius: 1rem;
+      padding: 0;
+    }
   }
 </style>

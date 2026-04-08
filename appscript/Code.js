@@ -17,6 +17,8 @@ var SUPERVISOR_ASSIGNMENTS_SHEET_ = 'supervisor_assignments';
 var SUPERVISOR_ASSIGNMENTS_HEADERS_ = ['assignment_id', 'supervisor_user_id', 'student_user_id', 'company', 'department', 'status', 'created_at'];
 var STUDENT_OJT_PROFILE_SHEET_ = 'student_ojt_profile';
 var STUDENT_OJT_PROFILE_HEADERS_ = ['user_id', 'total_ojt_hours', 'start_date', 'estimated_end_date', 'course', 'school'];
+var REQUESTS_SHEET_ = 'requests';
+var REQUESTS_HEADERS_ = ['request_id', 'user_id', 'requester_name', 'request_type', 'request_date', 'request_time', 'reason', 'status', 'created_at'];
 
 function doPost(e) {
   try {
@@ -148,6 +150,20 @@ function dispatchAction_(payload) {
 
   if (action === 'create_folder') {
     return handleCreateFolder_(payload);
+  if (action === 'create_request') {
+    return handleCreateRequest_(payload);
+  }
+
+  if (action === 'list_requests_by_user') {
+    return handleListRequestsByUser_(payload);
+  }
+
+  if (action === 'list_assigned_student_requests') {
+    return handleListAssignedStudentRequests_(payload);
+  }
+
+  if (action === 'update_request_status') {
+    return handleUpdateRequestStatus_(payload);
   }
 
   return { ok: false, error: 'Unknown action: ' + action };
@@ -1362,6 +1378,161 @@ function handleDebugSupervisorAssignment_(payload) {
   };
 }
 
+// --- Request handlers ---
+function handleCreateRequest_(payload) {
+  var userId = String(payload.user_id || '').trim();
+  var requesterName = String(payload.requester_name || '').trim();
+  var requestType = String(payload.request_type || '').trim();
+  var requestDate = String(payload.request_date || '').trim();
+  var requestTime = String(payload.request_time || '').trim();
+  var reason = String(payload.reason || '').trim();
+
+  if (!userId || !requestType || !requestDate || !reason) {
+    return { ok: false, error: 'Missing required fields: user_id, request_type, request_date, reason' };
+  }
+
+  var requestId = 'REQ-' + Date.now();
+  var createdAt = new Date().toISOString();
+
+  var sheet = getRequestsSheet_();
+  var headers = getHeaders_(sheet);
+  var row = [];
+  
+  for (var i = 0; i < headers.length; i++) {
+    var header = headers[i];
+    if (header === 'request_id') {
+      row.push(requestId);
+    } else if (header === 'user_id') {
+      row.push(userId);
+    } else if (header === 'requester_name') {
+      row.push(requesterName);
+    } else if (header === 'request_type') {
+      row.push(requestType);
+    } else if (header === 'request_date') {
+      row.push(requestDate);
+    } else if (header === 'request_time') {
+      row.push(requestTime);
+    } else if (header === 'reason') {
+      row.push(reason);
+    } else if (header === 'status') {
+      row.push('Pending');
+    } else if (header === 'created_at') {
+      row.push(createdAt);
+    } else {
+      row.push('');
+    }
+  }
+
+  sheet.appendRow(row);
+
+  return {
+    ok: true,
+    request: {
+      id: requestId,
+      requestType: requestType,
+      date: requestDate,
+      time: requestTime,
+      reason: reason,
+      status: 'Pending',
+      requester_name: requesterName,
+    },
+  };
+}
+
+function handleListRequestsByUser_(payload) {
+  var userId = String(payload.user_id || '').trim();
+
+  if (!userId) {
+    return { ok: false, error: 'user_id is required.' };
+  }
+
+  var sheet = getRequestsSheet_();
+  var rows = readSheetObjects_(sheet);
+  var userRequests = [];
+
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i];
+    if (String(row.user_id || '').trim() === userId) {
+      userRequests.push({
+        id: String(row.request_id || ''),
+        requestType: String(row.request_type || ''),
+        date: formatDateValue_(row.request_date),
+        time: String(row.request_time || ''),
+        reason: String(row.reason || ''),
+        status: String(row.status || 'Pending'),
+        requester_name: String(row.requester_name || ''),
+      });
+    }
+  }
+
+  return { ok: true, requests: userRequests };
+}
+
+function handleListAssignedStudentRequests_(payload) {
+  var supervisorUserId = String(payload.supervisor_user_id || '').trim();
+
+  if (!supervisorUserId) {
+    return { ok: false, error: 'supervisor_user_id is required.' };
+  }
+
+  var assignmentSheet = getSupervisorAssignmentsSheet_();
+  var assignments = readSheetObjects_(assignmentSheet);
+  
+  var assignedStudentIds = [];
+  for (var i = 0; i < assignments.length; i++) {
+    if (String(assignments[i].supervisor_user_id || '').trim() === supervisorUserId) {
+      assignedStudentIds.push(String(assignments[i].student_user_id || '').trim());
+    }
+  }
+
+  var requestSheet = getRequestsSheet_();
+  var rows = readSheetObjects_(requestSheet);
+  var studentRequests = [];
+
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i];
+    var rowUserId = String(row.user_id || '').trim();
+    
+    if (assignedStudentIds.indexOf(rowUserId) !== -1) {
+      studentRequests.push({
+        id: String(row.request_id || ''),
+        requestType: String(row.request_type || ''),
+        date: formatDateValue_(row.request_date),
+        time: String(row.request_time || ''),
+        reason: String(row.reason || ''),
+        status: String(row.status || 'Pending'),
+        requester_name: String(row.requester_name || ''),
+      });
+    }
+  }
+
+  return { ok: true, requests: studentRequests };
+}
+
+function handleUpdateRequestStatus_(payload) {
+  var requestId = String(payload.request_id || '').trim();
+  var newStatus = String(payload.status || '').trim();
+
+  if (!requestId || !newStatus) {
+    return { ok: false, error: 'request_id and status are required.' };
+  }
+
+  var sheet = getRequestsSheet_();
+  var rows = getSheetValues_(sheet);
+  var headers = getHeaders_(sheet);
+  var statusColIndex = findColumnIndex_(headers, 'request_id');
+  var updateColIndex = findColumnIndex_(headers, 'status');
+
+  for (var i = 1; i < rows.length; i++) {
+    if (String(rows[i][statusColIndex - 1] || '').trim() === requestId) {
+      sheet.getRange(i + 1, updateColIndex, 1, 1).setValue(newStatus);
+      return { ok: true, message: 'Request status updated.' };
+    }
+  }
+
+  return { ok: false, error: 'Request not found.' };
+}
+
 function getCompletedHoursLookupByUserIds_(userIds) {
   var lookup = {};
   if (!Array.isArray(userIds) || !userIds.length) {
@@ -1631,6 +1802,31 @@ function isPendingRegistrationExpired_(pendingRecord) {
   return expiresAt.getTime() < new Date().getTime();
 }
 
+function formatDateValue_(value) {
+  var dateStr = String(value || '').trim();
+  if (!dateStr) return '';
+  
+  // If it looks like a Date object's toString(), extract date portion
+  if (dateStr.includes('GMT') || dateStr.length > 20) {
+    try {
+      var date = new Date(value);
+      if (!isNaN(date.getTime())) {
+        var year = date.getFullYear();
+        var month = String(date.getMonth() + 1).padStart(2, '0');
+        var day = String(date.getDate()).padStart(2, '0');
+        return year + '-' + month + '-' + day;
+      }
+    } catch (e) {}
+  }
+  
+  // If it's already in YYYY-MM-DD format, return as-is
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return dateStr;
+  }
+  
+  return dateStr;
+}
+
 function getSheet_(sheetName) {
   var sheet = getSpreadsheet_().getSheetByName(sheetName);
   if (!sheet) {
@@ -1671,6 +1867,10 @@ function getSupervisorAssignmentsSheet_() {
 
 function getStudentOjtProfileSheet_() {
   return getOrCreateSheetWithHeaders_(STUDENT_OJT_PROFILE_SHEET_, STUDENT_OJT_PROFILE_HEADERS_);
+}
+
+function getRequestsSheet_() {
+  return getOrCreateSheetWithHeaders_(REQUESTS_SHEET_, REQUESTS_HEADERS_);
 }
 
 function ensureSheetColumns_(sheet, columnNames) {
