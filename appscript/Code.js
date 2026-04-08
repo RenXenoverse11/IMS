@@ -15,6 +15,10 @@ var TIME_LOGS_SHEET_ = 'time_logs';
 var TIME_LOGS_HEADERS_ = ['timelog_id', 'user_id', 'log_date', 'time_in', 'time_out', 'hours_rendered', 'status', 'notes', 'created_at'];
 var SUPERVISOR_ASSIGNMENTS_SHEET_ = 'supervisor_assignments';
 var SUPERVISOR_ASSIGNMENTS_HEADERS_ = ['assignment_id', 'supervisor_user_id', 'student_user_id', 'company', 'department', 'status', 'created_at'];
+var STUDENT_OJT_PROFILE_SHEET_ = 'student_ojt_profile';
+var STUDENT_OJT_PROFILE_HEADERS_ = ['user_id', 'total_ojt_hours', 'start_date', 'estimated_end_date', 'course', 'school'];
+var REQUESTS_SHEET_ = 'requests';
+var REQUESTS_HEADERS_ = ['request_id', 'user_id', 'requester_name', 'request_type', 'request_date', 'request_time', 'reason', 'status', 'created_at'];
 
 function doPost(e) {
   try {
@@ -1789,6 +1793,14 @@ function getTimeLogsSheet_() {
 
 function getSupervisorAssignmentsSheet_() {
   return getOrCreateSheetWithHeaders_(SUPERVISOR_ASSIGNMENTS_SHEET_, SUPERVISOR_ASSIGNMENTS_HEADERS_);
+}
+
+function getStudentOjtProfileSheet_() {
+  return getOrCreateSheetWithHeaders_(STUDENT_OJT_PROFILE_SHEET_, STUDENT_OJT_PROFILE_HEADERS_);
+}
+
+function getRequestsSheet_() {
+  return getOrCreateSheetWithHeaders_(REQUESTS_SHEET_, REQUESTS_HEADERS_);
 }
 
 function ensureSheetColumns_(sheet, columnNames) {
