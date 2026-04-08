@@ -141,11 +141,14 @@ function handleGetStudentDashboard_(payload) {
   }
 
   var profile = getStudentProfileByUserId_(userId);
-  // Load only the most recent 10 time logs (reduced from 20 for faster loading)
+  // Load only the most recent 10 time logs for display (much faster)
   var logsResult = handleListTimeLogsByUser_({ user_id: userId, limit: 10 });
   if (!logsResult || logsResult.ok !== true) {
     return { ok: false, error: logsResult && logsResult.error ? logsResult.error : 'Unable to load time logs.' };
   }
+
+  // Calculate total hours_rendered from ALL time logs (efficient server-side calculation)
+  var totalCompletedHours = getTotalCompletedHoursByUserId_(userId);
 
   var activityResult = handleListActivityLogsByUser_({ user_id: userId, limit: payload.limit || 10 });
   var tasksResult = handleListTasksByUser_({ user_id: userId, limit: payload.limit || 10 });
@@ -161,6 +164,7 @@ function handleGetStudentDashboard_(payload) {
       department: String(userRecord.user.department || '')
     },
     profile: profile,
+    total_completed_hours: totalCompletedHours,
     time_logs: Array.isArray(logsResult.logs) ? logsResult.logs : [],
     activity_logs: activityResult && activityResult.ok === true ? activityResult.logs : [],
     tasks: tasksResult && tasksResult.ok === true ? tasksResult.tasks : []
@@ -1358,6 +1362,24 @@ function getCompletedHoursLookupByUserIds_(userIds) {
   }
 
   return lookup;
+}
+
+function getTotalCompletedHoursByUserId_(userId) {
+  var targetUserId = String(userId || '').trim();
+  if (!targetUserId) {
+    return 0;
+  }
+
+  var rows = readSheetObjects_(getTimeLogsSheet_());
+  var total = 0;
+  for (var i = 0; i < rows.length; i++) {
+    var rowUserId = String(rows[i].user_id || '').trim();
+    if (rowUserId === targetUserId) {
+      total += Number(rows[i].hours_rendered || 0);
+    }
+  }
+
+  return total;
 }
 
 function getActiveSupervisorAssignments_(supervisorUserId) {

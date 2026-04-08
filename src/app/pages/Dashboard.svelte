@@ -28,6 +28,7 @@
   // Server data (raw)
   let profile = null;
   let timeLogs = [];
+  let totalCompletedHours = 0;
   let activityLogs = [];
   let tasks = [];
 
@@ -115,7 +116,7 @@
   }
 
   $: totalOjtHours = Number(formTotalOjtHours || profile?.total_ojt_hours || 0);
-  $: hoursCompleted = sumHours(timeLogs, progressMode);
+  $: hoursCompleted = totalCompletedHours;
   $: hoursRemaining = Math.max(0, totalOjtHours - hoursCompleted);
   $: workingDaysNeeded = Math.ceil(hoursRemaining / 8);
 
@@ -164,6 +165,7 @@
       const data = await getStudentDashboard(currentUser.user_id, { limit: 10 });
       profile = data.profile;
       timeLogs = data.time_logs;
+      totalCompletedHours = Number(data.total_completed_hours || 0);
       tasks = data.tasks;
 
       // Create activity items from time logs (Logged In / Logged Out entries)
@@ -304,7 +306,7 @@
         </div>
         <div class="card-content">
           <div class="stat-value">{hoursCompleted}</div>
-          <div class="stat-label">{progressMode === PROGRESS_MODES.APPROVED ? 'approved logs' : 'all logs'}</div>
+          <div class="stat-label">all rendered hours</div>
         </div>
       </div>
 
@@ -365,11 +367,6 @@
           <label class="field">
             <span>Start Date</span>
             <input type="text" readonly value={formStartDate ? formatDateLong(parseIsoDateOnly(formStartDate)) : ''} />
-          </label>
-
-          <label class="field">
-            <span>Total OJT Hours</span>
-            <input type="text" readonly value={formTotalOjtHours || ''} />
           </label>
 
           <label class="field">
