@@ -222,7 +222,6 @@ const summaryCards = [
     description: '',
     dailyChecklist: [],
     attachments: [],
-    dateCreated: '',
   };
   let trackerEditForm = {
     title: '',
@@ -1119,10 +1118,7 @@ const summaryCards = [
           {/if}
 
           <div class="task-view-grid">
-                        <label>
-                          <span>Date Created</span>
-                          <input type="text" value={addTaskForm.dateCreated} readonly style="background: #f3f4f6; color: #64748b;" />
-                        </label>
+                        <!-- Date Created field removed -->
             <label>
               <span>Task Title</span>
               <input type="text" bind:value={addTaskForm.title} placeholder="Enter task title" required />
@@ -1427,13 +1423,8 @@ const summaryCards = [
               {:else}
                 <div class="tracker-summary">
                   <p class="tracker-title">{selectedOverviewTask.title}</p>
-                  <p class="tracker-description" style="font-style: italic; color: #64748b; margin-bottom: 0.5em;">{selectedOverviewTask.description}</p>
-                  {#if selectedOverviewTask.dateCreated}
-                    <p class="tracker-meta" style="font-style: italic; color: #64748b; font-size: 0.92em; margin-bottom: 0.2em;">
-                      Date Created: {selectedOverviewTask.dateCreated}
-                    </p>
-                  {/if}
-                  <p class="tracker-meta">
+                  <p class="tracker-description" style="color: #334155; margin-bottom: 0.25em; line-height: 1.4;">{selectedOverviewTask.description}</p>
+                  <p class="tracker-meta" style="font-style: italic; color: #64748b; font-size: 0.97em; margin-bottom: 0.1em; line-height: 1.3;">
                     Due {selectedOverviewTask.dueDate}
                     <span aria-hidden="true">•</span>
                     {formatAttachmentMeta(selectedOverviewTask.attachments)}
