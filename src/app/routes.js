@@ -31,6 +31,30 @@ export const pageMeta = {
     title: 'Settings',
     description: 'Manage your account preferences and profile.',
   },
+  '/supervisor': {
+    title: 'Supervisor Dashboard',
+    description: 'Assign students and monitor internship progress.',
+  },
+  '/supervisor/interns': {
+    title: 'Intern Management',
+    description: 'Manage and monitor assigned interns.',
+  },
+  '/supervisor/time-logs': {
+    title: 'Time Log Management',
+    description: 'Review and manage assigned student time entries.',
+  },
+  '/supervisor/requests': {
+    title: 'Requests',
+    description: 'Approve or reject assigned student requests.',
+  },
+  '/supervisor/activity': {
+    title: 'Activity Log',
+    description: 'Review activity logs of assigned students.',
+  },
+  '/supervisor/documents': {
+    title: 'Documents',
+    description: 'Review documents submitted by assigned students.',
+  },
 };
 
 export function normalizePath(path) {

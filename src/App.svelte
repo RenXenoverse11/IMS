@@ -10,6 +10,9 @@
   import SignUpPage from './app/pages/SignUpPage.svelte';
   import SupervisorDashboard from './app/pages/SupervisorDashboard.svelte';
   import SupervisorTimeLog from './app/pages/SupervisorTimeLog.svelte';
+  import SupervisorActivity from './app/pages/SupervisorActivity.svelte';
+  import SupervisorDocuments from './app/pages/SupervisorDocuments.svelte';
+  import SupervisorInternManagement from './app/pages/SupervisorInternManagement.svelte';
   import TimeLog from './app/pages/TimeLog.svelte';
   import { getPageMeta, normalizePath } from './app/routes.js';
   import {
@@ -30,6 +33,12 @@
     '/requests': Requests,
     '/settings': Settings,
     '/time-log': TimeLog,
+    '/supervisor': SupervisorDashboard,
+    '/supervisor/interns': SupervisorInternManagement,
+    '/supervisor/time-logs': SupervisorTimeLog,
+    '/supervisor/requests': Requests,
+    '/supervisor/activity': SupervisorActivity,
+    '/supervisor/documents': SupervisorDocuments,
   };
 
   const authPaths = new Set(['/login', '/signup']);
@@ -90,24 +99,8 @@
 
   $: currentUserRole = String(currentUser?.role || '').trim();
   $: isSupervisorUser = currentUserRole === 'Supervisor';
-  $: effectivePageComponents = isSupervisorUser
-    ? {
-        ...pageComponents,
-        '/': SupervisorDashboard,
-        '/time-log': SupervisorTimeLog,
-      }
-    : pageComponents;
-  $: CurrentPage = effectivePageComponents[currentPath] ?? (isSupervisorUser ? SupervisorDashboard : Dashboard);
+  $: CurrentPage = pageComponents[currentPath] ?? Dashboard;
   $: basePageMeta = getPageMeta(currentPath);
-  $: pageMeta = isSupervisorUser
-    ? currentPath === '/'
-      ? { title: 'Supervisor Dashboard', description: 'Assign students and monitor internship progress.' }
-      : currentPath === '/time-log'
-        ? { title: 'Time Log Management', description: 'Review and manage assigned student time entries.' }
-        : currentPath === '/requests'
-          ? { title: 'Requests', description: 'Approve or reject assigned student requests.' }
-          : basePageMeta
-    : basePageMeta;
   $: isAuthPage = authPaths.has(currentPath);
 
   $: if (typeof document !== 'undefined') {
@@ -129,7 +122,7 @@
 {#if isAuthPage}
   <svelte:component this={CurrentPage} />
 {:else}
-  <Layout {currentPath} {pageMeta}>
+  <Layout {currentPath} pageMeta={basePageMeta}>
     <svelte:component this={CurrentPage} />
   </Layout>
 {/if}

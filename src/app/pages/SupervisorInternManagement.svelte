@@ -1,7 +1,13 @@
 <script>
   import { onDestroy, onMount } from 'svelte';
-  import { Plus, RefreshCw, Users } from 'lucide-svelte';
-  import { assignStudentsToSupervisor, listStudentsForAssignment, listSupervisorAssignedStudents, subscribeToCurrentUser } from '../../lib/auth.js';
+  import { Check, RefreshCw, Save, Search, Users, X } from 'lucide-svelte';
+  import {
+    assignStudentsToSupervisor,
+    getCurrentUser,
+    listStudentsForAssignment,
+    listSupervisorAssignedStudents,
+    subscribeToCurrentUser,
+  } from '../lib/auth.js';
 
   export let currentUser = null;
 
@@ -12,7 +18,7 @@
   let availableStudents = [];
   let assignedStudents = [];
   let selectedStudentIds = [];
-  let showAddInternModal = false;
+  let studentSearch = '';
   let unsubscribe;
 
   function toNumber(value) {
@@ -28,7 +34,14 @@
   function getInitials(fullName) {
     const value = String(fullName || '').trim();
     if (!value) return 'ST';
-    return value.split(' ').filter(Boolean).slice(0, 2).map(p => p.charAt(0).toUpperCase()).join('') || 'ST';
+    return (
+      value
+        .split(' ')
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((part) => part.charAt(0).toUpperCase())
+        .join('') || 'ST'
+    );
   }
 
   function normalizeDate(value) {
@@ -36,7 +49,24 @@
     if (!text) return '-';
     const parsed = new Date(`${text}T00:00:00`);
     if (Number.isNaN(parsed.getTime())) return text;
-    return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(parsed);
+    return new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    }).format(parsed);
+  }
+
+  function syncSelectedFromFetched(students, assigned) {
+    const fromAvailable = students
+      .filter((student) => Boolean(student?.is_assigned))
+      .map((student) => String(student?.user_id || '').trim())
+      .filter(Boolean);
+
+    const fromAssigned = assigned
+      .map((student) => String(student?.user_id || '').trim())
+      .filter(Boolean);
+
+    selectedStudentIds = Array.from(new Set([...fromAvailable, ...fromAssigned]));
   }
 
   async function loadData() {
@@ -46,6 +76,8 @@
     if (!supervisorId || roleNow !== 'supervisor') {
       availableStudents = [];
       assignedStudents = [];
+      selectedStudentIds = [];
+      loading = false;
       return;
     }
 
@@ -60,6 +92,7 @@
 
       availableStudents = students;
       assignedStudents = assigned;
+      syncSelectedFromFetched(students, assigned);
     } catch (err) {
       errorMessage = err?.message || 'Unable to load interns.';
     } finally {
@@ -67,20 +100,41 @@
     }
   }
 
-  function handleAddInternClick() {
-    showAddInternModal = true;
+  function toggleStudentSelection(studentId) {
+    const target = String(studentId || '').trim();
+    if (!target) return;
+
+    if (selectedStudentIds.includes(target)) {
+      selectedStudentIds = selectedStudentIds.filter((id) => id !== target);
+      return;
+    }
+
+    selectedStudentIds = [...selectedStudentIds, target];
   }
 
-  function closeAddInternModal() {
-    showAddInternModal = false;
+  function selectAllShown() {
+    const ids = filteredStudents
+      .map((student) => String(student?.user_id || '').trim())
+      .filter(Boolean);
+    selectedStudentIds = Array.from(new Set([...selectedStudentIds, ...ids]));
   }
 
-  async function handleAddInternConfirm() {
-    const checkboxes = document.querySelectorAll('.modal-checkboxes input[type="checkbox"]:checked');
-    const studentIds = Array.from(checkboxes).map(cb => String(cb.value || ''));
-    
-    if (studentIds.length === 0) {
-      errorMessage = 'Please select at least one intern to add.';
+  function clearSelection() {
+    selectedStudentIds = [];
+  }
+
+  function removeSelectedStudent(studentId) {
+    const target = String(studentId || '').trim();
+    if (!target) return;
+    selectedStudentIds = selectedStudentIds.filter((id) => id !== target);
+  }
+
+  async function handleSaveAssignments() {
+    const supervisorId = String(currentUser?.user_id || '').trim();
+    const roleNow = String(currentUser?.role || '').trim().toLowerCase();
+
+    if (!supervisorId || roleNow !== 'supervisor') {
+      errorMessage = 'Only supervisor accounts can save assignments.';
       return;
     }
 
@@ -89,26 +143,24 @@
     successMessage = '';
 
     try {
-      const supervisorId = String(currentUser?.user_id || '').trim();
-      const newIds = [...selectedStudentIds, ...studentIds];
-      const uniqueIds = Array.from(new Set(newIds));
-      
-      await assignStudentsToSupervisor(supervisorId, uniqueIds);
-      successMessage = `${studentIds.length} intern(s) added successfully.`;
-      selectedStudentIds = uniqueIds;
-      closeAddInternModal();
+      await assignStudentsToSupervisor(supervisorId, selectedStudentIds);
+      successMessage = 'Assigned students updated successfully.';
       await loadData();
     } catch (err) {
-      errorMessage = err?.message || 'Unable to add interns.';
+      errorMessage = err?.message || 'Unable to save assigned students.';
     } finally {
       saving = false;
     }
   }
 
   onMount(() => {
-    unsubscribe = subscribeToCurrentUser(() => {
+    currentUser = currentUser || getCurrentUser();
+
+    unsubscribe = subscribeToCurrentUser((user) => {
+      currentUser = user;
       loadData();
     });
+
     loadData();
   });
 
@@ -116,105 +168,194 @@
     if (typeof unsubscribe === 'function') unsubscribe();
   });
 
-  $: availableForAdd = availableStudents.filter(s => !selectedStudentIds.includes(String(s.user_id || '')));
+  $: currentRole = String(currentUser?.role || '').trim().toLowerCase();
+  $: isSupervisorUser = currentRole === 'supervisor';
+  $: normalizedSearch = String(studentSearch || '').trim().toLowerCase();
+  $: filteredStudents = availableStudents.filter((student) => {
+    if (!normalizedSearch) return true;
+    const haystack = [
+      String(student?.full_name || ''),
+      String(student?.email || ''),
+      String(student?.department || ''),
+      String(student?.company || ''),
+    ]
+      .join(' ')
+      .toLowerCase();
+    return haystack.includes(normalizedSearch);
+  });
+  $: selectedStudentsPreview = availableStudents.filter((student) =>
+    selectedStudentIds.includes(String(student?.user_id || ''))
+  );
+  $: selectedCount = selectedStudentIds.length;
+  $: totalAssigned = assignedStudents.length;
+  $: totalRequiredHours = assignedStudents.reduce((sum, student) => sum + toNumber(student.required_hours), 0);
+  $: totalCompletedHours = assignedStudents.reduce((sum, student) => sum + toNumber(student.completed_hours), 0);
+  $: averageProgress = totalRequiredHours > 0 ? Math.round((totalCompletedHours / totalRequiredHours) * 100) : 0;
 </script>
 
-<div class="content">
-  <div class="card">
-    <div class="card-header">
-      <div>
-        <h3 class="card-title">Manage Interns</h3>
-        <p class="text-muted text-sm">View and add interns to your supervision.</p>
+{#if currentUser && !isSupervisorUser}
+  <section class="warning-alert">
+    This page is available for supervisor accounts only.
+  </section>
+{:else}
+  <div class="content">
+    <div class="stats-grid">
+      <div class="stat-card stat-blue">
+        <div class="stat-icon"><Users size={18} /></div>
+        <p class="stat-value">{totalAssigned}</p>
+        <p class="stat-label">Assigned Students</p>
       </div>
-      <div class="btn-group">
-        <button class="btn btn-primary" on:click={handleAddInternClick} disabled={saving || availableForAdd.length === 0}>
-          <Plus size={15} />Add Intern
-        </button>
-        <button class="btn btn-secondary" on:click={loadData} disabled={loading || saving}>
-          <RefreshCw size={15} />Refresh
-        </button>
+
+      <div class="stat-card stat-success">
+        <div class="stat-icon"><Check size={18} /></div>
+        <p class="stat-value">{totalCompletedHours}h</p>
+        <p class="stat-label">Completed Hours</p>
+      </div>
+
+      <div class="stat-card stat-violet">
+        <div class="stat-icon"><Save size={18} /></div>
+        <p class="stat-value">{averageProgress}%</p>
+        <p class="stat-label">Average Progress</p>
+      </div>
+
+      <div class="stat-card stat-cyan">
+        <div class="stat-icon"><RefreshCw size={18} /></div>
+        <p class="stat-value">{totalRequiredHours}h</p>
+        <p class="stat-label">Required Hours</p>
       </div>
     </div>
 
-    {#if errorMessage}
-      <p class="alert alert-error">{errorMessage}</p>
-    {/if}
-    {#if successMessage}
-      <p class="alert alert-success">{successMessage}</p>
-    {/if}
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h3 class="card-title">Assign Students</h3>
+          <p class="text-muted text-sm">Display all students and select who will be assigned to your account.</p>
+        </div>
 
-    {#if loading}
-      <p class="text-muted">Loading...</p>
-    {:else if assignedStudents.length === 0}
-      <p class="text-muted">No interns assigned. <button on:click={handleAddInternClick} class="link">Add one now</button></p>
-    {:else}
-      <div class="interns-grid">
-        {#each assignedStudents as student (student.user_id)}
-          {@const required = toNumber(student.required_hours)}
-          {@const completed = toNumber(student.completed_hours)}
-          {@const progress = toPercent(completed, required)}
-          <div class="intern-card">
-            <div class="card-header-sm">
-              <div class="avatar">{#if student.profile_photo_url}<img src={student.profile_photo_url} alt={student.full_name} />{:else}{getInitials(student.full_name)}{/if}</div>
-              <div class="flex-1">
-                <p class="font-semibold text-sm truncate">{student.full_name}</p>
-                <p class="text-xs text-muted truncate">{student.email}</p>
-              </div>
-            </div>
-            <p class="text-xs text-muted mt-2">{student.department || '-'} • {student.company || '-'}</p>
-            <p class="text-xs text-muted">ETA: {normalizeDate(student.estimated_end_date)}</p>
-            <div class="progress-section">
-              <div class="flex justify-between">
-                <p class="text-xs font-semibold">Hours</p>
-                <p class="text-xs font-semibold">{progress}%</p>
-              </div>
-              <div class="progress-bar"><div class="progress-fill" style={`width:${progress}%`}></div></div>
-              <p class="text-xs text-muted">{completed}h / {required}h</p>
-            </div>
-            <button class="btn btn-secondary btn-full">View Profile</button>
-          </div>
-        {/each}
-      </div>
-    {/if}
-  </div>
-</div>
-
-{#if showAddInternModal}
-  <div class="modal-overlay" role="dialog" aria-modal="true">
-    <div class="modal-box">
-      <div class="modal-header">
-        <h2 class="modal-title">Add Interns to Your Supervision</h2>
-        <button type="button" class="modal-close" on:click={closeAddInternModal} aria-label="Close">
-          ✕
-        </button>
+        <div class="btn-group">
+          <button class="btn btn-secondary" type="button" on:click={loadData} disabled={loading || saving}>
+            <RefreshCw size={15} />Refresh
+          </button>
+          <button class="btn btn-primary" type="button" on:click={handleSaveAssignments} disabled={saving}>
+            <Save size={15} />{saving ? 'Saving...' : 'Save Assignment'}
+          </button>
+        </div>
       </div>
 
-      <div class="modal-body">
-        {#if availableForAdd.length === 0}
-          <p class="text-muted">All available students are already assigned to you.</p>
-        {:else}
-          <p class="text-muted text-sm mb-4">Select interns to add:</p>
-          <div class="modal-checkboxes">
-            {#each availableForAdd as student (student.user_id)}
-              <label class="checkbox-label">
-                <input type="checkbox" value={student.user_id} />
-                <div>
-                  <p class="font-semibold text-sm">{student.full_name}</p>
-                  <p class="text-xs text-muted">{student.email}</p>
-                  <p class="text-xs text-muted">{student.company || '-'} • {student.department || '-'}</p>
+      {#if errorMessage}
+        <p class="alert alert-error">{errorMessage}</p>
+      {/if}
+      {#if successMessage}
+        <p class="alert alert-success">{successMessage}</p>
+      {/if}
+
+      <div class="assign-toolbar">
+        <label class="search-wrap">
+          <span class="search-icon"><Search size={14} /></span>
+          <input
+            bind:value={studentSearch}
+            type="text"
+            class="search-input"
+            placeholder="Search students by name, email, department, or company"
+          />
+        </label>
+
+        <div class="toolbar-actions">
+          <span class="selected-chip">{selectedCount} selected</span>
+          <button
+            class="btn btn-secondary btn-xs"
+            type="button"
+            on:click={selectAllShown}
+            disabled={!filteredStudents.length || saving}
+          >
+            Select All Shown
+          </button>
+          <button
+            class="btn btn-secondary btn-xs"
+            type="button"
+            on:click={clearSelection}
+            disabled={!selectedCount || saving}
+          >
+            Clear Selection
+          </button>
+        </div>
+      </div>
+
+      {#if loading}
+        <p class="text-muted">Loading student accounts...</p>
+      {:else if availableStudents.length === 0}
+        <p class="text-muted">No student accounts found in the spreadsheet yet.</p>
+      {:else if filteredStudents.length === 0}
+        <p class="text-muted">No students match your search.</p>
+      {:else}
+        <div class="pick-grid">
+          {#each filteredStudents as student (student.user_id)}
+            {@const isSelected = selectedStudentIds.includes(String(student.user_id || ''))}
+            <button
+              type="button"
+              class="student-pick"
+              class:selected={isSelected}
+              on:click={() => toggleStudentSelection(student.user_id)}
+            >
+              <div class="student-row">
+                <div class="avatar">
+                  {#if student.profile_photo_url}
+                    <img src={student.profile_photo_url} alt={`${student.full_name} avatar`} />
+                  {:else}
+                    {getInitials(student.full_name)}
+                  {/if}
                 </div>
-              </label>
+                <div class="student-copy">
+                  <p class="font-semibold text-sm truncate">{student.full_name}</p>
+                  <p class="text-xs text-muted truncate">{student.email}</p>
+                  <p class="text-xs text-muted mt-1">{student.company || '-'} • {student.department || '-'}</p>
+                </div>
+                <span class="pick-indicator">{isSelected ? 'Selected' : 'Select'}</span>
+              </div>
+            </button>
+          {/each}
+        </div>
+      {/if}
+
+      {#if selectedStudentsPreview.length > 0}
+        <div class="selected-preview">
+          <p class="selected-title">Selected Students</p>
+          <div class="selected-pills">
+            {#each selectedStudentsPreview as student (student.user_id)}
+              <button class="selected-pill" type="button" on:click={() => removeSelectedStudent(student.user_id)}>
+                <span>{student.full_name}</span>
+                <X size={12} />
+              </button>
             {/each}
           </div>
-        {/if}
-      </div>
+        </div>
+      {/if}
+    </div>
 
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" on:click={closeAddInternModal}>Cancel</button>
-        <button type="button" class="btn btn-primary" on:click={handleAddInternConfirm} disabled={saving}>
-          {saving ? 'Adding...' : 'Add Selected'}
-        </button>
-      </div>
+    <div class="card">
+      <h3 class="card-title">Assigned Student Progress</h3>
+      {#if assignedStudents.length === 0}
+        <p class="text-muted">No students assigned yet.</p>
+      {:else}
+        <div class="assigned-list">
+          {#each assignedStudents as student (student.user_id)}
+            {@const required = toNumber(student.required_hours)}
+            {@const completed = toNumber(student.completed_hours)}
+            {@const progress = toPercent(completed, required)}
+            <article class="assigned-item">
+              <div class="assigned-head">
+                <div>
+                  <p class="font-semibold text-sm">{student.full_name}</p>
+                  <p class="text-xs text-muted">{student.department || '-'} • ETA {normalizeDate(student.estimated_end_date)}</p>
+                </div>
+                <p class="text-xs font-semibold text-muted">{completed}h / {required || '-'}h</p>
+              </div>
+              <div class="progress-bar"><div class="progress-fill" style={`width:${progress}%`}></div></div>
+              <p class="text-xs text-muted mt-2">{progress}% complete</p>
+            </article>
+          {/each}
+        </div>
+      {/if}
     </div>
   </div>
 {/if}
@@ -232,6 +373,87 @@
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
+  }
+
+  .warning-alert {
+    border-radius: 0.75rem;
+    border: 1px solid;
+    padding: 1rem;
+    background: #fef3c7;
+    border-color: #fcd34d;
+    color: #92400e;
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1rem;
+  }
+
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+    padding: 1.25rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    border-top: 3px solid;
+  }
+
+  .stat-blue {
+    border-top-color: #2563eb;
+  }
+
+  .stat-success {
+    border-top-color: #059669;
+  }
+
+  .stat-violet {
+    border-top-color: #7c3aed;
+  }
+
+  .stat-cyan {
+    border-top-color: #0891b2;
+  }
+
+  .stat-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.2rem;
+    height: 2.2rem;
+    border-radius: 0.65rem;
+    color: #fff;
+  }
+
+  .stat-blue .stat-icon {
+    background: #2563eb;
+  }
+
+  .stat-success .stat-icon {
+    background: #059669;
+  }
+
+  .stat-violet .stat-icon {
+    background: #7c3aed;
+  }
+
+  .stat-cyan .stat-icon {
+    background: #0891b2;
+  }
+
+  .stat-value {
+    margin: 0.75rem 0 0.25rem;
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+
+  .stat-label {
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--text-muted);
   }
 
   .card {
@@ -257,13 +479,6 @@
     margin-bottom: 1.5rem;
   }
 
-  .card-header-sm {
-    display: flex;
-    gap: 0.75rem;
-    align-items: flex-start;
-    margin-bottom: 0.75rem;
-  }
-
   .alert {
     padding: 0.75rem 1rem;
     border-radius: 0.75rem;
@@ -285,23 +500,109 @@
     color: #065f46;
   }
 
-  .interns-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 1rem;
+  .assign-toolbar {
+    border-top: 1px solid var(--border);
+    padding-top: 0.85rem;
+    margin-bottom: 1rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    justify-content: space-between;
   }
 
-  .intern-card {
-    background: #f9fbff;
+  .search-wrap {
+    position: relative;
+    flex: 1;
+    min-width: 280px;
+  }
+
+  .search-icon {
+    position: absolute;
+    top: 50%;
+    left: 0.75rem;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+    pointer-events: none;
+  }
+
+  .search-input {
+    width: 100%;
     border: 1px solid var(--border);
-    border-radius: 0.75rem;
-    padding: 1rem;
-    transition: all 0.2s;
+    background: #f9fbff;
+    color: var(--text-primary);
+    border-radius: 0.65rem;
+    padding: 0.625rem 0.75rem 0.625rem 2.15rem;
+    font-size: 0.875rem;
+    outline: none;
   }
 
-  .intern-card:hover {
+  .search-input:focus {
     border-color: #0f6cbd;
-    box-shadow: 0 4px 12px rgba(15, 108, 189, 0.1);
+    box-shadow: 0 0 0 2px rgba(15, 108, 189, 0.16);
+  }
+
+  .toolbar-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .selected-chip {
+    border-radius: 9999px;
+    background: #eaf3ff;
+    color: #0f6cbd;
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 0.35rem 0.7rem;
+  }
+
+  .pick-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 0.75rem;
+  }
+
+  .student-pick {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 0.85rem;
+    background: #f9fbff;
+    text-align: left;
+    padding: 0.75rem;
+    transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+  }
+
+  .student-pick:hover {
+    transform: translateY(-1px);
+    border-color: #0f6cbd;
+  }
+
+  .student-pick.selected {
+    border-color: #4f46e5;
+    box-shadow: 0 0 0 1px rgba(79, 70, 229, 0.25);
+  }
+
+  .student-row {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+  }
+
+  .student-copy {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .pick-indicator {
+    border-radius: 9999px;
+    background: #eaf3ff;
+    color: #0f6cbd;
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 0.2rem 0.5rem;
+    white-space: nowrap;
   }
 
   .avatar {
@@ -325,10 +626,61 @@
     object-fit: cover;
   }
 
-  .progress-section {
+  .selected-preview {
     margin-top: 1rem;
-    padding-top: 1rem;
-    border-top: 1px solid var(--border);
+    border: 1px solid var(--border);
+    background: #f9fbff;
+    border-radius: 0.75rem;
+    padding: 0.75rem;
+  }
+
+  .selected-title {
+    margin: 0 0 0.5rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 0.68rem;
+    font-weight: 700;
+  }
+
+  .selected-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+  }
+
+  .selected-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    border-radius: 9999px;
+    border: 1px solid #c7ddfb;
+    background: #eaf3ff;
+    color: #0f6cbd;
+    padding: 0.28rem 0.65rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+  }
+
+  .assigned-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .assigned-item {
+    border: 1px solid var(--border);
+    border-radius: 0.7rem;
+    padding: 0.75rem;
+    background: #f9fbff;
+  }
+
+  .assigned-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.45rem;
   }
 
   .progress-bar {
@@ -384,34 +736,15 @@
     background: #e0eef9;
   }
 
-  .btn-full {
-    width: 100%;
+  .btn-xs {
+    padding: 0.35rem 0.6rem;
+    font-size: 0.72rem;
   }
 
   .btn-group {
     display: flex;
     gap: 0.5rem;
-  }
-
-  .link {
-    background: none;
-    border: none;
-    color: #0f6cbd;
-    cursor: pointer;
-    text-decoration: underline;
-    font-size: 0.875rem;
-  }
-
-  .flex-1 {
-    flex: 1;
-  }
-
-  .flex {
-    display: flex;
-  }
-
-  .justify-between {
-    justify-content: space-between;
+    flex-wrap: wrap;
   }
 
   .truncate {
@@ -436,104 +769,12 @@
     font-size: 0.75rem;
   }
 
+  .mt-1 {
+    margin-top: 0.25rem;
+  }
+
   .mt-2 {
     margin-top: 0.5rem;
-  }
-
-  .mb-4 {
-    margin-bottom: 1rem;
-  }
-
-  .modal-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 50;
-    padding: 1rem;
-  }
-
-  .modal-box {
-    background: var(--surface);
-    border-radius: 1rem;
-    max-width: 500px;
-    width: 100%;
-    max-height: 90vh;
-    display: flex;
-    flex-direction: column;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-  }
-
-  .modal-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 1.5rem;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .modal-title {
-    margin: 0;
-    font-size: 1.125rem;
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-
-  .modal-close {
-    background: none;
-    border: none;
-    cursor: pointer;
-    color: var(--text-secondary);
-    padding: 0;
-    display: flex;
-    font-size: 1.5rem;
-    line-height: 1;
-    transition: color 0.2s;
-  }
-
-  .modal-close:hover {
-    color: var(--text-primary);
-  }
-
-  .modal-body {
-    flex: 1;
-    overflow-y: auto;
-    padding: 1.5rem;
-  }
-
-  .modal-checkboxes {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-  }
-
-  .checkbox-label {
-    display: flex;
-    gap: 0.75rem;
-    padding: 0.75rem;
-    border: 1px solid var(--border);
-    border-radius: 0.5rem;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-
-  .checkbox-label:hover {
-    background: #f9fbff;
-  }
-
-  .checkbox-label input {
-    margin-top: 0.25rem;
-    cursor: pointer;
-  }
-
-  .modal-footer {
-    display: flex;
-    gap: 1rem;
-    padding: 1.5rem;
-    border-top: 1px solid var(--border);
-    justify-content: flex-end;
   }
 
   :global(.dark) {
@@ -544,20 +785,17 @@
     --surface: #162338;
   }
 
-  :global(.dark) .intern-card {
+  :global(.dark) .warning-alert {
+    background: #fef3c7;
+    border-color: #fcd34d;
+    color: #92400e;
+  }
+
+  :global(.dark) .search-input,
+  :global(.dark) .student-pick,
+  :global(.dark) .assigned-item,
+  :global(.dark) .selected-preview {
     background: #1a2c45;
-  }
-
-  :global(.dark) .alert-error {
-    background: rgba(127, 29, 29, 0.2);
-    border-color: rgba(239, 68, 68, 0.3);
-    color: #fecaca;
-  }
-
-  :global(.dark) .alert-success {
-    background: rgba(6, 95, 70, 0.2);
-    border-color: rgba(16, 185, 129, 0.3);
-    color: #a7f3d0;
   }
 
   :global(.dark) .btn-secondary {
@@ -568,31 +806,59 @@
     background: #223653;
   }
 
-  :global(.dark) .checkbox-label {
-    background: #1a2c45;
+  :global(.dark) .selected-chip,
+  :global(.dark) .pick-indicator {
+    background: #223653;
+    color: #cfe3ff;
   }
 
-  :global(.dark) .checkbox-label:hover {
+  :global(.dark) .selected-pill {
     background: #223653;
+    color: #cfe3ff;
+    border-color: #345172;
   }
 
   @media (max-width: 768px) {
-    .interns-grid {
-      grid-template-columns: 1fr;
-    }
-
     .card-header {
       flex-direction: column;
     }
 
     .btn-group {
       width: 100%;
-      flex-direction: column;
     }
 
-    .btn {
-      width: 100%;
+    .btn-group .btn {
+      flex: 1;
       justify-content: center;
+    }
+
+    .toolbar-actions {
+      width: 100%;
+    }
+
+    .toolbar-actions .btn {
+      flex: 1;
+      justify-content: center;
+    }
+
+    .search-wrap {
+      min-width: 0;
+      width: 100%;
+    }
+
+    .stats-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .assigned-head {
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+  }
+
+  @media (max-width: 540px) {
+    .stats-grid {
+      grid-template-columns: 1fr;
     }
   }
 </style>
