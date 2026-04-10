@@ -19,10 +19,12 @@
 		}
 
 		try {
-			await loginWithCredentials(email, password);
+			const user = await loginWithCredentials(email, password);
+			const role = String(user?.role || '').trim();
+			const redirectPath = role === 'Supervisor' ? '/supervisor' : '/';
 			message = 'Authenticated successfully. Redirecting...';
 			setTimeout(() => {
-				window.location.hash = '/';
+				window.location.hash = redirectPath;
 			}, 420);
 		} catch (err) {
 			error = err?.message || 'Invalid credentials. Please try again.';

@@ -266,6 +266,8 @@
   $: displayFirstName = String(profile.firstName || '').trim();
   $: displayLastName = String(profile.lastName || '').trim();
   $: displayName = [displayFirstName, displayLastName].filter(Boolean).join(' ') || 'User';
+  $: currentUserRole = String(currentUser?.role || '').trim().toLowerCase();
+  $: canViewMainDb = currentUserRole === 'admin';
   $: roleLabel = toTitleCase(currentUser?.role) || 'Intern';
   $: displayDepartment = String(profile.department || '').trim();
   $: profileSubtitle = [displayDepartment, roleLabel].filter(Boolean).join(' ');
@@ -279,7 +281,7 @@
 </script>
 
 <section class="settings-shell grid grid-cols-1 gap-6 lg:grid-cols-3">
-  <div class="lg:col-span-2 space-y-6">
+  <div class={`${canViewMainDb ? 'lg:col-span-2' : 'lg:col-span-3'} space-y-6`}>
   <section class="theme-section settings-panel settings-panel-profile rounded-2xl border shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
     <header class="theme-divider border-b px-6 py-4">
       <div class="flex items-center gap-2">
@@ -420,36 +422,38 @@
   {/if}
   </div>
 
-  <!-- MAIN_DB Section on Right -->
-  <div class="lg:col-span-1">
-    <section class="theme-section settings-panel settings-panel-database rounded-2xl border shadow-[0_1px_2px_rgba(15,23,42,0.05)] p-6 sticky top-6">
-      <h3 class="theme-heading text-[16px] font-bold mb-4">MAIN_DB</h3>
-      <p class="theme-text text-[13px] mb-4">Access the main database spreadsheet for this project.</p>
-      
-      <div class="mb-4 p-4 rounded-lg settings-link-box border">
-        <a 
-          href={MAIN_DB_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          class="settings-link text-[13px] font-medium break-all line-clamp-3 hover:underline"
-        >
-          {MAIN_DB_URL}
-        </a>
-      </div>
+  {#if canViewMainDb}
+    <!-- MAIN_DB Section on Right (Admin only) -->
+    <div class="lg:col-span-1">
+      <section class="theme-section settings-panel settings-panel-database rounded-2xl border shadow-[0_1px_2px_rgba(15,23,42,0.05)] p-6 sticky top-6">
+        <h3 class="theme-heading text-[16px] font-bold mb-4">MAIN_DB</h3>
+        <p class="theme-text text-[13px] mb-4">Access the main database spreadsheet for this project.</p>
+        
+        <div class="mb-4 p-4 rounded-lg settings-link-box border">
+          <a 
+            href={MAIN_DB_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            class="settings-link text-[13px] font-medium break-all line-clamp-3 hover:underline"
+          >
+            {MAIN_DB_URL}
+          </a>
+        </div>
 
-      <button
-        type="button"
-        on:click={copyToClipboard}
-        class="settings-btn settings-copy-button w-full rounded-lg px-4 py-2.5 text-[14px] font-medium text-white"
-      >
-        {copyMessage || 'Copy Link'}
-      </button>
-      
-      {#if copyMessage}
-        <p class="settings-copy-note mt-2 text-[12px] text-center font-medium">{copyMessage}</p>
-      {/if}
-    </section>
-  </div>
+        <button
+          type="button"
+          on:click={copyToClipboard}
+          class="settings-btn settings-copy-button w-full rounded-lg px-4 py-2.5 text-[14px] font-medium text-white"
+        >
+          {copyMessage || 'Copy Link'}
+        </button>
+        
+        {#if copyMessage}
+          <p class="settings-copy-note mt-2 text-[12px] text-center font-medium">{copyMessage}</p>
+        {/if}
+      </section>
+    </div>
+  {/if}
 </section>
 
 <style>

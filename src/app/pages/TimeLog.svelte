@@ -321,12 +321,14 @@
   $: formHours = calculateHours(timeIn, timeOut, includeLunch);
   $: trimmedNotes = todayNotes.trim();
   $: canAddEntry = Boolean(date && timeIn && timeOut && trimmedNotes);
+  $: currentUserId = String(authApi.getCurrentUser()?.user_id || '').trim();
+  $: completedHoursStorageKey = currentUserId ? `ojt_completed_hours_${currentUserId}` : '';
   $: completedHours = INITIAL_COMPLETED_HOURS + entries.reduce((sum, entry) => sum + entry.hours, 0);
   $: remainingHours = Math.max(0, requiredHours - completedHours);
   $: progressPercent = Math.min(100, Math.round((completedHours / requiredHours) * 100));
-  // Save completed hours to localStorage whenever it changes (for Dashboard to read)
-  $: if (typeof window !== 'undefined' && completedHours >= 0) {
-    localStorage.setItem('ojt_completed_hours', String(completedHours));
+  // Save completed hours to user-scoped local cache for dashboard fallback.
+  $: if (typeof window !== 'undefined' && completedHours >= 0 && completedHoursStorageKey) {
+    localStorage.setItem(completedHoursStorageKey, String(completedHours));
   }
   $: effectiveRemaining = Math.max(0, remainingHours - overtimeHours);
   $: totalAbsenceHours = Math.max(0, absenceDays) * AVERAGE_DAILY_HOURS;

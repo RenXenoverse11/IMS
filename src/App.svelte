@@ -47,10 +47,21 @@
   let currentUser = null;
   let unsubscribeAuth;
 
+  function getRoleDefaultPath_() {
+    const role = String(currentUser?.role || getCurrentUser()?.role || '').trim();
+    return role === 'Supervisor' ? '/supervisor' : '/';
+  }
+
+  function isSupervisorPath_(path) {
+    return String(path || '').startsWith('/supervisor');
+  }
+
   function syncRoute() {
     const hash = window.location.hash.replace(/^#/, '') || '/login';
     const normalized = normalizePath(hash);
     const authed = isAuthenticated();
+    const defaultPath = getRoleDefaultPath_();
+    const supervisorSession = defaultPath === '/supervisor';
 
     if (!authed && !authPaths.has(normalized)) {
       currentPath = '/login';
@@ -61,6 +72,22 @@
     }
 
     if (authed && authPaths.has(normalized)) {
+      currentPath = defaultPath;
+      if (hash !== defaultPath) {
+        window.location.hash = defaultPath;
+      }
+      return;
+    }
+
+    if (authed && supervisorSession && !isSupervisorPath_(normalized)) {
+      currentPath = '/supervisor';
+      if (hash !== '/supervisor') {
+        window.location.hash = '/supervisor';
+      }
+      return;
+    }
+
+    if (authed && !supervisorSession && isSupervisorPath_(normalized)) {
       currentPath = '/';
       if (hash !== '/') {
         window.location.hash = '/';

@@ -282,8 +282,23 @@
       const data = await getStudentDashboard(currentUser.user_id, { limit: 10 });
       profile = data.profile;
       timeLogs = data.time_logs;
-      // Read completed hours from localStorage (synced by TimeLog page), fallback to backend if empty
-      totalCompletedHours = Number(localStorage.getItem('ojt_completed_hours') ?? data.total_completed_hours ?? 0);
+      // Use backend as source of truth, with optional user-scoped cache as a non-decreasing fallback.
+      const serverCompletedHours = Number(data.total_completed_hours || 0);
+      const storageKey = `ojt_completed_hours_${String(currentUser.user_id || '').trim()}`;
+      const cachedHoursRaw = storageKey ? localStorage.getItem(storageKey) : null;
+      const cachedHours = cachedHoursRaw === null ? NaN : Number(cachedHoursRaw);
+
+      totalCompletedHours = Number.isFinite(serverCompletedHours) ? serverCompletedHours : 0;
+      if (Number.isFinite(cachedHours) && cachedHours > totalCompletedHours) {
+        totalCompletedHours = cachedHours;
+      }
+
+      if (storageKey) {
+        localStorage.setItem(storageKey, String(totalCompletedHours));
+      }
+
+      // Clean up legacy global cache key to avoid cross-account leakage.
+      localStorage.removeItem('ojt_completed_hours');
       tasks = data.tasks;
 
       // Create activity items from time logs (Logged In / Logged Out entries)
@@ -374,7 +389,7 @@
   });
 </script>
 
-<section class="page-shell">
+<section class="dashboard-page-shell">
   <div class="dashboard-shell dashboard-container">
     <div class="welcome-banner">
       <div>
@@ -562,6 +577,12 @@
 </section>
 
 <style>
+  .dashboard-page-shell {
+    min-height: 100%;
+    width: 100%;
+    min-width: 0;
+  }
+
   .dashboard-shell {
     --db-surface: #ffffff;
     --db-surface-soft: #f3f8ff;

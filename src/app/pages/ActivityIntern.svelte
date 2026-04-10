@@ -1146,7 +1146,7 @@ const summaryCards = [
 
 </script>
 
-<section class="documents-page">
+<section class="activity-shell documents-page">
   <div class="stats-grid">
     {#each summaryCards as card}
       <article class={`stat-card tone-card-${card.tone}`}>
@@ -1361,7 +1361,7 @@ const summaryCards = [
           <div class="overview-panels">
             <section class="overview-panel" style="background: var(--color-surface);">
               <h4 style="display: flex; align-items: center; gap: 0.5rem;">
-                <LayoutGrid size={18} style="color: #6366f1; background: color-mix(in srgb, #6366f1 10%, var(--color-surface)); border-radius: 0.4rem; padding: 0.18rem;" />
+                <LayoutGrid size={18} style="color: #0f6cbd; background: color-mix(in srgb, #0f6cbd 10%, var(--color-surface)); border-radius: 0.4rem; padding: 0.18rem;" />
                 Today's Task
               </h4>
               {#if todayTasks.length === 0}
@@ -1413,7 +1413,7 @@ const summaryCards = [
 
             <section class="overview-panel notes-panel">
               <div class="notes-header" style="display: flex; align-items: center; gap: 0.5rem;">
-                <List size={18} style="color: #a21caf; background: color-mix(in srgb, #a21caf 10%, var(--color-surface)); border-radius: 0.4rem; padding: 0.18rem;" />
+                <List size={18} style="color: #0f6cbd; background: color-mix(in srgb, #0f6cbd 10%, var(--color-surface)); border-radius: 0.4rem; padding: 0.18rem;" />
                 <div class="notes-title">Recent Activity</div>
               </div>
               <div class="recent-activity-list" style="margin-bottom: 0.5rem;">
@@ -1423,7 +1423,7 @@ const summaryCards = [
                   <ul style="list-style: none; padding: 0; margin: 0;">
                     {#each recentActivities as activity (activity.id)}
                       <li style="margin-bottom: 0.5rem; display: flex; align-items: flex-start; gap: 0.5rem;">
-                        <span style="font-size: 1.1rem; color: var(--color-primary, #a21caf);">•</span>
+                        <span style="font-size: 1.1rem; color: var(--color-primary, #0f6cbd);">•</span>
                         <div>
                           <div style="font-size: 1rem; color: var(--color-text); font-family: inherit;">{activity.message}</div>
                           <div style="font-size: 0.85rem; color: #888;">{new Date(activity.timestamp).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</div>
@@ -1440,7 +1440,7 @@ const summaryCards = [
             <section class="overview-tracker tracker-card">
               <div class="tracker-card-head" style="display: flex; align-items: center; gap: 0.5rem;">
                 <div class="tracker-card-heading" style="display: flex; align-items: center; gap: 0.5rem;">
-                  <LayoutGrid size={18} style="color: #6366f1; background: color-mix(in srgb, #6366f1 10%, var(--color-surface)); border-radius: 0.4rem; padding: 0.18rem;" />
+                  <LayoutGrid size={18} style="color: #0f6cbd; background: color-mix(in srgb, #0f6cbd 10%, var(--color-surface)); border-radius: 0.4rem; padding: 0.18rem;" />
                   <h4 style="margin: 0;">Task Focus</h4>
                 </div>
                 <div class="tracker-head-actions">
@@ -1673,7 +1673,7 @@ const summaryCards = [
                   </div>
                 {/if}
               </label>
-              <button type="submit" style="font-size: 0.97rem; font-weight: 600; color: #fff; background: #4f46e5; border: none; border-radius: 0.5rem; padding: 0.5rem 1.3rem; cursor: pointer;">Submit</button>
+              <button type="submit" style="font-size: 0.97rem; font-weight: 600; color: #fff; background: #0f6cbd; border: none; border-radius: 0.5rem; padding: 0.5rem 1.3rem; cursor: pointer;">Submit</button>
             </form>
         </div>
         <!-- Work Logs Card -->
@@ -1750,9 +1750,9 @@ const summaryCards = [
         }
         .worklog-accordion-item.expanded,
         .worklog-accordion-item:hover {
-          border-color: #6366f1;
-          background: #eef2ff;
-          box-shadow: 0 4px 16px -8px #6366f1, 0 2px 8px -6px rgba(60,72,100,0.10);
+          border-color: #0f6cbd;
+          background: #edf4fb;
+          box-shadow: 0 4px 16px -8px #0f6cbd, 0 2px 8px -6px rgba(60,72,100,0.10);
         }
         .worklog-accordion-trigger {
           width: 100%;
@@ -1805,12 +1805,12 @@ const summaryCards = [
           display: inline-block;
           font-size: 0.89rem;
           font-weight: 700;
-          color: #18181b;
+          color: var(--color-heading);
           margin-bottom: 0.18rem;
         }
         .worklog-notes, .worklog-learnings {
           font-size: 0.97rem;
-          color: #18181b;
+          color: var(--color-text);
           margin-left: 0.1rem;
           margin-bottom: 0.1rem;
           line-height: 1.5;
@@ -1818,12 +1818,12 @@ const summaryCards = [
         }
         .worklog-learnings {
           font-style: normal;
-          color: #18181b;
+          color: var(--color-text);
         }
         .worklog-attachment-chip {
-          background: #f3f4f6;
-          color: #18181b;
-          border: 1px solid #c7d2fe;
+          background: var(--color-soft);
+          color: var(--color-text);
+          border: 1px solid #bfdbfe;
           border-radius: 0.5rem;
           padding: 0.18rem 0.7rem;
           font-size: 0.85rem;
@@ -1833,10 +1833,10 @@ const summaryCards = [
         }
         .worklog-attachment-chip:focus,
         .worklog-attachment-chip:hover {
-          background: #e0e7ff;
-          border-color: #6366f1;
+          background: color-mix(in srgb, #0f6cbd 12%, var(--color-surface));
+          border-color: #0f6cbd;
           outline: none;
-          color: #18181b;
+          color: var(--color-text);
         }
         .worklog-attachments {
           display: flex;
@@ -1846,9 +1846,9 @@ const summaryCards = [
         }
         .worklog-attachment-chip {
           display: inline-block;
-          background: #f3f4f6;
-          color: #4f46e5;
-          border: 1px solid #c7d2fe;
+          background: var(--color-soft);
+          color: #0f6cbd;
+          border: 1px solid #bfdbfe;
           border-radius: 0.5rem;
           padding: 0.18rem 0.7rem;
           font-size: 0.85rem;
@@ -1858,8 +1858,8 @@ const summaryCards = [
         }
         .worklog-attachment-chip:focus,
         .worklog-attachment-chip:hover {
-          background: #e0e7ff;
-          border-color: #6366f1;
+          background: color-mix(in srgb, #0f6cbd 12%, var(--color-surface));
+          border-color: #0f6cbd;
           outline: none;
         }
         @keyframes fadeIn {
@@ -2054,7 +2054,7 @@ const summaryCards = [
     display: flex;
     align-items: center;
     justify-content: center;
-    background: color-mix(in srgb, #ede9fe 50%, var(--color-surface));
+    background: color-mix(in srgb, #dbeafe 50%, var(--color-surface));
     border-radius: 0.7rem;
     width: 2.5rem;
     height: 2.5rem;
@@ -2099,16 +2099,16 @@ const summaryCards = [
   }
   :global(html) {
     font-family: 'Inter', 'Roboto', 'Segoe UI', Arial, sans-serif;
-    --color-bg: #f8fafc;
+    --color-bg: #f7fbff;
     --color-surface: #ffffff;
-    --color-soft: #f3f4f6;
+    --color-soft: #f4f8fc;
     --color-card: #ffffff;
-    --color-border: #e5e7eb;
+    --color-border: #d8e2ef;
     --color-heading: #0f172a;
     --color-text: #1f2937;
-    --color-muted: #605f5f;
-    --color-accent: #6366f1;
-    --color-accent-bg: #232263;
+    --color-muted: #5f7188;
+    --color-accent: #0f6cbd;
+    --color-accent-bg: #d8ebff;
     --color-danger: #ef4444;
     --color-success: #22c55e;
     --color-warning: #f59e42;
@@ -2117,26 +2117,63 @@ const summaryCards = [
     scrollbar-gutter: stable;
   }
   :global(html.dark) {
-    --color-bg: #181a20;
-    --color-surface: #23263a;
-    --color-soft: #2a2d42;
-    --color-card: #23263a;
-    --color-border: #3a3f5a;
-    --color-heading: #f3f4f6;
-    --color-text: #e5e7eb;
-    --color-muted: #a1a1aa;
-    --color-accent: #6366f1;
-    --color-accent-bg: #232263;
+    --color-bg: #101a2b;
+    --color-surface: #162338;
+    --color-soft: #1a2c45;
+    --color-card: #162338;
+    --color-border: #334b6b;
+    --color-heading: #e5edf8;
+    --color-text: #cfdceb;
+    --color-muted: #9ab0cb;
+    --color-accent: #7cc3ff;
+    --color-accent-bg: #1a2c45;
     --color-danger: #ef4444;
     --color-success: #22c55e;
     --color-warning: #f59e42;
-    background: #181a20;
-    color: #e5e7eb;
+    background: #101a2b;
+    color: #cfdceb;
+  }
+
+  .activity-shell {
+    position: relative;
+    border-radius: 1.25rem;
+    padding: 0.35rem;
+    isolation: isolate;
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .activity-shell::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -2;
+    border-radius: 1.25rem;
+    background: radial-gradient(130% 130% at 0% 0%, #e4f1ff 0%, #f7fbff 58%, #eef4fb 100%);
+  }
+
+  .activity-shell::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: 1.25rem;
+    background-image: linear-gradient(112deg, rgba(15, 108, 189, 0.08), transparent 52%);
+    pointer-events: none;
+  }
+
+  :global(html.dark) .activity-shell::before {
+    background: radial-gradient(130% 130% at 0% 0%, #173459 0%, #101a2b 48%, #0b1422 100%);
+  }
+
+  :global(html.dark) .activity-shell::after {
+    background-image: linear-gradient(112deg, rgba(91, 177, 255, 0.12), transparent 55%);
   }
 
   .documents-page {
     display: grid;
-    gap: 1rem;
+    gap: 1.1rem;
     align-content: start;
   }
 
@@ -2152,7 +2189,7 @@ const summaryCards = [
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: 1.1rem;
-    box-shadow: 0 12px 24px -24px rgba(15, 23, 42, 0.3);
+    box-shadow: 0 18px 36px -30px rgba(15, 23, 42, 0.42);
     /* Ensure all corners are equally rounded */
     -webkit-border-radius: 1.1rem;
     -moz-border-radius: 1.1rem;
@@ -2163,11 +2200,53 @@ const summaryCards = [
   }
 
   .stat-card {
+    position: relative;
+    overflow: hidden;
     display: flex;
     align-items: center;
     gap: 0.75rem;
     padding: 1rem 1.1rem;
     min-height: 5.45rem;
+    transition: transform 0.22s ease, box-shadow 0.22s ease;
+  }
+
+  .stat-card::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 3px;
+    opacity: 0.9;
+  }
+
+  .tone-card-indigo::before {
+    background: linear-gradient(90deg, #0f6cbd, #38bdf8);
+  }
+
+  .tone-card-green::before {
+    background: linear-gradient(90deg, #0f766e, #10b981);
+  }
+
+  .tone-card-blue::before {
+    background: linear-gradient(90deg, #1d4ed8, #3b82f6);
+  }
+
+  .tone-card-violet::before {
+    background: linear-gradient(90deg, #0f766e, #06b6d4);
+  }
+
+  .stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 20px 36px -26px rgba(15, 23, 42, 0.45);
+  }
+
+  .panel {
+    transition: box-shadow 0.22s ease, border-color 0.22s ease;
+  }
+
+  .panel:hover {
+    box-shadow: 0 20px 38px -28px rgba(15, 23, 42, 0.48);
   }
 
   .stat-icon,
@@ -2195,7 +2274,7 @@ const summaryCards = [
     text-shadow: 0 1px 2px rgba(17,24,39,0.10);
   }
   :global(html.dark) .stat-value {
-    color: #a5b4fc;
+    color: #7cc3ff;
     text-shadow: 0 1px 2px rgba(165,180,252,0.18);
   }
 
@@ -2218,6 +2297,11 @@ const summaryCards = [
     justify-content: space-between;
     gap: 0.8rem;
     flex-wrap: wrap;
+    padding: 0.85rem 0.95rem;
+    border: 1px solid var(--color-border);
+    border-radius: 0.95rem;
+    background: var(--color-surface);
+    box-shadow: 0 14px 28px -26px rgba(15, 23, 42, 0.4);
   }
 
   .controls-right {
@@ -2290,16 +2374,17 @@ const summaryCards = [
     gap: 0.35rem;
     padding: 0 0.75rem;
     color: #ffffff;
-    background: #4f46e5;
-    border-color: #4f46e5;
+    background: linear-gradient(90deg, #0f6cbd, #0ea5e9);
+    border-color: #0f6cbd;
     font-size: 0.84rem;
     font-weight: 600;
     cursor: pointer;
+    box-shadow: 0 12px 24px -16px rgba(15, 108, 189, 0.9);
   }
 
   .new-task-btn:hover {
-    background: #4338ca;
-    border-color: #4338ca;
+    filter: brightness(1.05);
+    transform: translateY(-1px);
   }
 
 
@@ -2320,9 +2405,9 @@ const summaryCards = [
   }
 
   .view-toggle button.active {
-    color: #4f46e5;
-    border-color: #c7d2fe;
-    background: color-mix(in srgb, #4f46e5 10%, var(--color-surface));
+    color: #0f6cbd;
+    border-color: #bfdbfe;
+    background: color-mix(in srgb, #0f6cbd 10%, var(--color-surface));
   }
 
   .view-toggle button.active span {
@@ -2346,7 +2431,7 @@ const summaryCards = [
     text-shadow: 0 1px 2px rgba(17,24,39,0.08);
   }
   :global(html.dark) .panel-header h3 {
-    color: #a5b4fc;
+    color: #7cc3ff;
     text-shadow: 0 1px 2px rgba(165,180,252,0.12);
   }
 
@@ -2375,7 +2460,7 @@ const summaryCards = [
     display: grid;
     gap: 1rem;
     padding: 1rem;
-    background: var(--color-soft);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--color-soft) 88%, var(--color-surface)) 0%, var(--color-soft) 100%);
   }
 
   .overview-panels {
@@ -2390,6 +2475,7 @@ const summaryCards = [
     background: var(--color-surface);
     padding: 0.95rem;
     min-height: 10.25rem;
+    box-shadow: 0 12px 24px -24px rgba(15, 23, 42, 0.36);
   }
 
   .overview-panel h4 {
@@ -2465,7 +2551,7 @@ const summaryCards = [
     background: var(--color-surface);
     padding: 0.95rem;
     min-height: 10.25rem;
-    box-shadow: 0 12px 24px -24px rgba(15, 23, 42, 0.3);
+    box-shadow: 0 16px 30px -24px rgba(15, 23, 42, 0.4);
   }
 
   .tracker-card-head {
@@ -2485,7 +2571,7 @@ const summaryCards = [
 
   .tracker-eyebrow {
     margin: 0;
-    color: #6366f1;
+    color: #0f6cbd;
     font-size: 0.72rem;
     font-weight: 700;
     letter-spacing: 0.08em;
@@ -2665,8 +2751,8 @@ const summaryCards = [
   }
 
   .tracker-form-actions .primary {
-    border: 1px solid #4f46e5;
-    background: #4f46e5;
+    border: 1px solid #0f6cbd;
+    background: #0f6cbd;
     color: #ffffff;
   }
 
@@ -2780,7 +2866,7 @@ const summaryCards = [
 
   .completion-value {
     margin: 0.35rem 0 0;
-    color: #4f46e5;
+    color: #0f6cbd;
     font-size: 1.6rem;
     font-weight: 800;
   }
@@ -2951,7 +3037,7 @@ const summaryCards = [
   .task-view-modal-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(15, 23, 42, 0.3);
+    background: rgba(10, 20, 38, 0.45);
     display: grid;
     place-items: center;
     z-index: 40;
@@ -2965,7 +3051,7 @@ const summaryCards = [
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: 0.9rem;
-    box-shadow: 0 24px 40px -30px rgba(15, 23, 42, 0.45);
+    box-shadow: 0 28px 48px -32px rgba(15, 23, 42, 0.55);
     padding: 1rem;
     display: grid;
     gap: 0.9rem;
@@ -3026,8 +3112,8 @@ const summaryCards = [
   }
 
   .task-view-action.primary {
-    border-color: #4f46e5;
-    background: #4f46e5;
+    border-color: #0f6cbd;
+    background: #0f6cbd;
     color: #ffffff;
   }
 
@@ -3179,7 +3265,7 @@ const summaryCards = [
   }
 
   .attachment-btn:hover {
-    background: color-mix(in srgb, #6366f1 10%, var(--color-surface));
+    background: color-mix(in srgb, #0f6cbd 10%, var(--color-surface));
     border-color: var(--color-accent);
   }
 
@@ -3187,7 +3273,7 @@ const summaryCards = [
   .view-toggle button:focus-visible,
   .search-control input:focus-visible,
   .status-control select:focus-visible {
-    outline: 2px solid #a5b4fc;
+    outline: 2px solid #7cc3ff;
     outline-offset: 2px;
   }
 
@@ -3225,39 +3311,39 @@ const summaryCards = [
   }
 
   .tone-indigo {
-    color: #4f46e5;
-    background: #eef2ff;
-    border-color: #e0e7ff;
+    color: #0f6cbd;
+    background: #edf4fb;
+    border-color: #dbeafe;
   }
 
   .tone-card-indigo {
-    background: #f5f7ff;
-    border-color: #bfd0ff;
+    background: var(--color-surface);
+    border-color: var(--color-border);
   }
 
   .tone-card-blue {
-    background: #f3f7ff;
-    border-color: #bfd5ff;
+    background: var(--color-surface);
+    border-color: var(--color-border);
   }
 
   .tone-card-green {
-    background: #edf8f4;
-    border-color: #a8e6c7;
+    background: var(--color-surface);
+    border-color: var(--color-border);
   }
 
   .tone-card-violet {
-    background: #f7f5ff;
-    border-color: #d7cdfa;
+    background: var(--color-surface);
+    border-color: var(--color-border);
   }
 
   .tone-card-red {
-    background: #fff3f2;
-    border-color: #ffc9c4;
+    background: var(--color-surface);
+    border-color: var(--color-border);
   }
 
   .tone-card-amber {
-    background: #fffaf0;
-    border-color: #f8dfa3;
+    background: var(--color-surface);
+    border-color: var(--color-border);
   }
 
   .tone-blue {
@@ -3290,6 +3376,30 @@ const summaryCards = [
     border-color: #ddd6fe;
   }
 
+  :global(html.dark) .tone-indigo {
+    color: #7cc3ff;
+    background: rgba(91, 177, 255, 0.16);
+    border-color: rgba(125, 211, 252, 0.38);
+  }
+
+  :global(html.dark) .tone-blue {
+    color: #93c5fd;
+    background: rgba(59, 130, 246, 0.2);
+    border-color: rgba(147, 197, 253, 0.36);
+  }
+
+  :global(html.dark) .tone-green {
+    color: #86efac;
+    background: rgba(34, 197, 94, 0.2);
+    border-color: rgba(134, 239, 172, 0.38);
+  }
+
+  :global(html.dark) .tone-violet {
+    color: #67e8f9;
+    background: rgba(6, 182, 212, 0.18);
+    border-color: rgba(103, 232, 249, 0.34);
+  }
+
   @media (max-width: 1200px) {
     .stats-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3298,6 +3408,11 @@ const summaryCards = [
   }
 
   @media (max-width: 720px) {
+    .activity-shell {
+      border-radius: 1rem;
+      padding: 0;
+    }
+
     .stats-grid {
       grid-template-columns: 1fr;
     }
