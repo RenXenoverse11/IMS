@@ -6,6 +6,7 @@
     CheckCircle2,
     ClipboardList,
     Clock,
+    Coffee,
     Plus,
     Target,
     Trash2,
@@ -17,9 +18,9 @@
   const DEFAULT_REQUIRED_HOURS = 500;
   const AVERAGE_DAILY_HOURS = 8;
   const INITIAL_COMPLETED_HOURS = 0;
-  const TODAY = new Date(2026, 3, 2);
 
   let requiredHours = DEFAULT_REQUIRED_HOURS;
+  let ojtStartDate = '';
 
   const statusMeta = {
     recorded: {
@@ -37,6 +38,12 @@
   let overtimeHours = 0;
   let todayNotes = '';
   let logSyncError = '';
+  let includeLunch = (() => {
+    if (typeof window !== 'undefined') {
+      return window.localStorage.getItem('ojt_include_lunch') === 'true';
+    }
+    return false;
+  })();
 
   function addWorkingDays(startDate, days) {
     const result = new Date(startDate);
@@ -54,7 +61,7 @@
     return result;
   }
 
-  function calculateHours(currentTimeIn, currentTimeOut) {
+  function calculateHours(currentTimeIn, currentTimeOut, withLunch = includeLunch) {
     if (!currentTimeIn || !currentTimeOut) {
       return 0;
     }
@@ -62,8 +69,21 @@
     const [inHours, inMinutes] = currentTimeIn.split(':').map(Number);
     const [outHours, outMinutes] = currentTimeOut.split(':').map(Number);
     const diffMinutes = outHours * 60 + outMinutes - (inHours * 60 + inMinutes);
+    const rawHours = Math.max(0, Math.round((diffMinutes / 60) * 10) / 10);
 
-    return Math.max(0, Math.round((diffMinutes / 60) * 10) / 10);
+    // If lunch is NOT included, deduct 1 hour for lunch break (only if shift is long enough)
+    if (!withLunch && rawHours > 1) {
+      return Math.max(0, Math.round((rawHours - 1) * 10) / 10);
+    }
+
+    return rawHours;
+  }
+
+  function handleLunchToggle() {
+    includeLunch = !includeLunch;
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('ojt_include_lunch', String(includeLunch));
+    }
   }
 
   function formatDate(value, options) {
@@ -80,6 +100,15 @@
 
   function formatTableDate(value) {
     return formatDate(value, { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  function parseIsoDateOnly(value) {
+    const normalized = normalizeDateOnly(value);
+    if (!normalized) return null;
+    const [y, m, d] = normalized.split('-').map((n) => Number(n));
+    const dt = new Date(y, m - 1, d);
+    if (Number.isNaN(dt.getTime())) return null;
+    return dt;
   }
 
   function adjustAbsenceDays(delta) {
@@ -215,6 +244,8 @@
   function syncRequiredHoursFromAccount() {
     const user = authApi.getCurrentUser();
     const studentHours = Number(user?.ojt?.total_ojt_hours || 0);
+    const rawStartDate = user?.ojt?.start_date || user?.first_login_date || '';
+    ojtStartDate = normalizeDateOnly(rawStartDate);
 
     if (user?.role === 'Student' && Number.isFinite(studentHours) && studentHours > 0) {
       requiredHours = studentHours;
@@ -235,7 +266,7 @@
       return;
     }
 
-    const hours = calculateHours(timeIn, timeOut);
+    const hours = calculateHours(timeIn, timeOut, includeLunch);
     const isFirstTimeLog = entries.length === 0; // Check if this is the first time log
 
     try {
@@ -287,7 +318,7 @@
     };
   });
 
-  $: formHours = calculateHours(timeIn, timeOut);
+  $: formHours = calculateHours(timeIn, timeOut, includeLunch);
   $: trimmedNotes = todayNotes.trim();
   $: canAddEntry = Boolean(date && timeIn && timeOut && trimmedNotes);
   $: completedHours = INITIAL_COMPLETED_HOURS + entries.reduce((sum, entry) => sum + entry.hours, 0);
@@ -298,9 +329,13 @@
     localStorage.setItem('ojt_completed_hours', String(completedHours));
   }
   $: effectiveRemaining = Math.max(0, remainingHours - overtimeHours);
-  $: baseDaysNeeded = Math.ceil(effectiveRemaining / AVERAGE_DAILY_HOURS);
-  $: totalDaysNeeded = baseDaysNeeded + absenceDays;
-  $: estimatedDate = addWorkingDays(TODAY, totalDaysNeeded);
+  $: totalAbsenceHours = Math.max(0, absenceDays) * AVERAGE_DAILY_HOURS;
+  $: adjustedRequiredHours = Math.max(0, requiredHours + totalAbsenceHours - Math.max(0, overtimeHours));
+  $: projectedWorkingDays = Math.ceil(adjustedRequiredHours / AVERAGE_DAILY_HOURS);
+  $: estimatedDate = (() => {
+    const start = parseIsoDateOnly(ojtStartDate) || new Date();
+    return addWorkingDays(start, Math.max(0, projectedWorkingDays - 1));
+  })();
   $: overtimeDaysAhead = Math.round((overtimeHours / AVERAGE_DAILY_HOURS) * 10) / 10;
   // Calculate days and remaining hours (e.g., "54 days 4 hours")
   $: daysAndHours = (() => {
@@ -422,9 +457,33 @@
           </label>
         </div>
 
+        <div class="lunch-toggle-row flex items-center justify-between rounded-xl border px-4 py-3">
+          <div class="flex items-center gap-2.5">
+            <div class="lunch-toggle-icon inline-flex h-8 w-8 items-center justify-center rounded-lg">
+              <Coffee size={15} />
+            </div>
+            <div>
+              <p class="theme-heading text-sm font-medium">Include Lunch</p>
+              <p class="theme-muted text-xs">{includeLunch ? 'Lunch hour counted as OJT time' : '1 hour lunch break deducted'}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            class="lunch-toggle-switch relative h-6 w-11 shrink-0 rounded-full transition-colors duration-200"
+            style={`background-color: ${includeLunch ? '#0f766e' : '#cbd5e1'};`}
+            on:click={handleLunchToggle}
+            aria-label="Toggle include lunch"
+          >
+            <span class={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200 ${includeLunch ? 'translate-x-5' : 'translate-x-0'}`}></span>
+          </button>
+        </div>
+
         {#if timeIn && timeOut && formHours > 0}
           <div class="duration-chip rounded-xl border px-4 py-3 text-sm shadow-sm">
             Duration: <strong class="font-semibold">{formHours} hours</strong>
+            {#if !includeLunch && formHours > 0}
+              <span class="theme-muted text-xs ml-1">(1h lunch deducted)</span>
+            {/if}
           </div>
         {/if}
 
@@ -514,7 +573,7 @@
           <div>
             <p class="predictor-estimate-label text-xs font-semibold uppercase tracking-[0.08em]">Estimated Completion Date</p>
             <p class="theme-heading mt-1 text-2xl font-bold tracking-tight">{formatLongDate(estimatedDate)}</p>
-            <p class="predictor-estimate-sub mt-1 text-sm">{totalDaysNeeded} working days from today</p>
+            <p class="predictor-estimate-sub mt-1 text-sm">{projectedWorkingDays} total working days from start date</p>
           </div>
 
           <div class="predictor-estimate-pill inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold shadow-sm">
@@ -791,6 +850,36 @@
     background: #e0efff;
     border-color: #93c5fd;
     color: #0f3868;
+  }
+
+  .lunch-toggle-row {
+    background: var(--tl-surface-soft);
+    border-color: var(--tl-border);
+    transition: border-color 150ms ease;
+  }
+
+  .lunch-toggle-row:hover {
+    border-color: #93c5fd;
+  }
+
+  .lunch-toggle-icon {
+    background: #fff7ed;
+    color: #c2410c;
+    border: 1px solid #fdba74;
+  }
+
+  .lunch-toggle-switch {
+    cursor: pointer;
+  }
+
+  :global(.dark) .lunch-toggle-row:hover {
+    border-color: rgba(125, 211, 252, 0.45);
+  }
+
+  :global(.dark) .lunch-toggle-icon {
+    background: rgba(194, 65, 12, 0.18);
+    color: #fdba74;
+    border-color: rgba(253, 186, 116, 0.4);
   }
 
   .theme-button-soft {
