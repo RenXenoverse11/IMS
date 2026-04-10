@@ -20,8 +20,36 @@ onMount(() => {
 onDestroy(() => {
   clearInterval(intervalId);
 });
-// For Today's Learnings textarea
-let todaysLearning = '';
+// For Recent Activity (automatic, backend-driven)
+let recentActivities = [];
+
+// Fetch recent activities from backend
+async function fetchRecentActivities() {
+  try {
+    const run = globalThis?.google?.script?.run;
+    if (!run) return;
+    run.withSuccessHandler((data) => {
+      if (Array.isArray(data)) recentActivities = data;
+    }).getRecentActivities();
+  } catch (e) { /* ignore */ }
+}
+
+// Log a new activity to backend
+function logUserActivity(activity) {
+  try {
+    const run = globalThis?.google?.script?.run;
+    if (!run) return;
+    run.logUserActivity(activity);
+  } catch (e) { /* ignore */ }
+}
+
+onMount(() => {
+  fetchRecentActivities();
+  intervalId = setInterval(() => {
+    updateNow();
+    fetchRecentActivities(); // refresh activities every minute
+  }, 60000);
+});
 
 // Helper to compute minutes ago from a date string (using dueDate as a stand-in for last updated)
 function getUpdatedMinutesAgo(dateString) {
@@ -518,6 +546,13 @@ const summaryCards = [
       activeView = 'Overview';
       isAddTaskOpen = false;
       resetAddTaskForm();
+      // Log activity
+      logUserActivity({
+        message: `Added a new task: ${savedTask.title}`,
+        timestamp: new Date().toISOString(),
+        user: user && user.email ? user.email : 'Unknown'
+      });
+      fetchRecentActivities();
     } catch (error) {
       addTaskError = error?.message || 'Unable to save the task.';
     } finally {
@@ -1291,15 +1326,24 @@ const summaryCards = [
             <section class="overview-panel notes-panel">
               <div class="notes-header" style="display: flex; align-items: center; gap: 0.5rem;">
                 <List size={18} style="color: #a21caf; background: color-mix(in srgb, #a21caf 10%, var(--color-surface)); border-radius: 0.4rem; padding: 0.18rem;" />
-                <div class="notes-title">Today's Learnings</div>
+                <div class="notes-title">Recent Activity</div>
               </div>
-              <div class="notes-textarea-wrap">
-                <textarea
-                  class="notes-textarea"
-                  rows="5"
-                  placeholder="Share your insights and takeaways for today."
-                  bind:value={todaysLearning}
-                ></textarea>
+              <div class="recent-activity-list" style="margin-bottom: 0.5rem;">
+                {#if recentActivities.length === 0}
+                  <p class="overview-empty-copy">No recent activities yet.</p>
+                {:else}
+                  <ul style="list-style: none; padding: 0; margin: 0;">
+                    {#each recentActivities as activity (activity.id)}
+                      <li style="margin-bottom: 0.5rem; display: flex; align-items: flex-start; gap: 0.5rem;">
+                        <span style="font-size: 1.1rem; color: var(--color-primary, #a21caf);">•</span>
+                        <div>
+                          <div style="font-size: 1rem; color: var(--color-text); font-family: inherit;">{activity.message}</div>
+                          <div style="font-size: 0.85rem; color: #888;">{new Date(activity.timestamp).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</div>
+                        </div>
+                      </li>
+                    {/each}
+                  </ul>
+                {/if}
               </div>
             </section>
           </div>

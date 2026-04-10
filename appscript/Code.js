@@ -2513,3 +2513,4 @@ function authorizeImsScopes_() {
 function authorizeImsScopes() {
   return authorizeImsScopes_();
 }
+}
