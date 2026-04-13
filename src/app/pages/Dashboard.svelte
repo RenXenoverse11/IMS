@@ -30,6 +30,7 @@
   let totalCompletedHours = 0;
   let activityLogs = [];
   let tasks = [];
+  let pendingRequests = [];
 
   // Editable form state
   let formStartDate = '';
@@ -223,8 +224,22 @@
     }, 0);
   }
 
+  function sumPendingRequestHours(requests) {
+    // Sum up total_hours from pending Overtime requests
+    const rows = Array.isArray(requests) ? requests : [];
+    return rows.reduce((acc, req) => {
+      if (String(req?.requestType || '').toLowerCase() === 'overtime') {
+        const hours = Number(req?.total_hours || 0);
+        return acc + (Number.isFinite(hours) ? hours : 0);
+      }
+      return acc;
+    }, 0);
+  }
+
   $: totalOjtHours = Number(formTotalOjtHours || profile?.total_ojt_hours || 0);
-  $: hoursCompleted = totalCompletedHours;
+  $: pendingOvertimeHours = sumPendingRequestHours(pendingRequests);
+  $: effectiveCompletedHours = progressMode === PROGRESS_MODES.ALL ? totalCompletedHours + pendingOvertimeHours : totalCompletedHours;
+  $: hoursCompleted = effectiveCompletedHours;
   $: hoursRemaining = Math.max(0, totalOjtHours - hoursCompleted);
   $: workingDaysNeeded = Math.ceil(hoursRemaining / 8);
   // Calculate days and remaining hours (e.g., "54 days 4 hours")
@@ -301,6 +316,7 @@
       // Clean up legacy global cache key to avoid cross-account leakage.
       localStorage.removeItem('ojt_completed_hours');
       tasks = data.tasks;
+      pendingRequests = data.pending_requests || [];
 
       // Create activity items from time logs (Logged In / Logged Out entries)
       const timeLogActivities = [];
@@ -412,11 +428,12 @@
       </div>
 
       <div class="mode-toggle">
-        <span class="mode-label">Hours mode:</span>
+        <span class="mode-label">View:</span>
         <button
           class:active={progressMode === PROGRESS_MODES.APPROVED}
           type="button"
           on:click={() => (progressMode = PROGRESS_MODES.APPROVED)}
+          title="Show only approved hours"
         >
           Approved
         </button>
@@ -424,8 +441,9 @@
           class:active={progressMode === PROGRESS_MODES.ALL}
           type="button"
           on:click={() => (progressMode = PROGRESS_MODES.ALL)}
+          title="Show approved hours + pending overtime requests"
         >
-          All
+          All Requests
         </button>
       </div>
     </div>
