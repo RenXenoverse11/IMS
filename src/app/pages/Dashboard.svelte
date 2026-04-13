@@ -99,11 +99,12 @@
     if (!dateInput) return '';
     const dt = typeof dateInput === 'string' ? parseIsoDateOnly(dateInput) : dateInput;
     if (!dt) return '';
-    // Use MM/DD/YYYY for clarity (local-independent)
-    const mm = String(dt.getMonth() + 1).padStart(2, '0');
-    const dd = String(dt.getDate()).padStart(2, '0');
-    const yyyy = String(dt.getFullYear());
-    return `${mm}/${dd}/${yyyy}`;
+    // Format as: "May 25, 2026"
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const month = monthNames[dt.getMonth()];
+    const day = dt.getDate();
+    const year = dt.getFullYear();
+    return `${month} ${day}, ${year}`;
   }
 
   function normalizeTimeTo24Hour(value) {
@@ -394,7 +395,20 @@
     <div class="welcome-banner">
       <div>
         <h2 class="welcome-title">Welcome back{currentUser?.full_name ? `, ${currentUser.full_name}` : ''}!</h2>
-        <p class="welcome-subtitle">Here’s your OJT progress overview.</p>
+        <p class="welcome-subtitle">
+          {#if currentUser?.role}
+            <span class="profile-badge">Intern</span>
+          {/if}
+          {#if readonlyDepartment}
+            <span class="profile-detail">• {readonlyDepartment}</span>
+          {/if}
+          {#if readonlyCourse}
+            <span class="profile-detail">• {readonlyCourse}</span>
+          {/if}
+          {#if readonlySchool}
+            <span class="profile-detail">• {readonlySchool}</span>
+          {/if}
+        </p>
       </div>
 
       <div class="mode-toggle">
@@ -471,10 +485,10 @@
     </div>
 
     <!-- Estimated end date + progress -->
-    <div class="wide-card">
+    <div class="wide-card estimated-end-card">
       <div class="wide-left">
         <h3>Estimated End Date</h3>
-        <div class="wide-value">{computedEstimatedEndDate ? formatDateLong(computedEstimatedEndDate) : '—'}</div>
+        <div class="wide-value date-highlight">{computedEstimatedEndDate ? formatDateLong(computedEstimatedEndDate) : '—'}</div>
         <div class="wide-meta">
           Start: {formStartDate ? formatDateLong(formStartDate) : '—'} • Weekdays only (Mon–Fri)
         </div>
@@ -492,37 +506,8 @@
       </div>
     </div>
 
-    <!-- OJT Profile (read-only display) -->
+    <!-- Recent Activity, Tasks and other dashboard content -->
     <div class="content-grid">
-      <div class="card">
-        <div class="card-header-main">
-          <h3>OJT Profile</h3>
-          <span class="muted">Your OJT details</span>
-        </div>
-
-        <div class="profile-grid">
-          <div class="field-display">
-            <span>Start Date</span>
-            <p>{startDateDisplay}</p>
-          </div>
-
-          <div class="field-display">
-            <span>Department</span>
-            <p>{readonlyDepartment || 'Not set yet'}</p>
-          </div>
-
-          <div class="field-display">
-            <span>Course</span>
-            <p>{readonlyCourse || 'Not set yet'}</p>
-          </div>
-
-          <div class="field-display">
-            <span>School</span>
-            <p>{readonlySchool || 'Not set yet'}</p>
-          </div>
-        </div>
-      </div>
-
       <div class="card">
         <div class="card-header-main">
           <h3>Recent Activity</h3>
@@ -650,6 +635,26 @@
     margin: 0.25rem 0 0;
     color: rgba(255, 255, 255, 0.85);
     font-size: 0.95rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .profile-badge {
+    display: inline-block;
+    background: rgba(255, 255, 255, 0.25);
+    color: #ffffff;
+    padding: 0.3rem 0.7rem;
+    border-radius: 999px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    border: 1px solid rgba(255, 255, 255, 0.4);
+  }
+
+  .profile-detail {
+    color: rgba(255, 255, 255, 0.8);
+    font-weight: 500;
   }
 
   .mode-label {
@@ -720,6 +725,26 @@
     box-shadow: 0 18px 36px -30px rgba(15, 23, 42, 0.42);
   }
 
+  .estimated-end-card {
+    background: linear-gradient(135deg, #ffffff 0%, #f0f7ff 100%);
+    border: 1px solid #c9dffe;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .estimated-end-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 300px;
+    height: 300px;
+    background: radial-gradient(circle, rgba(15, 108, 189, 0.08) 0%, transparent 70%);
+    border-radius: 50%;
+    transform: translate(40%, -30%);
+    pointer-events: none;
+  }
+
   .wide-left h3 {
     margin: 0;
     font-size: 1rem;
@@ -737,6 +762,18 @@
     font-size: 1.5rem;
     font-weight: 800;
     color: var(--db-heading);
+  }
+
+  .date-highlight {
+    background: linear-gradient(135deg, #0f6cbd 0%, #0ea5e9 100%);
+    color: #ffffff;
+    padding: 0.75rem 1rem;
+    border-radius: 10px;
+    display: inline-block;
+    box-shadow: 0 8px 20px -8px rgba(15, 108, 189, 0.4);
+    font-size: 1.375rem;
+    font-weight: 700;
+    letter-spacing: 0.3px;
   }
 
   .wide-meta {
@@ -994,6 +1031,9 @@
     display: flex;
     flex-direction: column;
     gap: 1rem;
+    max-height: 400px;
+    overflow-y: auto;
+    padding-right: 0.5rem;
   }
 
   .activity-item {
@@ -1054,6 +1094,9 @@
     display: flex;
     flex-direction: column;
     gap: 1rem;
+    max-height: 400px;
+    overflow-y: auto;
+    padding-right: 0.5rem;
   }
 
   .task-item {
@@ -1141,6 +1184,17 @@
   :global(.dark) .wide-card,
   :global(.dark) .card {
     box-shadow: 0 20px 38px -30px rgba(2, 8, 23, 0.95);
+  }
+
+  :global(.dark) .estimated-end-card {
+    background: linear-gradient(135deg, #1a2d45 0%, #162338 100%);
+    border: 1px solid #2b4570;
+  }
+
+  :global(.dark) .date-highlight {
+    background: linear-gradient(135deg, #3b82f6 0%, #0ea5e9 100%);
+    color: #ffffff;
+    box-shadow: 0 8px 20px -8px rgba(59, 130, 246, 0.5);
   }
 
   :global(.dark) .card-icon {
@@ -1239,6 +1293,44 @@
     .stat-value {
       font-size: 2rem;
     }
+  }
+
+  /* Scrollbar styling */
+  .activity-list::-webkit-scrollbar,
+  .tasks-list::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .activity-list::-webkit-scrollbar-track,
+  .tasks-list::-webkit-scrollbar-track {
+    background: #f0f0f0;
+    border-radius: 10px;
+  }
+
+  .activity-list::-webkit-scrollbar-thumb,
+  .tasks-list::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 10px;
+  }
+
+  .activity-list::-webkit-scrollbar-thumb:hover,
+  .tasks-list::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+  }
+
+  :global(.dark) .activity-list::-webkit-scrollbar-track,
+  :global(.dark) .tasks-list::-webkit-scrollbar-track {
+    background: #1e293b;
+  }
+
+  :global(.dark) .activity-list::-webkit-scrollbar-thumb,
+  :global(.dark) .tasks-list::-webkit-scrollbar-thumb {
+    background: #475569;
+  }
+
+  :global(.dark) .activity-list::-webkit-scrollbar-thumb:hover,
+  :global(.dark) .tasks-list::-webkit-scrollbar-thumb:hover {
+    background: #64748b;
   }
 
   @media (max-width: 1100px) {
