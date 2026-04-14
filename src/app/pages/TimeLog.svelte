@@ -10,8 +10,6 @@
     Plus,
     Target,
     Trash2,
-    TrendingUp,
-    Zap,
   } from 'lucide-svelte';
   import * as authApi from '../lib/auth.js';
 
@@ -33,17 +31,24 @@
   let entries = [];
   let date = '';
   let timeIn = '08:00';
-  let timeOut = '17:00';
-  let absenceDays = 0;
-  let overtimeHours = 0;
+  let timeOut = '';
   let todayNotes = '';
   let logSyncError = '';
+  let isLoggingIn = false;
+  let isLoggingOut = false;
   let includeLunch = (() => {
     if (typeof window !== 'undefined') {
       return window.localStorage.getItem('ojt_include_lunch') === 'true';
     }
     return false;
   })();
+
+  // Delete confirmation state
+  let showDeleteConfirm = false;
+  let deleteConfirmEntry = null;
+
+  // Track active login status - user has entered login time (local state, not saved yet)
+  $: hasActiveTodayLogin = Boolean(date && timeIn);
 
   function addWorkingDays(startDate, days) {
     const result = new Date(startDate);
@@ -109,14 +114,6 @@
     const dt = new Date(y, m - 1, d);
     if (Number.isNaN(dt.getTime())) return null;
     return dt;
-  }
-
-  function adjustAbsenceDays(delta) {
-    absenceDays = Math.max(0, absenceDays + delta);
-  }
-
-  function adjustOvertimeHours(delta) {
-    overtimeHours = Math.max(0, overtimeHours + delta);
   }
 
   function normalizeDateOnly(value) {
@@ -219,7 +216,9 @@
       timeOut: normalizeTimeValue(row?.time_out, '17:00'),
       hours: Number(row?.hours_rendered || 0),
       status: 'recorded',
+      type: String(row?.entry_type || 'login').toLowerCase(), // 'login' or 'logout'
       notes: String(row?.notes || ''),
+      createdAt: String(row?.created_at || ''), // timestamp when entry was created
     };
   }
 
@@ -234,7 +233,7 @@
       const logs = await authApi.listTimeLogsByUser(user.user_id);
       entries = logs
         .map(mapApiLogToEntry)
-        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        .sort((a, b) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime());
       logSyncError = '';
     } catch (err) {
       logSyncError = err?.message || 'Unable to load time logs right now.';
@@ -255,61 +254,139 @@
     requiredHours = DEFAULT_REQUIRED_HOURS;
   }
 
-  async function handleAddEntry() {
-    if (!date || !timeIn || !timeOut || !trimmedNotes) {
+  async function handleLogin() {
+    if (!date || !timeIn) {
+      logSyncError = 'Please select a date and enter your login time.';
       return;
     }
 
+    isLoggingIn = true;
+    logSyncError = '';
+
+    try {
+      // Just update local state, don't save to database yet
+      // Login time is already bound to timeIn
+      await new Promise(resolve => setTimeout(resolve, 500)); // Simulate processing
+      isLoggingIn = false;
+    } catch (err) {
+      logSyncError = err?.message || 'Unable to process login.';
+      isLoggingIn = false;
+    }
+  }
+
+  async function handleLogout() {
+    if (!timeOut) {
+      logSyncError = 'Please enter your logout time.';
+      return;
+    }
+
+    if (!trimmedNotes) {
+      logSyncError = 'Please add notes about your activities before logging out.';
+      return;
+    }
+
+    if (!timeIn) {
+      logSyncError = 'Please enter your login time first.';
+      return;
+    }
+
+    isLoggingOut = true;
+    logSyncError = '';
+
     const user = authApi.getCurrentUser();
     if (!user?.user_id) {
-      logSyncError = 'Please log in again before adding a time log.';
+      logSyncError = 'Please log in again before logging out.';
+      isLoggingOut = false;
       return;
     }
 
     const hours = calculateHours(timeIn, timeOut, includeLunch);
-    const isFirstTimeLog = entries.length === 0; // Check if this is the first time log
 
     try {
+      console.log('Attempting to save logout entry:', {
+        user_id: user.user_id,
+        log_date: date,
+        time_in: timeIn,
+        time_out: timeOut,
+        hours_rendered: hours,
+        entry_type: 'logout',
+        notes: trimmedNotes,
+      });
+
+      // Save logout entry with complete time data and notes
       const saved = await authApi.createTimeLog({
         user_id: user.user_id,
         log_date: date,
         time_in: timeIn,
         time_out: timeOut,
         hours_rendered: hours,
+        entry_type: 'logout', // Mark as logout entry
         notes: trimmedNotes,
-        updateStartDate: isFirstTimeLog, // Update start date on first time log
       });
 
-      entries = [mapApiLogToEntry(saved), ...entries];
+      console.log('Logout save response:', saved);
+
       logSyncError = '';
+      
+      // Reset form fields - keep timeIn in case they log in again, clear logout and notes
+      timeOut = '';
+      todayNotes = '';
+      
+      // Reload all entries to ensure they display correctly in the history
+      await loadEntriesFromApi();
+      isLoggingOut = false;
     } catch (err) {
-      logSyncError = err?.message || 'Unable to save time log right now.';
+      console.error('Logout error:', err);
+      logSyncError = err?.message || 'Unable to log out right now.';
+      isLoggingOut = false;
       return;
     }
-
-    date = '';
-    timeIn = '08:00';
-    timeOut = '17:00';
-    todayNotes = '';
   }
 
   async function handleDelete(id) {
+    const entry = entries.find((e) => String(e.id) === String(id));
+    if (!entry) return;
+
+    deleteConfirmEntry = entry;
+    showDeleteConfirm = true;
+  }
+
+  async function confirmDelete() {
+    if (!deleteConfirmEntry) return;
+
     const user = authApi.getCurrentUser();
     if (!user?.user_id) {
       logSyncError = 'Please log in again before deleting a time log.';
+      showDeleteConfirm = false;
+      deleteConfirmEntry = null;
       return;
     }
 
     try {
-      await authApi.deleteTimeLog(user.user_id, id);
-      entries = entries.filter((entry) => String(entry.id) !== String(id));
+      await authApi.deleteTimeLog(user.user_id, deleteConfirmEntry.id);
+      entries = entries.filter((entry) => String(entry.id) !== String(deleteConfirmEntry.id));
       logSyncError = '';
     } catch (err) {
       logSyncError = err?.message || 'Unable to delete this time log right now.';
+    } finally {
+      showDeleteConfirm = false;
+      deleteConfirmEntry = null;
     }
   }
 
+  function cancelDelete() {
+    showDeleteConfirm = false;
+    deleteConfirmEntry = null;
+  }
+
   onMount(() => {
+    // Set date to today by default
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    date = `${year}-${month}-${day}`;
+    
     syncRequiredHoursFromAccount();
     loadEntriesFromApi();
 
@@ -320,34 +397,29 @@
 
   $: formHours = calculateHours(timeIn, timeOut, includeLunch);
   $: trimmedNotes = todayNotes.trim();
-  $: canAddEntry = Boolean(date && timeIn && timeOut && trimmedNotes);
+  $: canLogin = Boolean(date && timeIn);
+  $: canLogout = Boolean(date && timeIn && timeOut && hasActiveTodayLogin && trimmedNotes);
   $: currentUserId = String(authApi.getCurrentUser()?.user_id || '').trim();
   $: completedHoursStorageKey = currentUserId ? `ojt_completed_hours_${currentUserId}` : '';
   $: completedHours = INITIAL_COMPLETED_HOURS + entries.reduce((sum, entry) => sum + entry.hours, 0);
   $: remainingHours = Math.max(0, requiredHours - completedHours);
   $: progressPercent = Math.min(100, Math.round((completedHours / requiredHours) * 100));
+
+  // Filter for completed entries (both login and logout times recorded)
+  $: completedEntries = entries.filter(
+    (entry) => String(entry.type || 'login').toLowerCase() === 'logout' && entry.timeOut && Number(entry.hours) > 0
+  );
   // Save completed hours to user-scoped local cache for dashboard fallback.
   $: if (typeof window !== 'undefined' && completedHours >= 0 && completedHoursStorageKey) {
     localStorage.setItem(completedHoursStorageKey, String(completedHours));
   }
-  $: effectiveRemaining = Math.max(0, remainingHours - overtimeHours);
-  $: totalAbsenceHours = Math.max(0, absenceDays) * AVERAGE_DAILY_HOURS;
-  $: adjustedRequiredHours = Math.max(0, requiredHours + totalAbsenceHours - Math.max(0, overtimeHours));
+  $: effectiveRemaining = Math.max(0, remainingHours);
+  $: totalAbsenceHours = 0; // Removed: Math.max(0, absenceDays) * AVERAGE_DAILY_HOURS
+  $: adjustedRequiredHours = Math.max(0, requiredHours - Math.max(0, 0)); // Removed overtime calculation
   $: projectedWorkingDays = Math.ceil(adjustedRequiredHours / AVERAGE_DAILY_HOURS);
   $: estimatedDate = (() => {
     const start = parseIsoDateOnly(ojtStartDate) || new Date();
     return addWorkingDays(start, Math.max(0, projectedWorkingDays - 1));
-  })();
-  $: overtimeDaysAhead = Math.round((overtimeHours / AVERAGE_DAILY_HOURS) * 10) / 10;
-  // Calculate days and remaining hours (e.g., "54 days 4 hours")
-  $: daysAndHours = (() => {
-    const totalHours = Math.max(0, effectiveRemaining);
-    const fullDays = Math.floor(totalHours / AVERAGE_DAILY_HOURS);
-    const remainingHoursOnly = Math.round((totalHours % AVERAGE_DAILY_HOURS) * 10) / 10;
-    if (remainingHoursOnly === 0) {
-      return `${fullDays} day${fullDays !== 1 ? 's' : ''}`;
-    }
-    return `${fullDays} day${fullDays !== 1 ? 's' : ''} ${remainingHoursOnly}h`;
   })();
   $: statCards = [
     {
@@ -435,52 +507,56 @@
           <input
             bind:value={date}
             type="date"
-              class="theme-input entry-input w-full rounded-xl border px-4 py-3 outline-none transition"
+            class="theme-input entry-input w-full rounded-xl border px-4 py-3 outline-none transition"
           />
         </label>
 
         <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <label class="flex flex-col gap-1.5">
-            <span class="theme-text text-sm font-medium">Time In</span>
-            <input
-              bind:value={timeIn}
-              type="time"
-              class="theme-input entry-input w-full rounded-xl border px-4 py-3 outline-none transition"
-            />
-          </label>
+          {#if !hasActiveTodayLogin}
+            <label class="flex flex-col gap-1.5">
+              <span class="theme-text text-sm font-medium">Login Time *</span>
+              <input
+                bind:value={timeIn}
+                type="time"
+                class="theme-input entry-input w-full rounded-xl border px-4 py-3 outline-none transition"
+              />
+            </label>
+          {/if}
 
-          <label class="flex flex-col gap-1.5">
-            <span class="theme-text text-sm font-medium">Time Out</span>
-            <input
-              bind:value={timeOut}
-              type="time"
-              class="theme-input entry-input w-full rounded-xl border px-4 py-3 outline-none transition"
-            />
-          </label>
+          {#if hasActiveTodayLogin}
+            <label class="flex flex-col gap-1.5">
+              <span class="theme-text text-sm font-medium">Logout Time *</span>
+              <input
+                bind:value={timeOut}
+                type="time"
+                class="theme-input entry-input w-full rounded-xl border px-4 py-3 outline-none transition"
+              />
+            </label>
+          {/if}
         </div>
 
-        <div class="lunch-toggle-row flex items-center justify-between rounded-xl border px-4 py-3">
-          <div class="flex items-center gap-2.5">
-            <div class="lunch-toggle-icon inline-flex h-8 w-8 items-center justify-center rounded-lg">
-              <Coffee size={15} />
+        {#if hasActiveTodayLogin && timeIn && timeOut && formHours > 0}
+          <div class="lunch-toggle-row flex items-center justify-between rounded-xl border px-4 py-3">
+            <div class="flex items-center gap-2.5">
+              <div class="lunch-toggle-icon inline-flex h-8 w-8 items-center justify-center rounded-lg">
+                <Coffee size={15} />
+              </div>
+              <div>
+                <p class="theme-heading text-sm font-medium">Include Lunch</p>
+                <p class="theme-muted text-xs">{includeLunch ? 'Lunch hour counted as OJT time' : '1 hour lunch break deducted'}</p>
+              </div>
             </div>
-            <div>
-              <p class="theme-heading text-sm font-medium">Include Lunch</p>
-              <p class="theme-muted text-xs">{includeLunch ? 'Lunch hour counted as OJT time' : '1 hour lunch break deducted'}</p>
-            </div>
+            <button
+              type="button"
+              class="lunch-toggle-switch relative h-6 w-11 shrink-0 rounded-full transition-colors duration-200"
+              style={`background-color: ${includeLunch ? '#0f766e' : '#cbd5e1'};`}
+              on:click={handleLunchToggle}
+              aria-label="Toggle include lunch"
+            >
+              <span class={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200 ${includeLunch ? 'translate-x-5' : 'translate-x-0'}`}></span>
+            </button>
           </div>
-          <button
-            type="button"
-            class="lunch-toggle-switch relative h-6 w-11 shrink-0 rounded-full transition-colors duration-200"
-            style={`background-color: ${includeLunch ? '#0f766e' : '#cbd5e1'};`}
-            on:click={handleLunchToggle}
-            aria-label="Toggle include lunch"
-          >
-            <span class={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200 ${includeLunch ? 'translate-x-5' : 'translate-x-0'}`}></span>
-          </button>
-        </div>
 
-        {#if timeIn && timeOut && formHours > 0}
           <div class="duration-chip rounded-xl border px-4 py-3 text-sm shadow-sm">
             Duration: <strong class="font-semibold">{formHours} hours</strong>
             {#if !includeLunch && formHours > 0}
@@ -489,134 +565,128 @@
           </div>
         {/if}
 
-        <button
-          class="timelog-submit-btn inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3.5 text-sm font-semibold transition"
-          type="button"
-          on:click={handleAddEntry}
-          disabled={!canAddEntry}
-        >
-          <Plus size={15} />
-          <span>Add Entry</span>
-        </button>
+        <div class="flex flex-col gap-2 sm:flex-row sm:gap-3">
+          <button
+            class="timelog-submit-btn flex-1 inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3.5 text-sm font-semibold transition"
+            type="button"
+            on:click={handleLogin}
+            disabled={!canLogin || isLoggingIn}
+            title={hasActiveTodayLogin ? 'Already logged in for today. Logout first.' : 'Submit login time'}
+          >
+            {#if isLoggingIn}
+              <span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+              <span>Logging In...</span>
+            {:else}
+              <Clock size={15} />
+              <span>Log In</span>
+            {/if}
+          </button>
+
+          <button
+            class="timelog-logout-btn flex-1 inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3.5 text-sm font-semibold transition"
+            type="button"
+            on:click={handleLogout}
+            disabled={!canLogout || isLoggingOut}
+            title={!hasActiveTodayLogin ? 'You must log in first' : !timeOut ? 'Enter logout time' : !trimmedNotes ? 'Notes are required for logout' : 'Submit logout time'}
+          >
+            {#if isLoggingOut}
+              <span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+              <span>Logging Out...</span>
+            {:else}
+              <Clock size={15} />
+              <span>Log Out</span>
+            {/if}
+          </button>
+        </div>
+
+        {#if hasActiveTodayLogin}
+          <div class="status-chip status-active rounded-xl border px-4 py-2 text-sm">
+            <p class="theme-heading font-semibold">✓ Logged In</p>
+            <p class="theme-muted text-xs">
+              {#if !timeOut}
+                You are logged in. Enter your logout time to complete your shift.
+              {:else if !trimmedNotes}
+                Enter your notes about what you did today before logging out.
+              {:else}
+                Ready to log out. Click the "Log Out" button to complete your shift.
+              {/if}
+            </p>
+          </div>
+        {:else if date}
+          <div class="status-chip status-inactive rounded-xl border px-4 py-2 text-sm">
+            <p class="theme-text font-semibold">→ Ready to Log In</p>
+            <p class="theme-muted text-xs">Enter your login time and click "Log In" to start your shift.</p>
+          </div>
+        {/if}
 
         <p class="theme-text text-xs leading-6">
-          Add Entry stays disabled until you fill in the date, time, and today's notes. Once submitted, the entry is
-          recorded immediately.
+          <strong>How it works:</strong> Click "Log In" to record your start time. Later, enter your logout time and click "Log Out" to complete your shift and record your hours.
         </p>
       </div>
     </section>
 
-    <section class="theme-panel notes-panel rounded-2xl border p-6 shadow-md">
-      <div class="flex items-start gap-3">
-        <div class="feature-icon notes-icon inline-flex h-11 w-11 items-center justify-center rounded-xl">
-          <ClipboardList size={18} />
-        </div>
-        <div>
-          <h3 class="theme-heading text-base font-semibold">Today's Notes</h3>
-          <p class="theme-text mt-1 text-sm">Describe your tasks and activities for today.</p>
-        </div>
-      </div>
-
-      <textarea
-        class="theme-input theme-placeholder mt-5 min-h-55 w-full rounded-xl border px-4 py-4 outline-none transition"
-        bind:value={todayNotes}
-        rows="7"
-        placeholder="Describe your tasks and activities for today..."
-      ></textarea>
-
-      <p class="theme-text mt-4 text-xs">This note will be saved automatically into the log once you add the time entry.</p>
-    </section>
-
-    <section class="theme-panel rounded-xl border p-6 shadow-md">
-      <div class="flex items-start gap-3">
-        <div class="feature-icon predictor-icon inline-flex h-11 w-11 items-center justify-center rounded-xl">
-          <Zap size={18} />
-        </div>
-        <div>
-          <h3 class="theme-heading text-base font-semibold">Completion Predictor</h3>
-          <p class="theme-text mt-1 text-sm">Adjust parameters to forecast your finish date</p>
-        </div>
-      </div>
-
-      <div class="mt-5 grid grid-cols-1 gap-4">
-        <article class="theme-soft-panel predictor-metric rounded-xl border p-4">
-          <div class="flex items-center justify-between gap-3">
-            <p class="theme-text text-sm font-medium">Planned Absences</p>
-            <span class="predictor-chip predictor-chip-delay">+{absenceDays}d delay</span>
+    {#if hasActiveTodayLogin}
+      <section class="theme-panel notes-panel rounded-2xl border p-6 shadow-md">
+        <div class="flex items-start gap-3">
+          <div class="feature-icon notes-icon inline-flex h-11 w-11 items-center justify-center rounded-xl">
+            <ClipboardList size={18} />
           </div>
-
-          <div class="mt-4 flex items-center justify-between gap-3">
-            <button class="theme-button-soft predictor-step h-9 w-9 rounded-xl border transition" type="button" on:click={() => adjustAbsenceDays(-1)}>-</button>
-            <strong class="theme-heading text-4xl font-bold tracking-tight">{absenceDays}</strong>
-            <button class="theme-button-soft predictor-step h-9 w-9 rounded-xl border transition" type="button" on:click={() => adjustAbsenceDays(1)}>+</button>
-          </div>
-
-          <p class="theme-text mt-3 text-sm">days of planned absence</p>
-        </article>
-
-        <article class="theme-soft-panel predictor-metric rounded-xl border p-4">
-          <div class="flex items-center justify-between gap-3">
-            <p class="theme-text text-sm font-medium">Overtime Hours</p>
-            <span class="predictor-chip predictor-chip-ahead">-{overtimeDaysAhead}d ahead</span>
-          </div>
-
-          <div class="mt-4 flex items-center justify-between gap-3">
-            <button class="theme-button-soft predictor-step h-9 w-9 rounded-xl border transition" type="button" on:click={() => adjustOvertimeHours(-1)}>-</button>
-            <strong class="theme-heading text-4xl font-bold tracking-tight">{overtimeHours}h</strong>
-            <button class="theme-button-soft predictor-step h-9 w-9 rounded-xl border transition" type="button" on:click={() => adjustOvertimeHours(1)}>+</button>
-          </div>
-
-          <p class="theme-text mt-3 text-sm">extra hours planned</p>
-        </article>
-      </div>
-
-      <div class="mt-5 rounded-xl border p-4 shadow-sm predictor-estimate">
-        <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p class="predictor-estimate-label text-xs font-semibold uppercase tracking-[0.08em]">Estimated Completion Date</p>
-            <p class="theme-heading mt-1 text-2xl font-bold tracking-tight">{formatLongDate(estimatedDate)}</p>
-            <p class="predictor-estimate-sub mt-1 text-sm">{projectedWorkingDays} total working days from start date</p>
-          </div>
-
-          <div class="predictor-estimate-pill inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold shadow-sm">
-            <TrendingUp size={14} />
-            <span>{remainingHours}h left</span>
+            <h3 class="theme-heading text-base font-semibold">Today's Notes *</h3>
+            <p class="theme-text mt-1 text-sm">Describe your tasks and activities for today. Required for logout.</p>
           </div>
         </div>
-      </div>
-    </section>
+
+        <textarea
+          class="theme-input theme-placeholder mt-5 min-h-55 w-full rounded-xl border px-4 py-4 outline-none transition"
+          bind:value={todayNotes}
+          rows="7"
+          placeholder="Describe your tasks and activities for today..."
+        ></textarea>
+
+        <p class="theme-text mt-4 text-xs">Your notes will be saved with your logout entry.</p>
+      </section>
+    {/if}
   </div>
 
   <section class="theme-panel history-panel overflow-hidden rounded-2xl border shadow-md">
     <div class="theme-divider flex items-center justify-between border-b px-6 py-4">
       <h3 class="theme-heading text-base font-semibold">Time Log History</h3>
-      <span class="theme-muted text-sm">{entries.length} entries</span>
+      <span class="theme-muted text-sm">{completedEntries.length} completed entries</span>
     </div>
 
-    <div class="overflow-x-auto">
+    <div class="overflow-x-auto overflow-y-auto max-h-96 table-scroll-container">
       <table class="min-w-full border-collapse">
         <thead>
           <tr class="theme-divider border-b">
             <th class="theme-muted px-6 py-3 text-left text-xs font-semibold uppercase tracking-[0.08em]">Date</th>
+            <th class="theme-muted px-6 py-3 text-left text-xs font-semibold uppercase tracking-[0.08em]">Type</th>
             <th class="theme-muted px-6 py-3 text-left text-xs font-semibold uppercase tracking-[0.08em]">Time In</th>
             <th class="theme-muted px-6 py-3 text-left text-xs font-semibold uppercase tracking-[0.08em]">Time Out</th>
             <th class="theme-muted px-6 py-3 text-left text-xs font-semibold uppercase tracking-[0.08em]">Hours</th>
             <th class="theme-muted px-6 py-3 text-left text-xs font-semibold uppercase tracking-[0.08em]">Notes</th>
+            <th class="theme-muted px-6 py-3 text-left text-xs font-semibold uppercase tracking-[0.08em]">Created</th>
             <th class="theme-muted px-6 py-3 text-left text-xs font-semibold uppercase tracking-[0.08em]">Status</th>
             <th class="theme-muted px-6 py-3 text-left text-xs font-semibold uppercase tracking-[0.08em]"></th>
           </tr>
         </thead>
 
         <tbody>
-          {#each entries as entry (entry.id)}
+          {#each completedEntries as entry (entry.id)}
             {@const meta = statusMeta[entry.status] ?? statusMeta.recorded}
             {@const StatusIcon = meta.icon}
+            {@const entryTypeLabel = entry.type === 'logout' ? 'Log Out' : 'Log In'}
+            {@const entryTypeClass = entry.type === 'logout' ? 'entry-type-logout' : 'entry-type-login'}
             <tr class="theme-table-row border-b transition">
               <td class="theme-text px-6 py-4 text-sm">{formatTableDate(entry.date)}</td>
+              <td class="px-6 py-4">
+                <span class={`entry-type-badge ${entryTypeClass}`}>{entryTypeLabel}</span>
+              </td>
               <td class="theme-text px-6 py-4 text-sm">{entry.timeIn}</td>
-              <td class="theme-text px-6 py-4 text-sm">{entry.timeOut}</td>
+              <td class="theme-text px-6 py-4 text-sm">{entry.timeOut || '—'}</td>
               <td class="theme-heading px-6 py-4 text-sm font-semibold">{entry.hours}h</td>
-              <td class="theme-text min-w-56 px-6 py-4 text-sm">{entry.notes || 'No notes added'}</td>
+              <td class="theme-text min-w-56 px-6 py-4 text-sm">{entry.notes || '—'}</td>
+              <td class="theme-text px-6 py-4 text-sm">{entry.createdAt || '—'}</td>
               <td class="px-6 py-4">
                 <span class={meta.badgeClass}>
                   <StatusIcon size={13} />
@@ -629,6 +699,7 @@
                   type="button"
                   on:click={() => handleDelete(entry.id)}
                   aria-label="Delete time entry"
+                  title="Delete this entry"
                 >
                   <Trash2 size={13} />
                 </button>
@@ -639,6 +710,53 @@
       </table>
     </div>
   </section>
+
+  {#if showDeleteConfirm && deleteConfirmEntry}
+    <div class="modal-overlay">
+      <div class="modal-container">
+        <div class="modal-header">
+          <h2 class="modal-title">Confirm Delete</h2>
+          <button class="modal-close-btn" on:click={cancelDelete} aria-label="Close dialog">
+            ✕
+          </button>
+        </div>
+
+        <div class="modal-content">
+          <p class="modal-message">Are you sure you want to delete this time entry?</p>
+          
+          <div class="modal-entry-preview">
+            <div class="preview-row">
+              <span class="preview-label">Date:</span>
+              <span class="preview-value">{formatTableDate(deleteConfirmEntry.date)}</span>
+            </div>
+            <div class="preview-row">
+              <span class="preview-label">Time In:</span>
+              <span class="preview-value">{deleteConfirmEntry.timeIn}</span>
+            </div>
+            <div class="preview-row">
+              <span class="preview-label">Time Out:</span>
+              <span class="preview-value">{deleteConfirmEntry.timeOut || '—'}</span>
+            </div>
+            <div class="preview-row">
+              <span class="preview-label">Hours:</span>
+              <span class="preview-value font-semibold">{deleteConfirmEntry.hours}h</span>
+            </div>
+          </div>
+
+          <p class="modal-warning">This action cannot be undone.</p>
+        </div>
+
+        <div class="modal-footer">
+          <button class="modal-cancel-btn" on:click={cancelDelete}>
+            Cancel
+          </button>
+          <button class="modal-delete-btn" on:click={confirmDelete}>
+            Delete Entry
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
 </section>
 
 <style>
@@ -986,6 +1104,15 @@
     color: #dc2626;
   }
 
+  .history-edit-btn {
+    color: #7b8ea8;
+  }
+
+  .history-edit-btn:hover {
+    background: #dbeafe;
+    color: #2563eb;
+  }
+
   :global(.dark) .timelog-shell {
     --tl-surface: #162338;
     --tl-surface-soft: #1b2a42;
@@ -1147,10 +1274,409 @@
     color: #fca5a5;
   }
 
+  :global(.dark) .history-edit-btn {
+    color: #9caec7;
+  }
+
+  :global(.dark) .history-edit-btn:hover {
+    background: rgba(37, 99, 235, 0.2);
+    color: #93c5fd;
+  }
+
+  .timelog-logout-btn {
+    color: #dc2626;
+    background: #fee2e2;
+    border: 1px solid #fecaca;
+  }
+
+  .timelog-logout-btn:hover:not(:disabled) {
+    background: #fecaca;
+    color: #b91c1c;
+  }
+
+  .timelog-logout-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .entry-type-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    padding: 0.35rem 0.75rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .entry-type-login {
+    background: #dbeafe;
+    color: #0c4a6e;
+    border: 1px solid #bfdbfe;
+  }
+
+  .entry-type-logout {
+    background: #fecdd3;
+    color: #7c2d12;
+    border: 1px solid #fca5a5;
+  }
+
+  .status-chip {
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    font-size: 0.95rem;
+  }
+
+  .status-active {
+    background: #dbeafe;
+    border-color: #bfdbfe;
+    color: #0c4a6e;
+  }
+
+  .status-inactive {
+    background: #f3f4f6;
+    border-color: #d1d5db;
+    color: #374151;
+  }
+
+  :global(.dark) .timelog-logout-btn {
+    color: #fca5a5;
+    background: rgba(239, 68, 68, 0.15);
+    border-color: rgba(239, 68, 68, 0.35);
+  }
+
+  :global(.dark) .timelog-logout-btn:hover:not(:disabled) {
+    background: rgba(239, 68, 68, 0.25);
+    color: #fda4af;
+  }
+
+  :global(.dark) .entry-type-login {
+    background: rgba(30, 144, 255, 0.18);
+    color: #93c5fd;
+    border-color: rgba(96, 165, 250, 0.35);
+  }
+
+  :global(.dark) .entry-type-logout {
+    background: rgba(239, 68, 68, 0.18);
+    color: #fca5a5;
+    border-color: rgba(239, 68, 68, 0.35);
+  }
+
+  :global(.dark) .status-active {
+    background: rgba(30, 144, 255, 0.15);
+    border-color: rgba(96, 165, 250, 0.35);
+    color: #93c5fd;
+  }
+
+  :global(.dark) .status-inactive {
+    background: rgba(107, 114, 128, 0.15);
+    border-color: rgba(107, 114, 128, 0.35);
+    color: #d1d5db;
+  }
+
+  .active-session-panel {
+    background: linear-gradient(135deg, #f0fdfa 0%, #f7f9fc 100%);
+    border-color: #99f6e4;
+  }
+
+  :global(.dark) .active-session-panel {
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(30, 144, 255, 0.08) 100%);
+    border-color: rgba(16, 185, 129, 0.35);
+  }
+
+  .session-icon {
+    background: linear-gradient(135deg, #14b8a6 0%, #06b6d4 100%);
+    color: white;
+  }
+
+  .empty-session-panel {
+    background: #f9fafb;
+    border-color: #e5e7eb;
+  }
+
+  :global(.dark) .empty-session-panel {
+    background: rgba(107, 114, 128, 0.1);
+    border-color: rgba(107, 114, 128, 0.3);
+  }
+
+  .empty-icon {
+    background: #f3f4f6;
+    color: #9ca3af;
+  }
+
+  :global(.dark) .empty-icon {
+    background: rgba(107, 114, 128, 0.2);
+    color: #6b7280;
+  }
+
   @media (max-width: 768px) {
     .timelog-shell {
       border-radius: 1rem;
       padding: 0;
     }
+  }
+
+  /* Table scrollbar styling */
+  .table-scroll-container {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(96, 165, 250, 0.5) transparent;
+  }
+
+  .table-scroll-container::-webkit-scrollbar {
+    height: 8px;
+    width: 8px;
+  }
+
+  .table-scroll-container::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .table-scroll-container::-webkit-scrollbar-thumb {
+    background: rgba(96, 165, 250, 0.5);
+    border-radius: 4px;
+  }
+
+  .table-scroll-container::-webkit-scrollbar-thumb:hover {
+    background: rgba(96, 165, 250, 0.7);
+  }
+
+  :global(.dark) .table-scroll-container {
+    scrollbar-color: rgba(96, 165, 250, 0.4) transparent;
+  }
+
+  :global(.dark) .table-scroll-container::-webkit-scrollbar-thumb {
+    background: rgba(96, 165, 250, 0.4);
+  }
+
+  :global(.dark) .table-scroll-container::-webkit-scrollbar-thumb:hover {
+    background: rgba(96, 165, 250, 0.6);
+  }
+
+  /* Delete Confirmation Modal */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+    padding: 1rem;
+    backdrop-filter: blur(2px);
+  }
+
+  .modal-container {
+    background: #ffffff;
+    border-radius: 1rem;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+    max-width: 420px;
+    width: 100%;
+    overflow: hidden;
+    animation: modalSlideIn 0.3s ease-out;
+  }
+
+  @keyframes modalSlideIn {
+    from {
+      opacity: 0;
+      transform: scale(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  :global(.dark) .modal-container {
+    background: #1f2937;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+  }
+
+  .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.5rem;
+    border-bottom: 1px solid #e5e7eb;
+  }
+
+  :global(.dark) .modal-header {
+    border-bottom-color: #374151;
+  }
+
+  .modal-title {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: #1f2937;
+    margin: 0;
+  }
+
+  :global(.dark) .modal-title {
+    color: #f3f4f6;
+  }
+
+  .modal-close-btn {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    color: #6b7280;
+    cursor: pointer;
+    padding: 0;
+    width: 2rem;
+    height: 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.375rem;
+    transition: all 0.2s;
+  }
+
+  .modal-close-btn:hover {
+    background: #f3f4f6;
+    color: #1f2937;
+  }
+
+  :global(.dark) .modal-close-btn:hover {
+    background: rgba(75, 85, 99, 0.5);
+    color: #f3f4f6;
+  }
+
+  .modal-content {
+    padding: 1.5rem;
+  }
+
+  .modal-message {
+    font-size: 1rem;
+    color: #374151;
+    margin: 0 0 1.25rem 0;
+    font-weight: 500;
+  }
+
+  :global(.dark) .modal-message {
+    color: #d1d5db;
+  }
+
+  .modal-entry-preview {
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.5rem;
+    padding: 1rem;
+    margin: 1rem 0;
+  }
+
+  :global(.dark) .modal-entry-preview {
+    background: rgba(75, 85, 99, 0.2);
+    border-color: #374151;
+  }
+
+  .preview-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.5rem 0;
+    font-size: 0.875rem;
+  }
+
+  .preview-row:not(:last-child) {
+    border-bottom: 1px solid #e5e7eb;
+  }
+
+  :global(.dark) .preview-row:not(:last-child) {
+    border-bottom-color: #374151;
+  }
+
+  .preview-label {
+    color: #6b7280;
+    font-weight: 500;
+  }
+
+  :global(.dark) .preview-label {
+    color: #9ca3af;
+  }
+
+  .preview-value {
+    color: #1f2937;
+    font-weight: 500;
+  }
+
+  :global(.dark) .preview-value {
+    color: #f3f4f6;
+  }
+
+  .modal-warning {
+    font-size: 0.75rem;
+    color: #dc2626;
+    margin: 1rem 0 0 0;
+    padding-top: 1rem;
+    border-top: 1px solid #e5e7eb;
+  }
+
+  :global(.dark) .modal-warning {
+    color: #fca5a5;
+    border-top-color: #374151;
+  }
+
+  .modal-footer {
+    display: flex;
+    gap: 0.75rem;
+    padding: 1rem 1.5rem;
+    border-top: 1px solid #e5e7eb;
+    background: #f9fafb;
+  }
+
+  :global(.dark) .modal-footer {
+    border-top-color: #374151;
+    background: rgba(75, 85, 99, 0.1);
+  }
+
+  .modal-cancel-btn,
+  .modal-delete-btn {
+    flex: 1;
+    padding: 0.75rem 1rem;
+    border-radius: 0.5rem;
+    font-weight: 600;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: none;
+  }
+
+  .modal-cancel-btn {
+    background: #e5e7eb;
+    color: #1f2937;
+  }
+
+  .modal-cancel-btn:hover {
+    background: #d1d5db;
+  }
+
+  :global(.dark) .modal-cancel-btn {
+    background: rgba(107, 114, 128, 0.4);
+    color: #f3f4f6;
+  }
+
+  :global(.dark) .modal-cancel-btn:hover {
+    background: rgba(107, 114, 128, 0.6);
+  }
+
+  .modal-delete-btn {
+    background: #dc2626;
+    color: #ffffff;
+  }
+
+  .modal-delete-btn:hover {
+    background: #b91c1c;
+  }
+
+  .modal-delete-btn:active {
+    transform: scale(0.98);
+  }
+
+  :global(.dark) .modal-delete-btn {
+    background: rgba(239, 68, 68, 0.85);
+  }
+
+  :global(.dark) .modal-delete-btn:hover {
+    background: rgba(239, 68, 68, 1);
   }
 </style>

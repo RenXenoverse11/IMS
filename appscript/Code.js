@@ -12,7 +12,7 @@ var PROFILE_PHOTO_MAX_BYTES_ = 5 * 1024 * 1024;
 var PROFILE_PHOTO_MAX_MB_ = Math.floor(PROFILE_PHOTO_MAX_BYTES_ / (1024 * 1024));
 var PROFILE_PHOTOS_FOLDER_NAME_ = 'IMS Profile Photos';
 var TIME_LOGS_SHEET_ = 'time_logs';
-var TIME_LOGS_HEADERS_ = ['timelog_id', 'user_id', 'log_date', 'time_in', 'time_out', 'hours_rendered', 'status', 'notes', 'created_at'];
+var TIME_LOGS_HEADERS_ = ['timelog_id', 'user_id', 'log_date', 'time_in', 'time_out', 'hours_rendered', 'entry_type', 'status', 'notes', 'created_at'];
 var SUPERVISOR_ASSIGNMENTS_SHEET_ = 'supervisor_assignments';
 var SUPERVISOR_ASSIGNMENTS_HEADERS_ = ['assignment_id', 'supervisor_user_id', 'student_user_id', 'company', 'department', 'status', 'created_at'];
 var STUDENT_OJT_PROFILE_SHEET_ = 'student_ojt_profile';
@@ -904,15 +904,22 @@ function handleCreateTimeLog_(payload) {
   var logDate = String(payload.log_date || '').trim();
   var timeIn = String(payload.time_in || '').trim();
   var timeOut = String(payload.time_out || '').trim();
+  var entryType = String(payload.entry_type || 'login').trim().toLowerCase(); // 'login' or 'logout'
   var hoursRendered = Number(payload.hours_rendered || 0);
   var status = 'recorded';
   var notes = String(payload.notes || '').trim();
   var timelogId = String(payload.timelog_id || createId_('TL'));
   var createdAt = String(payload.created_at || isoNow_());
-  var updateStartDate = payload.updateStartDate === true; // Allow first time log to set start date
+  var updateStartDate = payload.updateStartDate === true;
 
-  if (!userId || !logDate || !timeIn || !timeOut || !hoursRendered) {
-    return { ok: false, error: 'user_id, log_date, time_in, time_out, and hours_rendered are required.' };
+  // Required: user_id, log_date, time_in, entry_type
+  if (!userId || !logDate || !timeIn || !entryType) {
+    return { ok: false, error: 'user_id, log_date, time_in, and entry_type are required.' };
+  }
+
+  // Validate entry_type
+  if (entryType !== 'login' && entryType !== 'logout') {
+    return { ok: false, error: 'entry_type must be either "login" or "logout".' };
   }
 
   var userRecord = findUserRecordByUserId_(userId);
@@ -925,13 +932,48 @@ function handleCreateTimeLog_(payload) {
   }
 
   var sheet = getTimeLogsSheet_();
+  var headers = getHeaders_(sheet);
+  var values = getSheetValues_(sheet);
+  var userIdCol = findColumnIndex_(headers, 'user_id');
+  var logDateCol = findColumnIndex_(headers, 'log_date');
+  var entryTypeCol = findColumnIndex_(headers, 'entry_type');
+
+  // For logout entries, validate that logout time is provided
+  if (entryType === 'logout') {
+    if (!timeOut) {
+      return { ok: false, error: 'time_out is required for logout entries.' };
+    }
+    // No need to check for previous login - logout entries contain complete data (time_in + time_out)
+  }
+
+  // For login entries, prevent multiple logins without logout
+  if (entryType === 'login') {
+    // Check for existing unpaired login entry for today
+    var hasUnpairedLogin = false;
+    for (var i = 1; i < values.length; i++) {
+      var rowUserId = String(values[i][userIdCol - 1] || '');
+      var rowLogDate = String(values[i][logDateCol - 1] || '');
+      var rowEntryType = String(values[i][entryTypeCol - 1] || 'login').toLowerCase();
+
+      if (rowUserId === userId && rowLogDate === logDate && rowEntryType === 'login') {
+        hasUnpairedLogin = true;
+        break;
+      }
+    }
+
+    if (hasUnpairedLogin) {
+      return { ok: false, error: 'You are already logged in today. Please log out first before logging in again.' };
+    }
+  }
+
   var rowObject = {
     timelog_id: timelogId,
     user_id: userId,
     log_date: logDate,
     time_in: timeIn,
     time_out: timeOut,
-    hours_rendered: hoursRendered,
+    hours_rendered: entryType === 'logout' ? hoursRendered : 0,
+    entry_type: entryType,
     status: status,
     notes: notes,
     created_at: createdAt
