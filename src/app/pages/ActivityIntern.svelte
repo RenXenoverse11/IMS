@@ -1,7 +1,9 @@
 <script>
+// @ts-nocheck
 
 let workLogs = [];
-
+let isLoadingWorkLogs = false;
+let workLogsError = '';
 
 let expandedWorkLog = null;
 let hoveredWorkLog = null;
@@ -22,7 +24,7 @@ function updateNow() {
 onMount(() => {
   nowIntervalId = setInterval(() => {
     updateNow();
-  }, 60000); // update every minute
+  }, 5000); // update every 5 seconds for better real-time relative time display
 });
 
 onDestroy(() => {
@@ -35,30 +37,88 @@ let recentActivities = [];
 
 // Fetch recent activities from backend
 async function fetchRecentActivities() {
-  try {
-    const run = globalThis?.google?.script?.run;
-    if (!run) return;
-    run.withSuccessHandler((data) => {
-      if (Array.isArray(data)) recentActivities = data;
-    }).getRecentActivities();
-  } catch (e) { /* ignore */ }
+  return new Promise((resolve) => {
+    try {
+      const run = globalThis?.google?.script?.run;
+      if (!run) {
+        resolve();
+        return;
+      }
+      run
+        .withSuccessHandler((data) => {
+          if (Array.isArray(data)) {
+            recentActivities = data;
+          }
+          resolve();
+        })
+        .withFailureHandler(() => {
+          resolve();
+        })
+        .getRecentActivities();
+    } catch (e) {
+      resolve();
+    }
+  });
 }
 
 // Log a new activity to backend
-function logUserActivity(activity) {
-  try {
-    const run = globalThis?.google?.script?.run;
-    if (!run) return;
-    run.logUserActivity(activity);
-  } catch (e) { /* ignore */ }
+async function logUserActivity(activity) {
+  return new Promise((resolve) => {
+    try {
+      const run = globalThis?.google?.script?.run;
+      if (!run) {
+        resolve();
+        return;
+      }
+      run
+        .withSuccessHandler(() => {
+          // Fetch activities immediately after logging to show in real-time
+          setTimeout(() => fetchRecentActivities(), 300);
+          resolve();
+        })
+        .withFailureHandler(() => {
+          resolve();
+        })
+        .logUserActivity(activity);
+    } catch (e) {
+      resolve();
+    }
+  });
+}
+
+// Format timestamp to relative time (e.g., "3 minutes ago")
+function formatRelativeTime(timestamp) {
+  const activityDate = new Date(timestamp);
+  const diffMs = now - activityDate;
+  const diffMinutes = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMinutes < 1) return 'just now';
+  if (diffMinutes === 1) return '1 minute ago';
+  if (diffMinutes < 60) return `${diffMinutes} minutes ago`;
+  if (diffHours === 1) return '1 hour ago';
+  if (diffHours < 24) return `${diffHours} hours ago`;
+  if (diffDays === 1) return 'yesterday';
+  if (diffDays < 7) return `${diffDays} days ago`;
+  return activityDate.toLocaleDateString();
 }
 
 onMount(() => {
   fetchRecentActivities();
   recentActivitiesIntervalId = setInterval(() => {
     updateNow();
-    fetchRecentActivities(); // refresh activities every minute
-  }, 60000);
+    fetchRecentActivities(); // refresh activities every 10 seconds for more real-time feel
+  }, 10000);
+});
+
+onMount(() => {
+  fetchAssignedTasks();
+  fetchWorkLogs();
+  stopUserSubscription = subscribeToCurrentUser(() => {
+    fetchAssignedTasks();
+    fetchWorkLogs();
+  });
 });
 
 onMount(() => {
@@ -110,10 +170,84 @@ let workLogTask = '';
 let workLogNotes = '';
 let workLogLearnings = '';
 let workLogAttachments = [];
+let workLogFileInput; // Reference to file input for resetting
+let isSavingWorkLog = false;
 
 // --- Work Log Filters ---
 let workLogFilterKeyword = '';
 let workLogFilterDate = '';
+
+function callGetActivityWorklogs(payload = {}) {
+  return new Promise((resolve, reject) => {
+    const run = globalThis?.google?.script?.run;
+
+    if (!run) {
+      reject(new Error('Apps Script runtime is not available in this view.'));
+      return;
+    }
+
+    run
+      .withSuccessHandler(resolve)
+      .withFailureHandler((error) => {
+        reject(new Error(error?.message || String(error)));
+      })
+      .getActivityWorklogs(payload);
+  });
+}
+
+function mapWorklogToUi(row) {
+  const source = row || {};
+  const attachments = Array.isArray(source.attachments) ? source.attachments : [];
+  return {
+    task_id: String(source.task_id || source.id || '').trim(),
+    user_id: String(source.user_id || '').trim(),
+    task: String(source.task || '').trim(),
+    notes: String(source.notes || '').trim(),
+    learnings: String(source.learnings || '').trim(),
+    date: String(source.date || '').trim(),
+    created_at: String(source.created_at || '').trim(),
+    created_by: String(source.created_by || '').trim(),
+    updated_by: String(source.updated_by || '').trim(),
+    attachments: attachments.map(a => ({
+      attachment_id: String(a.attachment_id || '').trim(),
+      file_type: String(a.file_type || '').trim(),
+      file_size: String(a.file_size || '').trim(),
+      uploaded_at: String(a.uploaded_at || '').trim()
+    }))
+  };
+}
+
+async function fetchWorkLogs() {
+  const user = getCurrentUser();
+
+  if (!user?.user_id) {
+    workLogs = [];
+    workLogsError = '';
+    return;
+  }
+
+  isLoadingWorkLogs = true;
+  workLogsError = '';
+
+  try {
+    const result = await callGetActivityWorklogs({
+      user_id: user.user_id,
+    });
+
+    if (!result?.ok) {
+      throw new Error(result?.error || 'Unable to load work logs.');
+    }
+
+    workLogs = Array.isArray(result.worklogs)
+      ? result.worklogs.map((row) => mapWorklogToUi(row))
+      : [];
+  } catch (error) {
+    workLogs = [];
+    workLogsError = error?.message || 'Unable to load work logs.';
+  } finally {
+    isLoadingWorkLogs = false;
+  }
+}
 
 // Returns true if log matches keyword (in task, notes, learnings, or attachment)
 function matchesWorkLogKeyword(log, keyword) {
@@ -140,30 +274,106 @@ function matchesWorkLogDate(log, dateStr) {
   return logDateStr === dateStr;
 }
 
+function formatWorklogDate(dateText) {
+  const parsed = parseDueDate(dateText);
+  const date = parsed || new Date();
+  return date.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric'
+  });
+}
+
 $: filteredWorkLogs = workLogs.filter(
   log => matchesWorkLogKeyword(log, workLogFilterKeyword) && matchesWorkLogDate(log, workLogFilterDate)
 );
 
 function handleWorkLogFileUpload(event) {
   const files = Array.from(event.target.files || []);
-  workLogAttachments = files.map(f => f.name);
+  if (files.length === 0) {
+    return;
+  }
+  workLogAttachments = [...workLogAttachments, ...files];
+  event.target.value = '';
+}
+
+function fileToBase64_(file) {
+  return new Promise((resolve, reject) => {
+    if (!file) {
+      reject(new Error('No file selected.'));
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '');
+      const commaIndex = dataUrl.indexOf(',');
+      resolve(commaIndex >= 0 ? dataUrl.slice(commaIndex + 1) : '');
+    };
+    reader.onerror = () => reject(new Error('Unable to read selected file.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function getFileExtension_(fileName) {
+  const name = String(fileName || '').trim();
+  const dotIndex = name.lastIndexOf('.');
+  if (dotIndex === -1) {
+    return '';
+  }
+  return name.slice(dotIndex + 1).toLowerCase();
+}
+
+function callAddActivityWorklog(payload) {
+  return new Promise((resolve, reject) => {
+    const run = globalThis?.google?.script?.run;
+    if (!run) {
+      reject(new Error('Apps Script runtime is not available in this view.'));
+      return;
+    }
+
+    run
+      .withSuccessHandler(resolve)
+      .withFailureHandler((error) => {
+        reject(new Error(error?.message || String(error)));
+      })
+      .addActivityWorklog(payload);
+  });
+}
+
+function callAddWorklogAttachment(payload) {
+  return new Promise((resolve, reject) => {
+    const run = globalThis?.google?.script?.run;
+    if (!run) {
+      reject(new Error('Apps Script runtime is not available in this view.'));
+      return;
+    }
+
+    run
+      .withSuccessHandler(resolve)
+      .withFailureHandler((error) => {
+        reject(new Error(error?.message || String(error)));
+      })
+      .addWorklogAttachment(payload);
+  });
 }
 
 async function handleAddWorkLog() {
+  if (isSavingWorkLog) return;
   if (!workLogTask.trim() && !workLogNotes.trim() && !workLogLearnings.trim()) return;
+  
+  isSavingWorkLog = true;
   const now = new Date();
   const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const date = `${MONTH_NAMES[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`;
 
-  // Get current user info
   let user = null;
   try {
     user = await getCurrentUser();
   } catch (e) {}
 
-  // Prepare payload for backend
   const payload = {
-    task_id: '', // You may generate or leave blank for backend
+    task_id: '',
     user_id: user?.user_id || '',
     task: workLogTask.trim(),
     notes: workLogNotes.trim(),
@@ -171,37 +381,68 @@ async function handleAddWorkLog() {
     date,
     created_at: now.toISOString(),
     created_by: user?.user_id || '',
-    updated_by: user?.user_id || '',
-    attachment_id: '', // If you have attachment logic, fill here
-    file_type: '', // If you have attachment logic, fill here
-    file_size: '', // If you have attachment logic, fill here
-    link: '', // If you have attachment logic, fill here
-    uploaded_at: '', // If you have attachment logic, fill here
-    uploaded_by: user?.user_id || ''
+    updated_by: user?.user_id || ''
   };
 
-  // Save to backend
   try {
-    const run = globalThis?.google?.script?.run;
-    if (!run) return;
-    run.withSuccessHandler(() => {
-      // Optionally, fetch worklogs again or add to UI
-      workLogs = [
-        {
-          task: payload.task,
-          notes: payload.notes,
-          learnings: payload.learnings,
-          attachments: [...workLogAttachments],
-          date: payload.date
-        },
-        ...workLogs
-      ];
-      workLogTask = '';
-      workLogNotes = '';
-      workLogLearnings = '';
-      workLogAttachments = [];
-    }).addActivityWorklog(payload);
-  } catch (e) {}
+    const result = await callAddActivityWorklog(payload);
+    const taskId = String(result?.task_id || payload.task_id || '').trim();
+    const uploadErrors = [];
+    const validAttachments = workLogAttachments.filter((file) => file && file.name && file.size > 0);
+
+    if (taskId && validAttachments.length > 0) {
+      for (const file of validAttachments) {
+        try {
+          const ext = getFileExtension_(file.name);
+          const mimeSuffix = String(file.type || '').includes('/') ? String(file.type).split('/').pop() : '';
+          const sizeMb = `${(file.size / 1024 / 1024).toFixed(2)} MB`;
+          const uploadResult = await callAddWorklogAttachment({
+            attachment_id: '',
+            task_id: taskId,
+            user_id: user?.user_id || '',
+            file_type: ext || mimeSuffix || String(file.type || '').trim(),
+            file_size: sizeMb,
+            file_name: file.name,
+            uploaded_at: now.toISOString(),
+            uploaded_by: user?.user_id || ''
+          });
+
+          if (!uploadResult?.ok) {
+            throw new Error(uploadResult?.error || 'Save failed.');
+          }
+        } catch (uploadError) {
+          uploadErrors.push(`${file.name}: ${uploadError?.message || uploadError}`);
+        }
+      }
+    }
+
+    fetchWorkLogs();
+    
+    // Log activity
+    await logUserActivity({
+      message: `Added a new work log`,
+      timestamp: new Date().toISOString(),
+      user: user && user.email ? user.email : 'Unknown'
+    });
+    
+    workLogTask = '';
+    workLogNotes = '';
+    workLogLearnings = '';
+    workLogAttachments = [];
+    
+    // Reset the file input element
+    if (workLogFileInput) {
+      workLogFileInput.value = '';
+    }
+
+    if (uploadErrors.length > 0) {
+      alert(`Some attachments failed to save:\n${uploadErrors.join('\n')}`);
+    }
+  } catch (e) {
+    alert(`Failed to save work log: ${e?.message || e}`);
+  } finally {
+    isSavingWorkLog = false;
+  }
 }
 
 let assignedTasks = [];
@@ -273,6 +514,9 @@ let assignedTasksError = '';
     dailyChecklist: [],
     attachments: [],
   };
+  let addTaskFileInput; // Reference to file input for task form
+  let trackerFileInput; // Reference to file input for tracker form
+  let taskViewFileInput; // Reference to file input for task view form
 
   function matchesStatus(task, filter) {
     if (filter === 'All Status') {
@@ -391,10 +635,32 @@ let assignedTasksError = '';
 
   function getAttachmentNames(attachments) {
     if (Array.isArray(attachments)) {
-      return attachments.map((item) => String(item || '').trim()).filter(Boolean);
+      return attachments.map((item) => {
+        if (typeof item === 'object' && item instanceof File) {
+          return item.name;
+        }
+        return String(item || '').trim();
+      }).filter(Boolean);
     }
 
     return [];
+  }
+
+  function callAddActivityTaskAttachment(payload) {
+    return new Promise((resolve, reject) => {
+      const run = globalThis?.google?.script?.run;
+      if (!run) {
+        reject(new Error('Apps Script runtime is not available.'));
+        return;
+      }
+
+      run
+        .withSuccessHandler(resolve)
+        .withFailureHandler((error) => {
+          reject(new Error(error?.message || String(error)));
+        })
+        .addActivityTaskAttachment(payload);
+    });
   }
 
   function formatAttachmentCell(attachments) {
@@ -461,6 +727,11 @@ let assignedTasksError = '';
       dateCreated: '',
     };
     addTaskError = '';
+    
+    // Reset the file input element
+    if (addTaskFileInput) {
+      addTaskFileInput.value = '';
+    }
   }
 
   function toggleAddTaskForm() {
@@ -692,18 +963,47 @@ let assignedTasksError = '';
       }
 
       const savedTask = mapCreatedTaskToUi(result.task, nextTaskPayload);
+      const taskId = result.task?.id || '';
+      
+      // Save attachments to act_attachments sheet
+      const attachmentErrors = [];
+      if (addTaskForm.attachments.length > 0) {
+        for (const attachment of addTaskForm.attachments) {
+          if (attachment instanceof File) {
+            try {
+              const ext = attachment.name.split('.').pop()?.toLowerCase() || '';
+              const sizeMB = `${(attachment.size / 1024 / 1024).toFixed(2)}MB`;
+              await callAddActivityTaskAttachment({
+                user_id: user?.user_id || '',
+                file_type: ext || '',
+                file_size: sizeMB,
+                link: '',
+                uploaded_at: nowDate.toISOString(),
+                uploaded_by: user?.user_id || ''
+              });
+            } catch (attachError) {
+              attachmentErrors.push(`${attachment.name}: ${attachError?.message || attachError}`);
+            }
+          }
+        }
+      }
+      
       await fetchAssignedTasks();
       selectedOverviewTaskTitle = savedTask.title;
       activeView = 'Overview';
       isAddTaskOpen = false;
       resetAddTaskForm();
       // Log activity
-      logUserActivity({
+      await logUserActivity({
         message: `Added a new task: ${savedTask.title}`,
         timestamp: new Date().toISOString(),
         user: user && user.email ? user.email : 'Unknown'
       });
       fetchRecentActivities();
+      
+      if (attachmentErrors.length > 0) {
+        alert(`Task saved but some attachments failed:\n${attachmentErrors.join('\n')}`);
+      }
     } catch (error) {
       addTaskError = error?.message || 'Unable to save the task.';
     } finally {
@@ -743,7 +1043,7 @@ let assignedTasksError = '';
 
     addTaskForm = {
       ...addTaskForm,
-      attachments: [...addTaskForm.attachments, ...files.map((file) => file.name)],
+      attachments: [...addTaskForm.attachments, ...files],
     };
 
     event.currentTarget.value = '';
@@ -790,6 +1090,11 @@ let assignedTasksError = '';
       dailyChecklist: [],
       attachments: [],
     };
+    
+    // Reset the file input element
+    if (taskViewFileInput) {
+      taskViewFileInput.value = '';
+    }
   }
 
   function handleTaskViewOverlayClick(event) {
@@ -885,6 +1190,13 @@ let assignedTasksError = '';
       if (viewedTask && viewedTask.id === (taskId || task.id)) {
         taskViewEditForm.status = newStatus;
       }
+      
+      // Log activity
+      await logUserActivity({
+        message: `Updated task status: ${task.title} → ${newStatus}`,
+        timestamp: new Date().toISOString(),
+        user: user && user.email ? user.email : 'Unknown'
+      });
     } catch (err) {
       alert('Failed to update status: ' + (err?.message || err));
     }
@@ -968,6 +1280,11 @@ let assignedTasksError = '';
       const nextTask = mapCreatedTaskToUi(result.task, payload);
       applyTaskUpdateToUi(originalTitle, nextTask);
       isEditingViewedTask = false;
+      
+      // Reset the file input element
+      if (taskViewFileInput) {
+        taskViewFileInput.value = '';
+      }
     } catch (error) {
       alert('Failed to save task: ' + (error?.message || error));
     }
@@ -1020,6 +1337,11 @@ let assignedTasksError = '';
 
   function cancelTrackerEdit() {
     isEditingTrackerTask = false;
+    
+    // Reset the file input element
+    if (trackerFileInput) {
+      trackerFileInput.value = '';
+    }
   }
 
   async function saveTrackerEdit() {
@@ -1040,6 +1362,11 @@ let assignedTasksError = '';
       applyTaskUpdateToUi(originalTitle, nextTask);
       selectedOverviewTaskTitle = nextTask.title;
       isEditingTrackerTask = false;
+      
+      // Reset the file input element
+      if (trackerFileInput) {
+        trackerFileInput.value = '';
+      }
     } catch (error) {
       alert('Failed to save task: ' + (error?.message || error));
     }
@@ -1410,6 +1737,7 @@ let assignedTasksError = '';
                   type="file"
                   multiple
                   on:change={handleAddTaskAttachmentUpload}
+                  bind:this={addTaskFileInput}
                 />
               </div>
 
@@ -1417,9 +1745,18 @@ let assignedTasksError = '';
                 <p class="overview-empty-copy">No attachments.</p>
               {:else}
                 <ul class="attachment-list">
-                  {#each addTaskForm.attachments as fileName, index}
+                  {#each addTaskForm.attachments as attachment, index}
                     <li>
-                      <span>{fileName}</span>
+                      {#if attachment instanceof File}
+                        <span>
+                          {attachment.name} 
+                          <span style="font-size: 0.85rem; color: var(--color-muted);">
+                            ({attachment.name.split('.').pop()?.toUpperCase() } - {(attachment.size / 1024 / 1024).toFixed(2)}MB)
+                          </span>
+                        </span>
+                      {:else}
+                        <span>{attachment}</span>
+                      {/if}
                       <button type="button" class="remove-item" on:click={() => removeAddTaskAttachment(index)}>
                         Remove
                       </button>
@@ -1508,17 +1845,16 @@ let assignedTasksError = '';
                 <List size={18} style="color: #0f6cbd; background: color-mix(in srgb, #0f6cbd 10%, var(--color-surface)); border-radius: 0.4rem; padding: 0.18rem;" />
                 <div class="notes-title">Recent Activity</div>
               </div>
-              <div class="recent-activity-list" style="margin-bottom: 0.5rem;">
+              <div class="recent-activity-list" style="margin-bottom: 0.5rem; max-height: 180px; overflow-y: auto; overflow-x: hidden;">
                 {#if recentActivities.length === 0}
                   <p class="overview-empty-copy">No recent activities yet.</p>
                 {:else}
                   <ul style="list-style: none; padding: 0; margin: 0;">
-                    {#each recentActivities as activity (activity.id)}
-                      <li style="margin-bottom: 0.5rem; display: flex; align-items: flex-start; gap: 0.5rem;">
-                        <span style="font-size: 1.1rem; color: var(--color-primary, #0f6cbd);">•</span>
-                        <div>
-                          <div style="font-size: 1rem; color: var(--color-text); font-family: inherit;">{activity.message}</div>
-                          <div style="font-size: 0.85rem; color: #888;">{new Date(activity.timestamp).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</div>
+                    {#each recentActivities.slice(0, 3) as activity (activity.id)}
+                      <li style="margin-bottom: 0.8rem; display: flex; align-items: flex-start; gap: 0.5rem;">
+                        <span style="font-size: 1.1rem; color: var(--color-primary, #0f6cbd); margin-top: 0.1rem;">•</span>
+                        <div style="flex: 1;">
+                          <div style="font-size: 0.9rem; font-style: italic; color: var(--color-text); font-family: inherit;">{activity.message}, {formatRelativeTime(activity.timestamp)}.</div>
                         </div>
                       </li>
                     {/each}
@@ -1623,6 +1959,7 @@ let assignedTasksError = '';
                         type="file"
                         multiple
                         on:change={handleEditTaskAttachmentUpload}
+                        bind:this={trackerFileInput}
                       />
                     </div>
 
@@ -1756,16 +2093,16 @@ let assignedTasksError = '';
               <label style="display: block; margin-bottom: 1.1rem; width: 100%;">
                 <span style="font-size: 0.97rem; font-weight: 700; color: var(--color-text); font-family: inherit;">Attachment</span>
                 <br />
-                <input type="file" multiple on:change={handleWorkLogFileUpload} style="margin-top: 0.2rem; font-size: 0.83rem;" />
+                <input type="file" multiple on:change={handleWorkLogFileUpload} bind:this={workLogFileInput} style="margin-top: 0.2rem; font-size: 0.83rem;" />
                 {#if workLogAttachments.length > 0}
                   <div style="margin-top: 0.3rem; display: flex; gap: 0.4rem; flex-wrap: wrap;">
                     {#each workLogAttachments as file}
-                      <span class="worklog-attachment-chip">{file}</span>
+                      <span class="worklog-attachment-chip">{file.name}</span>
                     {/each}
                   </div>
                 {/if}
               </label>
-              <button type="submit" style="font-size: 0.97rem; font-weight: 600; color: #fff; background: #0f6cbd; border: none; border-radius: 0.5rem; padding: 0.5rem 1.3rem; cursor: pointer;">Submit</button>
+              <button type="submit" disabled={isSavingWorkLog} style="font-size: 0.97rem; font-weight: 600; color: #fff; background: #0f6cbd; border: none; border-radius: 0.5rem; padding: 0.5rem 1.3rem; cursor: pointer; opacity: {isSavingWorkLog ? 0.6 : 1};">{isSavingWorkLog ? 'Saving...' : 'Submit'}</button>
             </form>
         </div>
         <!-- Work Logs Card -->
@@ -1789,7 +2126,7 @@ let assignedTasksError = '';
                   <button class="worklog-accordion-trigger" type="button" aria-expanded={expandedWorkLog === idx} on:click={() => expandedWorkLog = expandedWorkLog === idx ? null : idx}>
                     <span class="worklog-title-meta">
                       <span class="worklog-task-title">{log.task}</span>
-                      <span class="worklog-date">{log.date}</span>
+                      <span class="worklog-date">{formatWorklogDate(log.date)}</span>
                     </span>
                     <svelte:component this={ChevronDown} size={15} class={expandedWorkLog === idx ? 'chevron-open' : ''} />
                   </button>
@@ -1805,10 +2142,12 @@ let assignedTasksError = '';
                       </div>
                       {#if log.attachments && log.attachments.length > 0}
                         <div class="worklog-section">
-                          <span class="worklog-label">Attachments</span>
+                          <span class="worklog-label">Attachments ({log.attachments.length})</span>
                           <div class="worklog-attachments">
                             {#each log.attachments as file}
-                              <span class="worklog-attachment-chip">{file}</span>
+                              <div class="worklog-attachment-item">
+                                <span class="worklog-attachment-chip">{file.file_type || 'file'} - {file.file_size || ''}</span>
+                              </div>
                             {/each}
                           </div>
                         </div>
@@ -2090,6 +2429,7 @@ let assignedTasksError = '';
                 type="file"
                 multiple
                 on:change={handleTaskViewAttachmentUpload}
+                bind:this={taskViewFileInput}
               />
             </div>
 
@@ -3553,5 +3893,29 @@ let assignedTasksError = '';
     .attachment-btn {
       margin-left: 0;
     }
+  }
+
+  /* Scrollbar styling for Recent Activity */
+  .recent-activity-list {
+    scrollbar-width: thin;
+    scrollbar-color: #0f6cbd rgba(0, 0, 0, 0.1);
+  }
+
+  .recent-activity-list::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .recent-activity-list::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.05);
+    border-radius: 4px;
+  }
+
+  .recent-activity-list::-webkit-scrollbar-thumb {
+    background: #0f6cbd;
+    border-radius: 4px;
+  }
+
+  .recent-activity-list::-webkit-scrollbar-thumb:hover {
+    background: #0a4a8f;
   }
 </style>
