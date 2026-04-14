@@ -44,6 +44,10 @@ function addWorklogAttachment(payload) {
 		var uploadedBy = String(payload.uploaded_by || '').trim();
 		var fileName = String(payload.file_name || 'upload').trim();
 
+		if (!fileType && !fileSize && fileName === 'upload') {
+			return { ok: true, skipped: true };
+		}
+
 		if (!taskId || !userId) {
 			return { ok: false, error: 'task_id and user_id are required.' };
 		}
@@ -185,33 +189,64 @@ function parseActivityJsonArray_(value) {
 }
 // Log a generic user activity (for Recent Activity panel)
 function logUserActivity(activity) {
-	var sheet = getSheet_('recent_activities');
-	var now = new Date();
-	var id = 'ACT-' + now.getTime();
-	var row = [
-		id,
-		activity.user || '',
-		activity.message || '',
-		activity.timestamp || now.toISOString()
-	];
-	sheet.appendRow(row);
-	return { ok: true, id: id };
+	try {
+		var sheet = getOrCreateSheetWithHeaders_('recent_activities', ['id', 'user', 'message', 'timestamp']);
+		var now = new Date();
+		var id = 'ACT-' + now.getTime();
+		var row = [
+			id,
+			activity.user || '',
+			activity.message || '',
+			activity.timestamp || now.toISOString()
+		];
+		sheet.appendRow(row);
+		// Clean up old activities to keep sheet manageable (keep last 100)
+		cleanupOldActivities_(100);
+		return { ok: true, id: id };
+	} catch (err) {
+		return { ok: false, error: err.message || String(err) };
+	}
 }
 
 // Get recent activities (latest 20)
 function getRecentActivities() {
-	var sheet = getSheet_('recent_activities');
-	var data = sheet.getDataRange().getValues();
-	var activities = [];
-	for (var i = data.length - 1; i > 0 && activities.length < 20; i--) {
-		activities.push({
-			id: data[i][0],
-			user: data[i][1],
-			message: data[i][2],
-			timestamp: data[i][3]
-		});
+	try {
+		var sheet = getOrCreateSheetWithHeaders_('recent_activities', ['id', 'user', 'message', 'timestamp']);
+		var rows = readSheetObjects_(sheet);
+		var activities = [];
+		
+		// Return in reverse order (newest first)
+		for (var i = rows.length - 1; i >= 0 && activities.length < 20; i--) {
+			activities.push({
+				id: String(rows[i].id || '').trim(),
+				user: String(rows[i].user || '').trim(),
+				message: String(rows[i].message || '').trim(),
+				timestamp: String(rows[i].timestamp || '').trim()
+			});
+		}
+		
+		return activities;
+	} catch (err) {
+		return [];
 	}
-	return activities;
+}
+
+// Clean up old activities - keep only the latest 100
+function cleanupOldActivities_(maxActivities) {
+	try {
+		maxActivities = maxActivities || 100;
+		var sheet = getOrCreateSheetWithHeaders_('recent_activities', ['id', 'user', 'message', 'timestamp']);
+		var rows = readSheetObjects_(sheet);
+		
+		// If we have more than maxActivities, delete the oldest ones
+		if (rows.length > maxActivities) {
+			var rowsToDelete = rows.length - maxActivities;
+			// Delete from the beginning (oldest records are at the top after header)
+			sheet.deleteRows(2, rowsToDelete);
+		}
+	} catch (err) {
+		// Silently fail - cleanup is not critical
+	}
 }
 
 function getActivityTasks(payload) {
