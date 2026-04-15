@@ -99,7 +99,7 @@
 		'University of the Philippines'
 	];
 
-	const departmentCatalog = ['International NOC', 'Regional Surveillance Center', 'CNFM'];
+	const departmentCatalog = ['ISOC', 'RSC', 'CNFM'];
 
 	function isValidEmail(value) {
 		return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
