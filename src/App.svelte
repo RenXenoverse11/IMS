@@ -59,6 +59,7 @@
     '/supervisor/requests',
     '/supervisor/activity',
     '/documents',
+    '/settings',
   ]);
 
   let currentPath = '/';
