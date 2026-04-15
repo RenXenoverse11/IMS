@@ -44,6 +44,11 @@
   let actionMessage = '';
   let actionMessageType = 'success';
   let actionMessageTimer = null;
+  
+  // Group Workspace State
+  let currentUser = null;
+  let isSupervisor = false;
+  let isGroupView = true;
 
   const AUTH_SESSION_STORAGE_KEY = 'ims-auth-session-user';
 
@@ -631,14 +636,19 @@
   onMount(async () => {
     // Resolve authenticated user id first to keep document records consistent.
     try {
+      const authUser = authApi.getCurrentUser() || (await authApi.restoreAuthSession());
+      currentUser = authUser;
       userId = resolveCurrentUserId_();
+      
       if (!userId) {
         console.error('Unable to resolve authenticated user id for documents.');
         isLoading = false;
         return;
       }
 
-      // Load folders and documents from backend
+      isSupervisor = currentUser?.role === 'Supervisor';
+
+      // Load group-based data
       await loadFolders_();
       await loadDocuments_();
     } catch (err) {
@@ -682,24 +692,24 @@
 
     <div class="stats-row">
       <div class="stat-card">
-        <div class="stat-label">Total Folders</div>
+        <div class="stat-label">Group Folders</div>
         <div class="stat-value">{folderStructure.root.subfolders.length}</div>
         <div class="stat-sub">Organized categories</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">Your Documents</div>
+        <div class="stat-label">Group Documents</div>
         <div class="stat-value">{documents.filter((doc) => !doc.isLink).length}</div>
         <div class="stat-sub">Files uploaded</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">Shared Links</div>
+        <div class="stat-label">Group Links</div>
         <div class="stat-value">{documents.filter((doc) => doc.isLink).length}</div>
         <div class="stat-sub">External references</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Total Items</div>
         <div class="stat-value">{documents.length}</div>
-        <div class="stat-sub">Across all folders</div>
+        <div class="stat-sub">Across all group folders</div>
       </div>
     </div>
 
@@ -726,19 +736,21 @@
               <div class="folder-count">{docCount} items</div>
             </div>
           </button>
-          <div class="folder-actions">
-            <button class="folder-action-btn rename-btn" title="Rename folder" on:click={() => openRenameFolderModal(folder)}>✎</button>
-            <button
-              class="folder-action-btn delete-btn"
-              title="Delete folder"
-              on:click={() => {
-                folderToDelete = folder;
-                showDeleteFolderConfirm = true;
-              }}
-            >
-              🗑
-            </button>
-          </div>
+          {#if isSupervisor}
+            <div class="folder-actions">
+              <button class="folder-action-btn rename-btn" title="Rename folder" on:click={() => openRenameFolderModal(folder)}>✎</button>
+              <button
+                class="folder-action-btn delete-btn"
+                title="Delete folder"
+                on:click={() => {
+                  folderToDelete = folder;
+                  showDeleteFolderConfirm = true;
+                }}
+              >
+                🗑
+              </button>
+            </div>
+          {/if}
         </div>
       {/each}
     </div>
@@ -759,7 +771,7 @@
 
         <div class="docs-panel">
           <div class="docs-panel-header">
-            <span class="docs-panel-title">Your Documents</span>
+            <span class="docs-panel-title">Group Shared Documents</span>
             <span class="docs-count">{filteredDocuments.length} items</span>
           </div>
 
@@ -769,11 +781,11 @@
                 <thead>
                   <tr>
                     <th>Name</th>
+                    <th>Uploaded By</th>
                     <th>Type</th>
                     <th>Category</th>
                     <th>Size</th>
                     <th>Uploaded</th>
-                    <th>Status</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -794,6 +806,9 @@
                           </button>
                         </div>
                       </td>
+                      <td class="col-uploader">
+                        <span class="uploader-name">{doc.created_by_name || '—'}</span>
+                      </td>
                       <td class="col-type">
                         <span class="type-badge">{doc.isLink ? 'Link' : 'File'}</span>
                       </td>
@@ -808,11 +823,6 @@
                         {/if}
                       </td>
                       <td class="col-date">{formatDate(doc.uploadedDate)}</td>
-                      <td class="col-status">
-                        <span class="status-badge" style={`background-color: ${getAccessBadgeColor(doc.accessLevel)}20; color: ${getAccessBadgeColor(doc.accessLevel)}`}>
-                          {doc.accessLevel === 'private' ? 'Private' : doc.accessLevel === 'shared' ? 'Shared' : 'Restricted'}
-                        </span>
-                      </td>
                       <td class="col-actions">
                         <div class="action-buttons">
                           <button
@@ -826,12 +836,14 @@
                               <Download size={14} />
                             {/if}
                           </button>
-                          <button class="icon-btn share-btn" title="Share" on:click={() => openShareModal(doc)}>
-                            <Share2 size={14} />
-                          </button>
-                          <button class="icon-btn delete-btn" title="Delete" on:click={() => deleteDocument(doc.id)}>
-                            <Trash2 size={14} />
-                          </button>
+                          {#if currentUser?.role === 'Supervisor' || currentUser?.user_id === doc.created_by}
+                            <button class="icon-btn share-btn" title="Share" on:click={() => openShareModal(doc)}>
+                              <Share2 size={14} />
+                            </button>
+                            <button class="icon-btn delete-btn" title="Delete" on:click={() => deleteDocument(doc.id)}>
+                              <Trash2 size={14} />
+                            </button>
+                          {/if}
                         </div>
                       </td>
                     </tr>
@@ -2438,10 +2450,13 @@
     color: #60a5fa;
   }
 
-  .page-subtitle {
-    font-size: 13px;
-    color: #64748b;
-    margin-top: 3px;
+  .uploader-name {
+    font-size: 12px;
+    color: #94a3b8;
+    background: rgba(255, 255, 255, 0.05);
+    padding: 3px 8px;
+    border-radius: 4px;
+    white-space: nowrap;
   }
 
   .action-bar {

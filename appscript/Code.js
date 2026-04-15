@@ -213,6 +213,10 @@ function dispatchAction_(payload) {
     return handleMarkAllNotificationsRead_(payload);
   }
 
+  if (action === 'list_assigned_student_documents') {
+    return handleListAssignedStudentDocuments_(payload);
+  }
+
   if (action === 'debug_sessions_sheet') {
     return handleDebugSessionsSheet_(payload);
   }
@@ -3287,38 +3291,43 @@ function handleGetAllDocuments_(payload) {
       return { ok: false, error: 'Missing user_id.' };
     }
 
+    var groupMemberIds = getGroupMemberIds_(userId);
+    var userNamesMap = getUserNamesMap_(groupMemberIds);
+    
     var sheet = getOrCreateSheetWithHeaders_(DOCUMENTS_SHEET_, DOCUMENTS_HEADERS_);
-
     var data = sheet.getDataRange().getValues();
     var documents = [];
 
     for (var i = 1; i < data.length; i++) {
       var row = data[i];
-      var doc = {
-        id: String(row[0] || '').trim(),
-        user_id: String(row[1] || '').trim(),
-        name: String(row[2] || '').trim(),
-        folder: String(row[3] || '/').trim() || '/',
-        category: String(row[4] || 'Other').trim() || 'Other',
-        type: String(row[5] || 'file').trim() || 'file',
-        size: String(row[6] || '').trim(),
-        url: String(row[7] || '').trim(),
-        is_link: String(row[8] || '').trim(),
-        uploaded_date: String(row[9] || '').trim(),
-        access_level: String(row[10] || 'private').trim() || 'private',
-        shared_with: (function() {
-          if (!row[11]) return [];
-          try {
-            return JSON.parse(String(row[11]));
-          } catch (e) {
-            return [];
-          }
-        })(),
-        created_by: String(row[12] || '').trim(),
-        created_date: String(row[13] || '').trim()
-      };
-
-      if (doc.user_id === userId) {
+      var docUserId = String(row[1] || '').trim();
+      
+      // If the document belongs to anyone in the group
+      if (groupMemberIds.indexOf(docUserId) !== -1) {
+        var doc = {
+          id: String(row[0] || '').trim(),
+          user_id: docUserId,
+          name: String(row[2] || '').trim(),
+          folder: String(row[3] || '/').trim() || '/',
+          category: String(row[4] || 'Other').trim() || 'Other',
+          type: String(row[5] || 'file').trim() || 'file',
+          size: String(row[6] || '').trim(),
+          url: String(row[7] || '').trim(),
+          is_link: String(row[8] || '').trim(),
+          uploaded_date: String(row[9] || '').trim(),
+          access_level: String(row[10] || 'private').trim() || 'private',
+          shared_with: (function() {
+            if (!row[11]) return [];
+            try {
+              return JSON.parse(String(row[11]));
+            } catch (e) {
+              return [];
+            }
+          })(),
+          created_by: String(row[12] || '').trim(),
+          created_date: String(row[13] || '').trim(),
+          created_by_name: userNamesMap[String(row[12] || '').trim()] || 'Unknown'
+        };
         documents.push(doc);
       }
     }
@@ -3617,6 +3626,7 @@ function handleGetDocumentFolders_(payload) {
       return { ok: false, error: 'Missing user_id.' };
     }
 
+    var groupMemberIds = getGroupMemberIds_(userId);
     var sheet = getOrCreateSheetWithHeaders_(DOCUMENT_FOLDERS_SHEET_, DOCUMENT_FOLDERS_HEADERS_);
     var rows = readSheetObjects_(sheet);
     var folders = [];
@@ -3624,7 +3634,9 @@ function handleGetDocumentFolders_(payload) {
 
     for (var i = 0; i < rows.length; i++) {
       var row = rows[i];
-      if (String(row.user_id || '').trim() !== userId) {
+      var folderUserId = String(row.user_id || '').trim();
+      
+      if (groupMemberIds.indexOf(folderUserId) === -1) {
         continue;
       }
 
@@ -3660,4 +3672,55 @@ function authorizeImsScopes() {
 }
 
 
+function getGroupMemberIds_(userId) {
+  var targetUserId = String(userId || '').trim();
+  if (!targetUserId) return [];
 
+  var userRecord = findUserRecordByUserId_(targetUserId);
+  if (!userRecord) return [targetUserId];
+
+  var role = String(userRecord.user.role || '').trim();
+  var supervisorId = null;
+
+  if (role === 'Supervisor') {
+    supervisorId = targetUserId;
+  } else {
+    supervisorId = findSupervisorForStudent_(targetUserId);
+  }
+
+  if (!supervisorId) {
+    return [targetUserId];
+  }
+
+  var assignments = getActiveSupervisorAssignments_(supervisorId);
+  var memberIds = assignments.map(function (a) {
+    return String(a.student_user_id || '').trim();
+  });
+  memberIds.push(supervisorId);
+
+  return memberIds.filter(function (id, index, self) {
+    return id && self.indexOf(id) === index;
+  });
+}
+
+function getUserNamesMap_(userIds) {
+  var names = {};
+  if (!userIds || !userIds.length) return names;
+
+  var sheet = getSheet_('users');
+  var headers = getHeaders_(sheet);
+  var values = getSheetValues_(sheet);
+  var userIdCol = findColumnIndex_(headers, 'user_id');
+  var nameCol = findColumnIndex_(headers, 'full_name');
+
+  if (userIdCol === 0 || nameCol === 0) return names;
+
+  for (var i = 1; i < values.length; i++) {
+    var uid = String(values[i][userIdCol - 1] || '').trim();
+    if (userIds.indexOf(uid) !== -1) {
+      names[uid] = String(values[i][nameCol - 1] || '').trim();
+    }
+  }
+
+  return names;
+}

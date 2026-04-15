@@ -429,6 +429,18 @@ export async function listAssignedStudentRequests(supervisorUserId) {
   return Array.isArray(result.requests) ? result.requests : [];
 }
 
+export async function listAssignedStudentDocuments(supervisorUserId, studentUserId) {
+  const result = await postAction('list_assigned_student_documents', {
+    supervisor_user_id: String(supervisorUserId || '').trim(),
+    student_user_id: String(studentUserId || '').trim(),
+  });
+
+  return {
+    documents: Array.isArray(result.documents) ? result.documents : [],
+    folders: Array.isArray(result.folders) ? result.folders : []
+  };
+}
+
 export async function listSupervisorTimeLogs(supervisorUserId, studentUserId) {
   const result = await postAction('list_supervisor_time_logs', {
     supervisor_user_id: String(supervisorUserId || '').trim(),
