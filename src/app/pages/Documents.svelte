@@ -110,7 +110,6 @@
       user_id: String(doc.user_id || doc.userId || ''),
       name: String(doc.name || ''),
       folder: String(doc.folder || '/'),
-      category: String(doc.category || 'Other'),
       type: String(doc.type || (isLink ? 'link' : 'file')),
       size: String(doc.size || ''),
       url: String(doc.url || ''),
@@ -238,6 +237,34 @@
     } catch (err) {
       console.error('Error loading folders:', err);
     } finally {
+      if (!uploadToFolder || uploadToFolder === '/') {
+        uploadToFolder = getDefaultUploadFolder_();
+      }
+    }
+  }
+
+  async function loadInitialData_() {
+    try {
+      isLoading = true;
+      const response = await callBackend_('get_documents_bootstrap_data', { user_id: userId });
+      
+      if (response?.ok) {
+        // Update folders
+        if (Array.isArray(response.folders)) {
+          folderStructure.root.subfolders = [...response.folders];
+        }
+        
+        // Update documents
+        documents = Array.isArray(response.documents)
+          ? response.documents.map(mapDocumentFromApi_)
+          : [];
+      } else {
+        console.error('Failed to load initial docs data:', response?.error);
+      }
+    } catch (err) {
+      console.error('Error in bootstrap loading:', err);
+    } finally {
+      isLoading = false;
       if (!uploadToFolder || uploadToFolder === '/') {
         uploadToFolder = getDefaultUploadFolder_();
       }
@@ -647,9 +674,8 @@
 
       isSupervisor = currentUser?.role === 'Supervisor';
 
-      // Load group-based data
-      await loadFolders_();
-      await loadDocuments_();
+      // Load group-based data in a single optimized bootstrap trip
+      await loadInitialData_();
     } catch (err) {
       console.error('Error initializing documents:', err);
       showActionMessage_('Unable to load documents. Please refresh.', 'error');
@@ -689,180 +715,201 @@
       </div>
     {/if}
 
-    <div class="stats-row">
-      <div class="stat-card">
-        <div class="stat-label">Group Folders</div>
-        <div class="stat-value">{folderStructure.root.subfolders.length}</div>
-        <div class="stat-sub">Organized categories</div>
+    {#if isLoading}
+      <!-- Skeleton Stats -->
+      <div class="skeleton-stats">
+        <div class="skeleton skeleton-stat-card"></div>
+        <div class="skeleton skeleton-stat-card"></div>
+        <div class="skeleton skeleton-stat-card"></div>
+        <div class="skeleton skeleton-stat-card"></div>
       </div>
-      <div class="stat-card">
-        <div class="stat-label">Group Documents</div>
-        <div class="stat-value">{documents.filter((doc) => !doc.isLink).length}</div>
-        <div class="stat-sub">Files uploaded</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Group Links</div>
-        <div class="stat-value">{documents.filter((doc) => doc.isLink).length}</div>
-        <div class="stat-sub">External references</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Total Items</div>
-        <div class="stat-value">{documents.length}</div>
-        <div class="stat-sub">Across all group folders</div>
-      </div>
-    </div>
 
-    <div class="section-header">
-      <span class="section-title">Folders</span>
-      <a class="section-link">Manage folders</a>
-    </div>
+      <div class="section-header" style="margin-top: 32px;">
+        <span class="section-title">Folders</span>
+      </div>
+      <div class="skeleton-folders">
+        <div class="skeleton skeleton-folder-card"></div>
+        <div class="skeleton skeleton-folder-card"></div>
+        <div class="skeleton skeleton-folder-card"></div>
+      </div>
 
-    <div class="folders-grid">
-      {#each folderStructure.root.subfolders as folder (folder)}
-        {@const folderPath = '/' + folder}
-        {@const docCount = documents.filter((d) => d.folder === folderPath).length}
-        <div class="folder-card-wrap">
-          <button class="folder-card" class:active={currentFolder === folderPath} on:click={() => (currentFolder = folderPath)}>
-            <div class="folder-icon-wrap">
-              {#if currentFolder === folderPath}
-                <FolderOpen size={18} />
-              {:else}
-                <Folder size={18} />
-              {/if}
-            </div>
-            <div class="folder-info">
-              <div class="folder-name">{folder}</div>
-              <div class="folder-count">{docCount} items</div>
-            </div>
-          </button>
-          {#if isSupervisor}
-            <div class="folder-actions">
-              <button class="folder-action-btn rename-btn" title="Rename folder" on:click={() => openRenameFolderModal(folder)}>✎</button>
-              <button
-                class="folder-action-btn delete-btn"
-                title="Delete folder"
-                on:click={() => {
-                  folderToDelete = folder;
-                  showDeleteFolderConfirm = true;
-                }}
-              >
-                🗑
-              </button>
-            </div>
-          {/if}
+      <div class="skeleton skeleton-table-panel"></div>
+    {:else}
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-label">Group Folders</div>
+          <div class="stat-value">{folderStructure.root.subfolders.length}</div>
+          <div class="stat-sub">Organized categories</div>
         </div>
-      {/each}
-    </div>
-
-    <div class="bottom-area">
-      <div>
-        <div class="search-filter-bar">
-          <div class="search-wrap">
-            <Search size={15} />
-            <input class="search-input" type="text" placeholder="Search documents..." bind:value={searchQuery} />
-          </div>
+        <div class="stat-card">
+          <div class="stat-label">Group Documents</div>
+          <div class="stat-value">{documents.filter((doc) => !doc.isLink).length}</div>
+          <div class="stat-sub">Files uploaded</div>
         </div>
+        <div class="stat-card">
+          <div class="stat-label">Group Links</div>
+          <div class="stat-value">{documents.filter((doc) => doc.isLink).length}</div>
+          <div class="stat-sub">External references</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Total Items</div>
+          <div class="stat-value">{documents.length}</div>
+          <div class="stat-sub">Across all group folders</div>
+        </div>
+      </div>
 
-        <div class="docs-panel">
-          <div class="docs-panel-header">
-            <span class="docs-panel-title">Group Shared Documents</span>
-            <span class="docs-count">{filteredDocuments.length} items</span>
+      <div class="section-header">
+        <span class="section-title">Folders</span>
+        <a class="section-link">Manage folders</a>
+      </div>
+
+      <div class="folders-grid">
+        {#each folderStructure.root.subfolders as folder (folder)}
+          {@const folderPath = '/' + folder}
+          {@const docCount = documents.filter((d) => d.folder === folderPath).length}
+          <div class="folder-card-wrap">
+            <button class="folder-card" class:active={currentFolder === folderPath} on:click={() => (currentFolder = folderPath)}>
+              <div class="folder-icon-wrap">
+                {#if currentFolder === folderPath}
+                  <FolderOpen size={18} />
+                {:else}
+                  <Folder size={18} />
+                {/if}
+              </div>
+              <div class="folder-info">
+                <div class="folder-name">{folder}</div>
+                <div class="folder-count">{docCount} items</div>
+              </div>
+            </button>
+            {#if isSupervisor}
+              <div class="folder-actions">
+                <button class="folder-action-btn rename-btn" title="Rename folder" on:click={() => openRenameFolderModal(folder)}>✎</button>
+                <button
+                  class="folder-action-btn delete-btn"
+                  title="Delete folder"
+                  on:click={() => {
+                    folderToDelete = folder;
+                    showDeleteFolderConfirm = true;
+                  }}
+                >
+                  🗑
+                </button>
+              </div>
+            {/if}
+          </div>
+        {/each}
+      </div>
+
+      <div class="bottom-area">
+        <div>
+          <div class="search-filter-bar">
+            <div class="search-wrap">
+              <Search size={15} />
+              <input class="search-input" type="text" placeholder="Search documents..." bind:value={searchQuery} />
+            </div>
           </div>
 
-          {#if filteredDocuments.length > 0}
-            <div class="table-wrapper">
-              <table class="documents-table">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Uploaded By</th>
-                    <th>Type</th>
-                    <th>Size</th>
-                    <th>Uploaded</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {#each filteredDocuments as doc (doc.id)}
-                    <tr class="table-row">
-                      <td class="col-name">
-                        <div class="file-info">
-                          <div class="file-icon">
-                            {#if doc.isLink}
-                              <Link2 size={16} />
-                            {:else}
-                              <FileText size={16} />
+          <div class="docs-panel">
+            <div class="docs-panel-header">
+              <span class="docs-panel-title">Group Shared Documents</span>
+              <span class="docs-count">{filteredDocuments.length} items</span>
+            </div>
+
+            {#if filteredDocuments.length > 0}
+              <div class="table-wrapper">
+                <table class="documents-table">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Uploaded By</th>
+                      <th>Type</th>
+                      <th>Size</th>
+                      <th>Uploaded</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {#each filteredDocuments as doc (doc.id)}
+                      <tr class="table-row">
+                        <td class="col-name">
+                          <div class="file-info">
+                            <div class="file-icon">
+                              {#if doc.isLink}
+                                <Link2 size={16} />
+                              {:else}
+                                <FileText size={16} />
+                              {/if}
+                            </div>
+                            <button class="file-name-btn" title="Open document" on:click={() => openDocument(doc)}>
+                              <span class="file-name">{doc.name}</span>
+                            </button>
+                          </div>
+                        </td>
+                        <td class="col-uploader">
+                          <span class="uploader-name">{doc.created_by_name || '—'}</span>
+                        </td>
+                        <td class="col-type">
+                          <span class="type-badge">{doc.isLink ? 'Link' : 'File'}</span>
+                        </td>
+                        <td class="col-size">
+                          {#if doc.size}
+                            {doc.size}
+                          {:else}
+                            —
+                          {/if}
+                        </td>
+                        <td class="col-date">{formatDate(doc.uploadedDate)}</td>
+                        <td class="col-actions">
+                          <div class="action-buttons">
+                            <button
+                              class="icon-btn"
+                              title="View/Download"
+                              on:click={() => openDocument(doc)}
+                            >
+                              {#if doc.isLink}
+                                <Eye size={14} />
+                              {:else}
+                                <Download size={14} />
+                              {/if}
+                            </button>
+                            {#if currentUser?.role === 'Supervisor' || currentUser?.user_id === doc.created_by}
+                              <button class="icon-btn share-btn" title="Share" on:click={() => openShareModal(doc)}>
+                                <Share2 size={14} />
+                              </button>
+                              <button class="icon-btn delete-btn" title="Delete" on:click={() => deleteDocument(doc.id)}>
+                                <Trash2 size={14} />
+                              </button>
                             {/if}
                           </div>
-                          <button class="file-name-btn" title="Open document" on:click={() => openDocument(doc)}>
-                            <span class="file-name">{doc.name}</span>
-                          </button>
-                        </div>
-                      </td>
-                      <td class="col-uploader">
-                        <span class="uploader-name">{doc.created_by_name || '—'}</span>
-                      </td>
-                      <td class="col-type">
-                        <span class="type-badge">{doc.isLink ? 'Link' : 'File'}</span>
-                      </td>
-                      <td class="col-size">
-                        {#if doc.size}
-                          {doc.size}
-                        {:else}
-                          —
-                        {/if}
-                      </td>
-                      <td class="col-date">{formatDate(doc.uploadedDate)}</td>
-                      <td class="col-actions">
-                        <div class="action-buttons">
-                          <button
-                            class="icon-btn"
-                            title="View/Download"
-                            on:click={() => openDocument(doc)}
-                          >
-                            {#if doc.isLink}
-                              <Eye size={14} />
-                            {:else}
-                              <Download size={14} />
-                            {/if}
-                          </button>
-                          {#if currentUser?.role === 'Supervisor' || currentUser?.user_id === doc.created_by}
-                            <button class="icon-btn share-btn" title="Share" on:click={() => openShareModal(doc)}>
-                              <Share2 size={14} />
-                            </button>
-                            <button class="icon-btn delete-btn" title="Delete" on:click={() => deleteDocument(doc.id)}>
-                              <Trash2 size={14} />
-                            </button>
-                          {/if}
-                        </div>
-                      </td>
-                    </tr>
-                  {/each}
-                </tbody>
-              </table>
-            </div>
-          {:else}
-            <div class="empty-state">
-              <div class="empty-icon-wrap">
-                <FileText size={28} />
+                        </td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
               </div>
-              <div class="empty-title">No documents yet</div>
-              <div class="empty-sub">Start by uploading a document or adding a link to an external resource</div>
-              <div class="empty-actions">
-                <button class="btn btn-ghost empty-btn" on:click={() => (showLinkModal = true)}>
-                  <Link2 size={13} />
-                  Add Link
-                </button>
-                <button class="btn btn-primary empty-btn" on:click={openUploadModal_}>
-                  <Upload size={13} />
-                  Upload Document
-                </button>
+            {:else}
+              <div class="empty-state">
+                <div class="empty-icon-wrap">
+                  <FileText size={28} />
+                </div>
+                <div class="empty-title">No documents yet</div>
+                <div class="empty-sub">Start by uploading a document or adding a link to an external resource</div>
+                <div class="empty-actions">
+                  <button class="btn btn-ghost empty-btn" on:click={() => (showLinkModal = true)}>
+                    <Link2 size={13} />
+                    Add Link
+                  </button>
+                  <button class="btn btn-primary empty-btn" on:click={openUploadModal_}>
+                    <Upload size={13} />
+                    Upload Document
+                  </button>
+                </div>
               </div>
-            </div>
-          {/if}
+            {/if}
+          </div>
         </div>
       </div>
-    </div>
+    {/if}
   </div>
 
   <!-- Upload Modal -->
@@ -957,17 +1004,6 @@
                 <p class="preview-value" id="preview-folder">
                   {pendingFilePreview.folder.substring(1)}
                 </p>
-              </div>
-
-              <div class="preview-section">
-                <label for="preview-category">Category</label>
-                <select id="preview-category" class="preview-category-select" bind:value={pendingFile.category} disabled={isUploading}>
-                  <option value="Other">Other</option>
-                  <option value="Legal">Legal</option>
-                  <option value="Reference">Reference</option>
-                  <option value="Meetings">Meetings</option>
-                  <option value="Work">Work</option>
-                </select>
               </div>
             </div>
           </div>
@@ -2497,6 +2533,82 @@
     border-color: rgba(255, 255, 255, 0.18);
     transform: translateY(0);
     box-shadow: none;
+  }
+
+  /* Skeleton Shimmer */
+  .skeleton {
+    position: relative;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+  }
+
+  .skeleton::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    transform: translateX(-100%);
+    background-image: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0) 0,
+      rgba(255, 255, 255, 0.03) 20%,
+      rgba(255, 255, 255, 0.06) 60%,
+      rgba(255, 255, 255, 0)
+    );
+    animation: shimmer 2s infinite;
+  }
+
+  @keyframes shimmer {
+    100% {
+      transform: translateX(100%);
+    }
+  }
+
+  /* Light mode skeleton overrides */
+  :global(html:not(.dark)) .skeleton {
+    background: rgba(15, 23, 42, 0.05); /* Slight dark on light */
+  }
+
+  :global(html:not(.dark)) .skeleton::after {
+    background-image: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0) 0,
+      rgba(255, 255, 255, 0.4) 20%,
+      rgba(255, 255, 255, 0.7) 60%,
+      rgba(255, 255, 255, 0)
+    );
+  }
+
+  .skeleton-stats {
+    display: flex;
+    gap: 20px;
+  }
+
+  .skeleton-stat-card {
+    flex: 1;
+    height: 100px;
+    border-radius: 12px;
+  }
+
+  .skeleton-folders {
+    display: flex;
+    gap: 16px;
+    margin-top: 15px;
+  }
+
+  .skeleton-folder-card {
+    width: 260px;
+    height: 70px;
+    border-radius: 12px;
+  }
+
+  .skeleton-table-panel {
+    border-radius: 12px;
+    height: 400px;
+    margin-top: 24px;
   }
 
   .btn-primary {

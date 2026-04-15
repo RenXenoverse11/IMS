@@ -181,6 +181,10 @@ function dispatchAction_(payload) {
     return handleGetDocumentFolders_(payload);
   }
 
+  if (action === 'get_documents_bootstrap_data') {
+    return handleGetDocumentsBootstrapData_(payload);
+  }
+
   if (action === 'create_request') {
     return handleCreateRequest_(payload);
   }
@@ -3636,33 +3640,61 @@ function handleGetDocumentFolders_(payload) {
     }
 
     var groupMemberIds = getGroupMemberIds_(userId);
-    var sheet = getOrCreateSheetWithHeaders_(DOCUMENT_FOLDERS_SHEET_, DOCUMENT_FOLDERS_HEADERS_);
-    var rows = readSheetObjects_(sheet);
-    var folders = [];
-    var seen = {};
+    return { ok: true, folders: getFoldersByGroupMemberIds_(groupMemberIds) };
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) };
+  }
+}
 
-    for (var i = 0; i < rows.length; i++) {
-      var row = rows[i];
-      var folderUserId = String(row.user_id || '').trim();
-      
-      if (groupMemberIds.indexOf(folderUserId) === -1) {
-        continue;
-      }
+function getFoldersByGroupMemberIds_(groupMemberIds) {
+  var sheet = getOrCreateSheetWithHeaders_(DOCUMENT_FOLDERS_SHEET_, DOCUMENT_FOLDERS_HEADERS_);
+  var rows = readSheetObjects_(sheet);
+  var folders = [];
+  var seen = {};
 
-      var name = String(row.folder_name || '').trim();
-      if (!name) {
-        continue;
-      }
-
-      var key = name.toLowerCase();
-      if (seen[key]) {
-        continue;
-      }
-      seen[key] = true;
-      folders.push(name);
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i];
+    var folderUserId = String(row.user_id || '').trim();
+    
+    if (groupMemberIds.indexOf(folderUserId) === -1) {
+      continue;
     }
 
-    return { ok: true, folders: folders };
+    var name = String(row.folder_name || '').trim();
+    if (!name) {
+      continue;
+    }
+
+    var key = name.toLowerCase();
+    if (seen[key]) {
+      continue;
+    }
+    seen[key] = true;
+    folders.push(name);
+  }
+  return folders;
+}
+
+function handleGetDocumentsBootstrapData_(payload) {
+  try {
+    var userId = String(payload.user_id || '').trim();
+    if (!userId) {
+      return { ok: false, error: 'Missing user_id.' };
+    }
+
+    var groupMemberIds = getGroupMemberIds_(userId);
+    
+    // Get Folders
+    var folders = getFoldersByGroupMemberIds_(groupMemberIds);
+    
+    // Get Documents (Reuse logic from handleGetAllDocuments_)
+    var docResponse = handleGetAllDocuments_(payload);
+    
+    return {
+      ok: true,
+      folders: folders,
+      documents: docResponse.ok ? docResponse.documents : []
+    };
   } catch (err) {
     return { ok: false, error: err.message || String(err) };
   }
