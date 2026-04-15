@@ -3213,7 +3213,7 @@ function jsonResponse_(obj) {
 
 // Document Management Functions
 var DOCUMENTS_SHEET_ = 'documents';
-var DOCUMENTS_HEADERS_ = ['id', 'user_id', 'name', 'folder', 'category', 'type', 'size', 'url', 'is_link', 'uploaded_date', 'access_level', 'shared_with', 'created_by', 'created_date'];
+var DOCUMENTS_HEADERS_ = ['id', 'user_id', 'name', 'folder', 'type', 'size', 'url', 'is_link', 'uploaded_date', 'access_level', 'shared_with', 'created_by', 'created_date'];
 var ACT_ATTACHMENTS_SHEET_ = 'act_attachments';
 var ACT_ATTACHMENTS_HEADERS_ = ['id', 'user_id', 'file_type', 'file_size', 'link', 'uploaded_at', 'uploaded_by'];
 var DOCUMENT_FOLDERS_SHEET_ = 'document_folders';
@@ -3292,45 +3292,57 @@ function handleGetAllDocuments_(payload) {
     }
 
     var groupMemberIds = getGroupMemberIds_(userId);
-    var userNamesMap = getUserNamesMap_(groupMemberIds);
     
     var sheet = getOrCreateSheetWithHeaders_(DOCUMENTS_SHEET_, DOCUMENTS_HEADERS_);
-    var data = sheet.getDataRange().getValues();
-    var documents = [];
+    var rows = readSheetObjects_(sheet);
+    var filteredDocs = [];
+    var authorIds = [];
 
-    for (var i = 1; i < data.length; i++) {
-      var row = data[i];
-      var docUserId = String(row[1] || '').trim();
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      var docUserId = String(row.user_id || '').trim();
       
       // If the document belongs to anyone in the group
       if (groupMemberIds.indexOf(docUserId) !== -1) {
-        var doc = {
-          id: String(row[0] || '').trim(),
-          user_id: docUserId,
-          name: String(row[2] || '').trim(),
-          folder: String(row[3] || '/').trim() || '/',
-          category: String(row[4] || 'Other').trim() || 'Other',
-          type: String(row[5] || 'file').trim() || 'file',
-          size: String(row[6] || '').trim(),
-          url: String(row[7] || '').trim(),
-          is_link: String(row[8] || '').trim(),
-          uploaded_date: String(row[9] || '').trim(),
-          access_level: String(row[10] || 'private').trim() || 'private',
-          shared_with: (function() {
-            if (!row[11]) return [];
-            try {
-              return JSON.parse(String(row[11]));
-            } catch (e) {
-              return [];
-            }
-          })(),
-          created_by: String(row[12] || '').trim(),
-          created_date: String(row[13] || '').trim(),
-          created_by_name: userNamesMap[String(row[12] || '').trim()] || 'Unknown'
-        };
-        documents.push(doc);
+        filteredDocs.push(row);
+        var createdById = String(row.created_by || '').trim();
+        if (createdById && authorIds.indexOf(createdById) === -1) {
+          authorIds.push(createdById);
+        }
       }
     }
+
+    // Combined user names map (group members + anyone who authored a doc)
+    var allIdsToLookup = groupMemberIds.concat(authorIds).filter(function(id, idx, self) {
+      return self.indexOf(id) === idx;
+    });
+    var userNamesMap = getUserNamesMap_(allIdsToLookup);
+
+    var documents = filteredDocs.map(function(row) {
+      return {
+        id: String(row.id || '').trim(),
+        user_id: String(row.user_id || '').trim(),
+        name: String(row.name || '').trim(),
+        folder: String(row.folder || '/').trim() || '/',
+        type: String(row.type || 'file').trim() || 'file',
+        size: String(row.size || '').trim(),
+        url: String(row.url || '').trim(),
+        is_link: String(row.is_link || '').trim(),
+        uploaded_date: String(row.uploaded_date || '').trim(),
+        access_level: String(row.access_level || 'private').trim() || 'private',
+        shared_with: (function() {
+          if (!row.shared_with) return [];
+          try {
+            return JSON.parse(String(row.shared_with));
+          } catch (e) {
+            return [];
+          }
+        })(),
+        created_by: String(row.created_by || '').trim(),
+        created_date: String(row.created_date || '').trim(),
+        created_by_name: userNamesMap[String(row.created_by || '').trim()] || 'Unknown'
+      };
+    });
 
     return { ok: true, documents: documents };
   } catch (err) {
@@ -3343,7 +3355,6 @@ function handleUploadDocument_(payload) {
     var userId = String(payload.user_id || '').trim();
     var name = String(payload.name || '').trim();
     var folder = String(payload.folder || '/').trim();
-    var category = String(payload.category || 'Other').trim();
     var type = String(payload.type || 'file').trim().toLowerCase();
     var size = String(payload.size || '').trim();
     var url = String(payload.url || '#').trim();
@@ -3396,7 +3407,6 @@ function handleUploadDocument_(payload) {
       userId,
       name,
       folder,
-      category,
       type,
       size,
       url,
@@ -3417,7 +3427,6 @@ function handleUploadDocument_(payload) {
         user_id: userId,
         name: name,
         folder: folder,
-        category: category,
         type: type,
         size: size,
         url: url,

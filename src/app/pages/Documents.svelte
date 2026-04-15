@@ -17,7 +17,6 @@
   let userId = null;
 
   let searchQuery = '';
-  let selectedCategory = 'All';
   let currentFolder = '/';
   let showUploadModal = false;
   let showLinkModal = false;
@@ -44,6 +43,7 @@
   let actionMessage = '';
   let actionMessageType = 'success';
   let actionMessageTimer = null;
+  let isAddingLink = false;
   
   // Group Workspace State
   let currentUser = null;
@@ -52,13 +52,10 @@
 
   const AUTH_SESSION_STORAGE_KEY = 'ims-auth-session-user';
 
-  const categories = ['All', 'Legal', 'Reference', 'Meetings', 'Work', 'Other'];
-
   $: filteredDocuments = documents.filter((doc) => {
     const matchesSearch = doc.name.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesCategory = selectedCategory === 'All' || doc.category === selectedCategory;
     const matchesFolder = currentFolder === '/' || doc.folder === currentFolder;
-    return matchesSearch && matchesCategory && matchesFolder;
+    return matchesSearch && matchesFolder;
   });
 
   $: folderDocuments = documents.filter(doc => doc.folder === currentFolder);
@@ -259,7 +256,6 @@
       // Create preview without saving to database yet
       pendingFile = {
         name: file.name,
-        category: 'Other',
         type: file.type.includes('pdf') ? 'pdf' : 'file',
         size: (file.size / 1024 / 1024).toFixed(1) + ' MB',
         folder: uploadToFolder,
@@ -295,7 +291,6 @@
       const response = await callBackend_('upload_document', {
         user_id: userId,
         name: pendingFile.name,
-        category: pendingFile.category,
         type: pendingFile.type,
         size: pendingFile.size,
         folder: pendingFile.folder,
@@ -337,6 +332,8 @@
 
   async function addLink() {
     if (newLinkName.trim() && newLinkUrl.trim()) {
+      if (isAddingLink) return;
+
       if (folderStructure.root.subfolders.length === 0) {
         alert('Please create a folder first before adding a link.');
         return;
@@ -355,10 +352,10 @@
       }
 
       try {
+        isAddingLink = true;
         const response = await callBackend_('upload_document', {
           user_id: userId,
           name: newLinkName.trim(),
-          category: 'Meetings',
           type: 'link',
           url: normalizedUrl,
           folder: uploadToFolder,
@@ -381,6 +378,8 @@
         console.error('Link error:', err);
         showActionMessage_('Add link failed. Please try again.', 'error');
         alert('Error adding link');
+      } finally {
+        isAddingLink = false;
       }
     }
   }
@@ -762,11 +761,6 @@
             <Search size={15} />
             <input class="search-input" type="text" placeholder="Search documents..." bind:value={searchQuery} />
           </div>
-          <div class="filter-chips">
-            {#each categories as category (category)}
-              <button class="chip" class:active={selectedCategory === category} on:click={() => (selectedCategory = category)}>{category}</button>
-            {/each}
-          </div>
         </div>
 
         <div class="docs-panel">
@@ -783,7 +777,6 @@
                     <th>Name</th>
                     <th>Uploaded By</th>
                     <th>Type</th>
-                    <th>Category</th>
                     <th>Size</th>
                     <th>Uploaded</th>
                     <th>Actions</th>
@@ -811,9 +804,6 @@
                       </td>
                       <td class="col-type">
                         <span class="type-badge">{doc.isLink ? 'Link' : 'File'}</span>
-                      </td>
-                      <td class="col-category">
-                        <span class="category-badge">{doc.category}</span>
                       </td>
                       <td class="col-size">
                         {#if doc.size}
@@ -1054,9 +1044,14 @@
 
         <div class="modal-footer">
           <button class="btn btn-secondary" on:click={() => (showLinkModal = false)}>Cancel</button>
-          <button class="btn btn-primary" on:click={addLink} disabled={!newLinkName.trim() || !newLinkUrl.trim()}>
-            <Plus size={18} />
-            <span>Add Link</span>
+          <button class="btn btn-primary" on:click={addLink} disabled={!newLinkName.trim() || !newLinkUrl.trim() || isAddingLink}>
+            {#if isAddingLink}
+              <Upload size={18} class="spinning-icon" />
+              <span>Adding...</span>
+            {:else}
+              <Plus size={18} />
+              <span>Add Link</span>
+            {/if}
           </button>
         </div>
       </div>
@@ -2354,12 +2349,6 @@
     border: 1px solid rgba(16, 185, 129, 0.45);
   }
 
-  :global(.dark) .category-badge {
-    background: rgba(59, 130, 246, 0.18);
-    color: #93c5fd;
-    border: 1px solid rgba(147, 197, 253, 0.4);
-  }
-
   :global(.dark) .upload-area {
     border-color: #426389;
     background: rgba(15, 23, 42, 0.35);
@@ -2911,7 +2900,6 @@
   }
 
   .type-badge,
-  .category-badge,
   .status-badge {
     display: inline-flex;
     border-radius: 999px;
