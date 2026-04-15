@@ -491,31 +491,6 @@
       formError = 'Failed to delete request.';
     } finally {
       isDeleting = false;
-    if (!currentUser?.user_id) {
-      formError = 'No logged-in user found. Please log in again.';
-      formSuccess = '';
-      return;
-    }
-
-    try {
-      const result = await callBackend('delete_request', {
-        request_id: String(requestId || '').trim(),
-        user_id: String(currentUser.user_id || '').trim(),
-      });
-
-      if (result && result.ok) {
-        formError = '';
-        formSuccess = result.message || 'Request deleted successfully.';
-        await loadRequests();
-        setTimeout(() => (formSuccess = ''), 3000);
-      } else {
-        formError = result?.error || 'Failed to delete request.';
-        formSuccess = '';
-      }
-    } catch (err) {
-      console.error('Delete request error:', err);
-      formError = err?.message || 'Failed to delete request.';
-      formSuccess = '';
     }
   }
 
@@ -738,9 +713,6 @@
               {#if Number(form.lunchBreak) > 0}
                 <span class="requests-subtitle text-xs mt-1">(After deducting {Number(form.lunchBreak)} minutes for lunch break)</span>
               {/if}
-            <div class="flex flex-col gap-1.5 lg:col-span-2 rounded-lg bg-blue-50 border border-blue-200 p-3">
-              <span class="requests-label text-sm font-medium">Total Overtime Hours</span>
-              <div class="text-lg font-bold text-blue-900">{overtimeHours} hour{overtimeHours !== 1 ? 's' : ''}</div>
             </div>
           {/if}
         {/if}
@@ -1144,6 +1116,8 @@
 
   .overtime-hours-display .requests-subtitle {
     color: #2874c7;
+  }
+
   .overtime-hours-summary {
     background: #e8f2fd;
     border-color: #bfdbfe;
