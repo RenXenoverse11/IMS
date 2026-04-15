@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { Upload, Link2, Folder, FolderOpen, FileText, Download, Trash2, Eye, Plus, Search, Share2, Copy, X, Check, ChevronRight, Home } from 'lucide-svelte';
+  import { Upload, Link2, Folder, FolderOpen, FileText, Download, Trash2, Eye, Plus, Search, Share2, Copy, X, Check, ChevronRight } from 'lucide-svelte';
   import * as authApi from '../lib/auth.js';
 
   // Folder structure
@@ -8,7 +8,7 @@
     root: {
       name: 'My Documents',
       path: '/',
-      subfolders: ['Legal', 'Meetings', 'Work', 'Reference'],
+      subfolders: [],
     },
   };
 
@@ -31,6 +31,7 @@
   let copiedId = null;
   let uploadToFolder = '/';
   let newFolderName = '';
+  let isCreatingFolder = false;
   let showRenameFolderModal = false;
   let folderToRename = null;
   let renameFolderInputValue = '';
@@ -39,6 +40,7 @@
   let showUploadPreview = false;
   let pendingFile = null;
   let pendingFilePreview = null;
+  let isUploading = false;
   let actionMessage = '';
   let actionMessageType = 'success';
   let actionMessageTimer = null;
@@ -155,6 +157,35 @@
     }, 3200);
   }
 
+  function getDefaultUploadFolder_() {
+    const firstFolder = folderStructure.root.subfolders[0];
+    return firstFolder ? '/' + firstFolder : '/';
+  }
+
+  function openUploadModal_() {
+    if (folderStructure.root.subfolders.length === 0) {
+      showActionMessage_('Create a folder first before uploading.');
+      showCreateFolderModal = true;
+      return;
+    }
+    if (!uploadToFolder || uploadToFolder === '/') {
+      uploadToFolder = getDefaultUploadFolder_();
+    }
+    showUploadModal = true;
+  }
+
+  function openLinkModal_() {
+    if (folderStructure.root.subfolders.length === 0) {
+      showActionMessage_('Create a folder first before adding links.');
+      showCreateFolderModal = true;
+      return;
+    }
+    if (!uploadToFolder || uploadToFolder === '/') {
+      uploadToFolder = getDefaultUploadFolder_();
+    }
+    showLinkModal = true;
+  }
+
   // API Call helper
   function callBackend_(action, payload) {
     return new Promise((resolve, reject) => {
@@ -194,6 +225,23 @@
     }
   }
 
+  async function loadFolders_() {
+    try {
+      const response = await callBackend_('get_document_folders', { user_id: userId });
+      if (response?.ok && Array.isArray(response.folders) && response.folders.length > 0) {
+        folderStructure.root.subfolders = [...response.folders];
+      } else {
+        folderStructure.root.subfolders = [...folderStructure.root.subfolders];
+      }
+    } catch (err) {
+      console.error('Error loading folders:', err);
+    } finally {
+      if (!uploadToFolder || uploadToFolder === '/') {
+        uploadToFolder = getDefaultUploadFolder_();
+      }
+    }
+  }
+
   async function handleFileUpload(event) {
     const files = event.target.files;
     if (files && files.length > 0) {
@@ -220,13 +268,23 @@
       };
       
       showUploadPreview = true;
+      showUploadModal = false;
     }
   }
 
   async function confirmUpload() {
-    if (!pendingFile) return;
+    if (!pendingFile || isUploading) return;
+    if (folderStructure.root.subfolders.length === 0) {
+      alert('Please create a folder first before uploading.');
+      return;
+    }
+    if (folderStructure.root.subfolders.length > 0 && uploadToFolder === '/') {
+      alert('Please select a folder before uploading.');
+      return;
+    }
     
     try {
+      isUploading = true;
       const fileDataBase64 = await fileToBase64_(pendingFile.rawFile);
 
       const response = await callBackend_('upload_document', {
@@ -247,7 +305,7 @@
         await loadDocuments_();
         showUploadModal = false;
         showUploadPreview = false;
-        uploadToFolder = '/';
+        uploadToFolder = getDefaultUploadFolder_();
         pendingFile = null;
         pendingFilePreview = null;
         showActionMessage_('Document uploaded and saved to database.');
@@ -259,17 +317,30 @@
       console.error('Upload error:', err);
       showActionMessage_('Upload failed. Please try again.', 'error');
       alert('Error uploading document');
+    } finally {
+      isUploading = false;
     }
   }
 
   function cancelUpload() {
+    if (isUploading) return;
     showUploadPreview = false;
+    showUploadModal = true;
     pendingFile = null;
     pendingFilePreview = null;
   }
 
   async function addLink() {
     if (newLinkName.trim() && newLinkUrl.trim()) {
+      if (folderStructure.root.subfolders.length === 0) {
+        alert('Please create a folder first before adding a link.');
+        return;
+      }
+      if (folderStructure.root.subfolders.length > 0 && uploadToFolder === '/') {
+        alert('Please select a folder before adding a link.');
+        return;
+      }
+
       let normalizedUrl = '';
       try {
         normalizedUrl = new URL(newLinkUrl.trim()).toString();
@@ -295,7 +366,7 @@
           newLinkName = '';
           newLinkUrl = '';
           showLinkModal = false;
-          uploadToFolder = '/';
+          uploadToFolder = getDefaultUploadFolder_();
           showActionMessage_('Link uploaded and saved to database.');
         } else {
           showActionMessage_('Add link failed: ' + (response.error || 'Unknown error.'), 'error');
@@ -567,7 +638,8 @@
         return;
       }
 
-      // Load documents from backend
+      // Load folders and documents from backend
+      await loadFolders_();
       await loadDocuments_();
     } catch (err) {
       console.error('Error initializing documents:', err);
@@ -586,7 +658,7 @@
       <div class="page-subtitle">Upload and manage your important documents, records, and links</div>
     </div>
     <div class="action-bar">
-      <button class="btn btn-ghost" on:click={() => (showLinkModal = true)}>
+      <button class="btn btn-ghost" on:click={openLinkModal_}>
         <Link2 size={14} />
         <span>Add Link</span>
       </button>
@@ -594,7 +666,7 @@
         <Folder size={14} />
         <span>Create Folder</span>
       </button>
-      <button class="btn btn-primary" on:click={() => (showUploadModal = true)}>
+      <button class="btn btn-primary" on:click={openUploadModal_}>
         <Upload size={14} />
         <span>Upload Document</span>
       </button>
@@ -779,7 +851,7 @@
                   <Link2 size={13} />
                   Add Link
                 </button>
-                <button class="btn btn-primary empty-btn" on:click={() => (showUploadModal = true)}>
+                <button class="btn btn-primary empty-btn" on:click={openUploadModal_}>
                   <Upload size={13} />
                   Upload Document
                 </button>
@@ -805,25 +877,21 @@
           <div class="form-group">
             <label>Select Folder</label>
             <div class="folder-tabs">
-              <button
-                class="folder-tab"
-                class:active={uploadToFolder === '/'}
-                on:click={() => (uploadToFolder = '/')}
-              >
-                <Home size={16} />
-                <span>All Documents</span>
-              </button>
               {#each folderStructure.root.subfolders as folder (folder)}
                 {@const folderPath = '/' + folder}
                 <button
+                  type="button"
                   class="folder-tab"
                   class:active={uploadToFolder === folderPath}
-                  on:click={() => (uploadToFolder = folderPath)}
+                  on:click|stopPropagation={() => (uploadToFolder = folderPath)}
                 >
                   <Folder size={16} />
                   <span>{folder}</span>
                 </button>
               {/each}
+            </div>
+            <div class="selected-folder-text">
+              Selected: {uploadToFolder.substring(1)}
             </div>
           </div>
 
@@ -854,11 +922,11 @@
 
   <!-- Upload Preview Modal -->
   {#if showUploadPreview && pendingFilePreview}
-    <div class="modal-overlay" on:click={() => cancelUpload()}>
+    <div class="modal-overlay" on:click={() => !isUploading && cancelUpload()}>
       <div class="modal" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
           <h2>Review Document</h2>
-          <button class="close-btn" on:click={() => cancelUpload()}>×</button>
+          <button class="close-btn" on:click={() => cancelUpload()} disabled={isUploading}>×</button>
         </div>
 
         <div class="modal-body">
@@ -885,17 +953,13 @@
               <div class="preview-section">
                 <label for="preview-folder">Upload Folder</label>
                 <p class="preview-value" id="preview-folder">
-                  {#if pendingFilePreview.folder === '/'}
-                    All Documents
-                  {:else}
-                    {pendingFilePreview.folder.substring(1)}
-                  {/if}
+                  {pendingFilePreview.folder.substring(1)}
                 </p>
               </div>
 
               <div class="preview-section">
                 <label for="preview-category">Category</label>
-                <select id="preview-category" bind:value={pendingFile.category} style="width: 100%; padding: 0.5rem; border-radius: 8px; border: 1px solid var(--doc-border); background: #eef5fc; color: var(--doc-text);">
+                <select id="preview-category" class="preview-category-select" bind:value={pendingFile.category} disabled={isUploading}>
                   <option value="Other">Other</option>
                   <option value="Legal">Legal</option>
                   <option value="Reference">Reference</option>
@@ -908,10 +972,15 @@
         </div>
 
         <div class="modal-footer">
-          <button class="btn btn-secondary" on:click={() => cancelUpload()}>Delete</button>
-          <button class="btn btn-primary" on:click={() => confirmUpload()}>
-            <Check size={18} />
-            <span>Save Document</span>
+          <button class="btn btn-secondary" on:click={() => cancelUpload()} disabled={isUploading}>Delete</button>
+          <button class="btn btn-primary" on:click={() => confirmUpload()} disabled={isUploading}>
+            {#if isUploading}
+              <Upload size={18} class="spinning-icon" />
+              <span>Uploading...</span>
+            {:else}
+              <Check size={18} />
+              <span>Save Document</span>
+            {/if}
           </button>
         </div>
       </div>
@@ -932,25 +1001,21 @@
           <div class="form-group">
             <label>Select Folder</label>
             <div class="folder-tabs">
-              <button
-                class="folder-tab"
-                class:active={uploadToFolder === '/'}
-                on:click={() => (uploadToFolder = '/')}
-              >
-                <Home size={16} />
-                <span>All Documents</span>
-              </button>
               {#each folderStructure.root.subfolders as folder (folder)}
                 {@const folderPath = '/' + folder}
                 <button
+                  type="button"
                   class="folder-tab"
                   class:active={uploadToFolder === folderPath}
-                  on:click={() => (uploadToFolder = folderPath)}
+                  on:click|stopPropagation={() => (uploadToFolder = folderPath)}
                 >
                   <Folder size={16} />
                   <span>{folder}</span>
                 </button>
               {/each}
+            </div>
+            <div class="selected-folder-text">
+              Selected: {uploadToFolder.substring(1)}
             </div>
           </div>
 
@@ -988,11 +1053,11 @@
 
   <!-- Create Folder Modal -->
   {#if showCreateFolderModal}
-    <div class="modal-overlay" on:click={() => (showCreateFolderModal = false)}>
+    <div class="modal-overlay" on:click={() => !isCreatingFolder && (showCreateFolderModal = false)}>
       <div class="modal" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
           <h2>Create Folder</h2>
-          <button class="close-btn" on:click={() => (showCreateFolderModal = false)}>×</button>
+          <button class="close-btn" on:click={() => (showCreateFolderModal = false)} disabled={isCreatingFolder}>×</button>
         </div>
 
         <div class="modal-body">
@@ -1003,21 +1068,50 @@
               type="text"
               placeholder="e.g., Important Documents"
               bind:value={newFolderName}
+              disabled={isCreatingFolder}
             />
           </div>
         </div>
 
         <div class="modal-footer">
-          <button class="btn btn-secondary" on:click={() => (showCreateFolderModal = false)}>Cancel</button>
-          <button class="btn btn-primary" on:click={() => {
-            if (newFolderName.trim()) {
-              folderStructure.root.subfolders = [...folderStructure.root.subfolders, newFolderName];
+          <button class="btn btn-secondary" on:click={() => (showCreateFolderModal = false)} disabled={isCreatingFolder}>Cancel</button>
+          <button class="btn btn-primary" on:click={async () => {
+            const folderName = String(newFolderName || '').trim();
+            if (!folderName || isCreatingFolder) {
+              return;
+            }
+
+            try {
+              isCreatingFolder = true;
+              const response = await callBackend_('create_folder', {
+                user_id: userId,
+                folder_name: folderName,
+              });
+
+              if (!response?.ok) {
+                alert(response?.error || 'Unable to create folder.');
+                return;
+              }
+
+              await loadFolders_();
+              uploadToFolder = '/' + folderName;
               newFolderName = '';
               showCreateFolderModal = false;
+              showActionMessage_('Folder created.');
+            } catch (err) {
+              console.error('Create folder error:', err);
+              alert('Unable to create folder.');
+            } finally {
+              isCreatingFolder = false;
             }
-          }} disabled={!newFolderName.trim()}>
-            <Folder size={18} />
-            <span>Create Folder</span>
+          }} disabled={!newFolderName.trim() || isCreatingFolder}>
+            {#if isCreatingFolder}
+              <Upload size={18} class="spinning-icon" />
+              <span>Creating...</span>
+            {:else}
+              <Folder size={18} />
+              <span>Create Folder</span>
+            {/if}
           </button>
         </div>
       </div>
@@ -1317,6 +1411,19 @@
     cursor: not-allowed;
   }
 
+  .spinning-icon {
+    animation: spin 0.9s linear infinite;
+  }
+
+  @keyframes spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
   .search-filter-container {
     display: flex;
     flex-direction: column;
@@ -1413,6 +1520,13 @@
     background: linear-gradient(135deg, #0f6cbd 0%, #0ea5e9 100%);
     color: white;
     border-color: transparent;
+  }
+
+  .selected-folder-text {
+    margin-top: 0.5rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--doc-muted);
   }
 
   /* Table Styles */
@@ -2046,6 +2160,50 @@
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
   }
 
+  .preview-content {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+  }
+
+  .preview-details {
+    flex: 1;
+  }
+
+  .preview-section {
+    margin-bottom: 0.75rem;
+  }
+
+  .preview-section label {
+    display: block;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--doc-muted);
+    margin-bottom: 0.2rem;
+  }
+
+  .preview-value {
+    margin: 0;
+    color: var(--doc-text);
+    font-size: 0.92rem;
+    font-weight: 500;
+    line-height: 1.35;
+  }
+
+  .preview-category-select {
+    width: 100%;
+    padding: 0.5rem;
+    border-radius: 8px;
+    border: 1px solid var(--doc-border);
+    background: #eef5fc;
+    color: var(--doc-text);
+  }
+
+  .preview-category-select option {
+    background: #ffffff;
+    color: #0f172a;
+  }
+
   .modal-footer {
     display: flex;
     gap: 0.75rem;
@@ -2108,6 +2266,25 @@
   :global(.dark) .form-group select:focus {
     border-color: #7cc3ff;
     box-shadow: 0 0 0 3px rgba(91, 177, 255, 0.24);
+  }
+
+  :global(.dark) .preview-section label {
+    color: #b7c8dd;
+  }
+
+  :global(.dark) .preview-value {
+    color: #e8f1ff;
+  }
+
+  :global(.dark) .preview-category-select {
+    background: #1a2c45;
+    border-color: #334b6b;
+    color: #e8f1ff;
+  }
+
+  :global(.dark) .preview-category-select option {
+    background: #1a2c45;
+    color: #e8f1ff;
   }
 
   :global(.dark) .btn-primary {
@@ -2841,6 +3018,10 @@
     color: #64748b;
   }
 
+  .selected-folder-text {
+    color: #94a3b8;
+  }
+
   .warning-text,
   .remove-share-btn,
   .folder-action-btn.delete-btn {
@@ -2882,141 +3063,98 @@
   }
 
   /* Light mode guard overrides for enterprise layout */
-  :global(html:not(.dark)) .page-shell,
-  :global(body:not(.dark)) .page-shell {
+  :global(html:not(.dark)) .page-shell {
     background: #f6f9fd;
     color: #0f172a;
   }
 
-  :global(html:not(.dark)) .topbar,
-  :global(body:not(.dark)) .topbar {
+  :global(html:not(.dark)) .topbar {
     border-bottom-color: #dbe6f2;
   }
 
-  :global(html:not(.dark)) .page-title,
-  :global(body:not(.dark)) .page-title {
+  :global(html:not(.dark)) .page-title {
     color: #0f172a;
   }
 
   :global(html:not(.dark)) .page-subtitle,
-  :global(body:not(.dark)) .page-subtitle,
   :global(html:not(.dark)) .stat-label,
-  :global(body:not(.dark)) .stat-label,
   :global(html:not(.dark)) .stat-sub,
-  :global(body:not(.dark)) .stat-sub,
   :global(html:not(.dark)) .folder-count,
-  :global(body:not(.dark)) .folder-count,
   :global(html:not(.dark)) .chip,
-  :global(body:not(.dark)) .chip,
   :global(html:not(.dark)) .docs-count,
-  :global(body:not(.dark)) .docs-count,
-  :global(html:not(.dark)) .documents-table thead th,
-  :global(body:not(.dark)) .documents-table thead th {
+  :global(html:not(.dark)) .documents-table thead th {
     color: #5f7188;
   }
 
   :global(html:not(.dark)) .btn-ghost,
-  :global(html:not(.dark)) .btn-secondary,
-  :global(body:not(.dark)) .btn-ghost,
-  :global(body:not(.dark)) .btn-secondary {
+  :global(html:not(.dark)) .btn-secondary {
     background: #eef5fc;
     color: #11406d;
     border-color: #d8e2ef;
   }
 
   :global(html:not(.dark)) .btn-ghost:hover,
-  :global(html:not(.dark)) .btn-secondary:hover,
-  :global(body:not(.dark)) .btn-ghost:hover,
-  :global(body:not(.dark)) .btn-secondary:hover {
+  :global(html:not(.dark)) .btn-secondary:hover {
     background: #e2edf9;
     color: #0f172a;
     border-color: #bfd5ec;
   }
 
   :global(html:not(.dark)) .stat-card,
-  :global(body:not(.dark)) .stat-card,
   :global(html:not(.dark)) .folder-card,
-  :global(body:not(.dark)) .folder-card,
   :global(html:not(.dark)) .docs-panel,
-  :global(body:not(.dark)) .docs-panel,
-  :global(html:not(.dark)) .modal,
-  :global(body:not(.dark)) .modal {
+  :global(html:not(.dark)) .modal {
     background: #ffffff;
     border-color: #d8e2ef;
   }
 
   :global(html:not(.dark)) .stat-value,
-  :global(body:not(.dark)) .stat-value,
   :global(html:not(.dark)) .folder-name,
-  :global(body:not(.dark)) .folder-name,
   :global(html:not(.dark)) .docs-panel-title,
-  :global(body:not(.dark)) .docs-panel-title,
   :global(html:not(.dark)) .file-name,
-  :global(body:not(.dark)) .file-name,
   :global(html:not(.dark)) .documents-table td,
-  :global(body:not(.dark)) .documents-table td,
   :global(html:not(.dark)) .modal-header h2,
-  :global(body:not(.dark)) .modal-header h2,
   :global(html:not(.dark)) .form-group label,
-  :global(body:not(.dark)) .form-group label,
   :global(html:not(.dark)) .confirmation-content p,
-  :global(body:not(.dark)) .confirmation-content p,
   :global(html:not(.dark)) .share-email,
-  :global(body:not(.dark)) .share-email,
-  :global(html:not(.dark)) .shares-list h3,
-  :global(body:not(.dark)) .shares-list h3 {
+  :global(html:not(.dark)) .shares-list h3 {
     color: #0f172a;
   }
 
   :global(html:not(.dark)) .search-input,
-  :global(body:not(.dark)) .search-input,
   :global(html:not(.dark)) .icon-btn,
-  :global(body:not(.dark)) .icon-btn,
   :global(html:not(.dark)) .folder-action-btn,
-  :global(body:not(.dark)) .folder-action-btn,
   :global(html:not(.dark)) .form-group input,
-  :global(body:not(.dark)) .form-group input,
   :global(html:not(.dark)) .form-group select,
-  :global(body:not(.dark)) .form-group select,
   :global(html:not(.dark)) .share-link-box input,
-  :global(body:not(.dark)) .share-link-box input,
   :global(html:not(.dark)) .copy-btn,
-  :global(body:not(.dark)) .copy-btn,
   :global(html:not(.dark)) .folder-tab,
-  :global(body:not(.dark)) .folder-tab,
   :global(html:not(.dark)) .upload-area,
-  :global(body:not(.dark)) .upload-area,
   :global(html:not(.dark)) .share-item,
-  :global(body:not(.dark)) .share-item,
   :global(html:not(.dark)) .share-form,
-  :global(body:not(.dark)) .share-form,
   :global(html:not(.dark)) .empty-shares,
-  :global(body:not(.dark)) .empty-shares,
-  :global(html:not(.dark)) .chip,
-  :global(body:not(.dark)) .chip {
+  :global(html:not(.dark)) .chip {
     background: #eef5fc;
     border-color: #d8e2ef;
     color: #0f172a;
   }
 
-  :global(html:not(.dark)) .documents-table thead,
-  :global(body:not(.dark)) .documents-table thead {
+  :global(html:not(.dark)) .documents-table thead {
     background: #f3f8ff;
   }
 
   :global(html:not(.dark)) .documents-table tbody tr,
-  :global(body:not(.dark)) .documents-table tbody tr,
   :global(html:not(.dark)) .docs-panel-header,
-  :global(body:not(.dark)) .docs-panel-header,
   :global(html:not(.dark)) .modal-header,
-  :global(body:not(.dark)) .modal-header,
-  :global(html:not(.dark)) .modal-footer,
-  :global(body:not(.dark)) .modal-footer {
+  :global(html:not(.dark)) .modal-footer {
     border-color: #d8e2ef;
   }
 
-  :global(html:not(.dark)) .documents-table tbody tr:hover,
-  :global(body:not(.dark)) .documents-table tbody tr:hover {
+  :global(html:not(.dark)) .documents-table tbody tr:hover {
     background: #f3f8ff;
+  }
+
+  :global(html:not(.dark)) .selected-folder-text {
+    color: #5f7188;
   }
 </style>

@@ -169,6 +169,10 @@ function dispatchAction_(payload) {
     return handleCreateFolder_(payload);
   }
 
+  if (action === 'get_document_folders') {
+    return handleGetDocumentFolders_(payload);
+  }
+
   if (action === 'create_request') {
     return handleCreateRequest_(payload);
   }
@@ -3079,6 +3083,8 @@ var DOCUMENTS_SHEET_ = 'documents';
 var DOCUMENTS_HEADERS_ = ['id', 'user_id', 'name', 'folder', 'category', 'type', 'size', 'url', 'is_link', 'uploaded_date', 'access_level', 'shared_with', 'created_by', 'created_date'];
 var ACT_ATTACHMENTS_SHEET_ = 'act_attachments';
 var ACT_ATTACHMENTS_HEADERS_ = ['id', 'user_id', 'file_type', 'file_size', 'link', 'uploaded_at', 'uploaded_by'];
+var DOCUMENT_FOLDERS_SHEET_ = 'document_folders';
+var DOCUMENT_FOLDERS_HEADERS_ = ['id', 'user_id', 'folder_name', 'path', 'created_date', 'is_default'];
 var DOCUMENT_UPLOADS_FOLDER_ = 'IMS Documents Uploads';
 
 // Add a new attachment to act_attachments with sequential ATT_0001 IDs
@@ -3266,17 +3272,6 @@ function handleUploadDocument_(payload) {
 
     sheet.appendRow(newRow);
 
-    if (isLink) {
-      var attachmentsSheet = getOrCreateSheetWithHeaders_(ACT_ATTACHMENTS_SHEET_, ACT_ATTACHMENTS_HEADERS_);
-      attachmentsSheet.appendRow([
-        docId,
-        userId,
-        url,
-        new Date().toISOString(),
-        userId
-      ]);
-    }
-
     return {
       ok: true,
       document: {
@@ -3441,18 +3436,83 @@ function handleCreateFolder_(payload) {
       return { ok: false, error: 'Missing user_id or folder_name.' };
     }
 
-    // For now, folders are managed in the frontend
-    // This is a placeholder for future backend folder management
+    var sheet = getOrCreateSheetWithHeaders_(DOCUMENT_FOLDERS_SHEET_, DOCUMENT_FOLDERS_HEADERS_);
+    var rows = readSheetObjects_(sheet);
+    var normalizedFolderName = folderName.toLowerCase();
+
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      if (String(row.user_id || '').trim() !== userId) {
+        continue;
+      }
+
+      var existingName = String(row.folder_name || '').trim().toLowerCase();
+      if (existingName === normalizedFolderName) {
+        return { ok: false, error: 'Folder already exists.' };
+      }
+    }
+
+    var folderId = 'fld_' + Date.now();
+    var folderPath = '/' + folderName;
+    var createdDate = new Date().toISOString().split('T')[0];
+
+    sheet.appendRow([
+      folderId,
+      userId,
+      folderName,
+      folderPath,
+      createdDate,
+      'false'
+    ]);
+
     return {
       ok: true,
       folder: {
+        id: folderId,
         name: folderName,
         user_id: userId,
-        path: '/' + folderName,
-        created_date: new Date().toISOString().split('T')[0],
+        path: folderPath,
+        created_date: createdDate,
         is_default: false
       }
     };
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) };
+  }
+}
+
+function handleGetDocumentFolders_(payload) {
+  try {
+    var userId = String(payload.user_id || '').trim();
+    if (!userId) {
+      return { ok: false, error: 'Missing user_id.' };
+    }
+
+    var sheet = getOrCreateSheetWithHeaders_(DOCUMENT_FOLDERS_SHEET_, DOCUMENT_FOLDERS_HEADERS_);
+    var rows = readSheetObjects_(sheet);
+    var folders = [];
+    var seen = {};
+
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      if (String(row.user_id || '').trim() !== userId) {
+        continue;
+      }
+
+      var name = String(row.folder_name || '').trim();
+      if (!name) {
+        continue;
+      }
+
+      var key = name.toLowerCase();
+      if (seen[key]) {
+        continue;
+      }
+      seen[key] = true;
+      folders.push(name);
+    }
+
+    return { ok: true, folders: folders };
   } catch (err) {
     return { ok: false, error: err.message || String(err) };
   }
