@@ -1,5 +1,5 @@
 <script>
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import { Calendar, Clock3, FileText, ShieldCheck } from 'lucide-svelte';
   import { callApiAction, getCurrentUser, subscribeToCurrentUser } from '../lib/auth.js';
   import { subscribeToSync } from '../lib/sync.js';
@@ -28,6 +28,8 @@
   let formError = '';
   let formSuccess = '';
   let isSubmitting = false;
+  let deepLinkRequestId = '';
+  let highlightedRequestId = '';
 
   // Delete confirmation modal state
   let showDeleteModal = false;
@@ -146,12 +148,65 @@
     return callApiAction(action, payload || {});
   }
 
+  function readRequestsDeepLinkIntent() {
+    if (typeof window === 'undefined') {
+      return null;
+    }
+
+    const params = new URLSearchParams(window.location.search || '');
+    const page = String(params.get('page') || '').trim().toLowerCase();
+    if (page !== 'requests') {
+      return null;
+    }
+
+    return {
+      requestId: String(params.get('requestId') || '').trim(),
+    };
+  }
+
+  function clearRequestsDeepLinkQuery() {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const url = new URL(window.location.href);
+    url.searchParams.delete('page');
+    url.searchParams.delete('requestId');
+
+    const nextSearch = url.searchParams.toString();
+    const nextUrl = `${url.pathname}${nextSearch ? `?${nextSearch}` : ''}${url.hash}`;
+    window.history.replaceState({}, '', nextUrl);
+  }
+
+  function highlightRequestCard(requestId) {
+    const targetId = String(requestId || '').trim();
+    if (!targetId || typeof window === 'undefined') {
+      return false;
+    }
+
+    const card = document.getElementById(`request-card-${targetId}`);
+    if (!card) {
+      return false;
+    }
+
+    highlightedRequestId = targetId;
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    window.setTimeout(() => {
+      if (highlightedRequestId === targetId) {
+        highlightedRequestId = '';
+      }
+    }, 4200);
+
+    return true;
+  }
+
   async function loadRequests() {
     if (!currentUser) return;
 
     isLoading = true;
     try {
-      const isSupervisor = String(currentUser?.role || '').trim() === 'Supervisor';
+      const isSupervisor = String(currentUser?.role || '').trim().toLowerCase() === 'supervisor';
       let result;
 
       if (isSupervisor) {
@@ -166,6 +221,11 @@
 
       if (result && result.ok) {
         requests = result.requests || [];
+        if (deepLinkRequestId) {
+          await tick();
+          highlightRequestCard(deepLinkRequestId);
+          deepLinkRequestId = '';
+        }
       }
     } catch (err) {
       console.error('Failed to load requests:', err);
@@ -371,6 +431,7 @@
       const result = await callBackend('update_request_status', {
         request_id: requestId,
         status: nextStatus,
+        supervisor_user_id: String(currentUser?.user_id || '').trim(),
       });
 
       if (result && result.ok) {
@@ -430,12 +491,44 @@
       formError = 'Failed to delete request.';
     } finally {
       isDeleting = false;
+    if (!currentUser?.user_id) {
+      formError = 'No logged-in user found. Please log in again.';
+      formSuccess = '';
+      return;
+    }
+
+    try {
+      const result = await callBackend('delete_request', {
+        request_id: String(requestId || '').trim(),
+        user_id: String(currentUser.user_id || '').trim(),
+      });
+
+      if (result && result.ok) {
+        formError = '';
+        formSuccess = result.message || 'Request deleted successfully.';
+        await loadRequests();
+        setTimeout(() => (formSuccess = ''), 3000);
+      } else {
+        formError = result?.error || 'Failed to delete request.';
+        formSuccess = '';
+      }
+    } catch (err) {
+      console.error('Delete request error:', err);
+      formError = err?.message || 'Failed to delete request.';
+      formSuccess = '';
     }
   }
 
   onMount(() => {
     // Initialize minDate
     minDate = getTodayDate();
+
+    const deepLinkIntent = readRequestsDeepLinkIntent();
+    if (deepLinkIntent) {
+      activeTab = 'my-requests';
+      deepLinkRequestId = deepLinkIntent.requestId;
+      clearRequestsDeepLinkQuery();
+    }
     
     currentUser = getCurrentUser();
     unsubscribeAuth = subscribeToCurrentUser((user) => {
@@ -463,7 +556,7 @@
     }
   });
 
-  $: isSupervisor = String(currentUser?.role || '').trim() === 'Supervisor';
+  $: isSupervisor = String(currentUser?.role || '').trim().toLowerCase() === 'supervisor';
   $: if (isSupervisor && activeTab === 'create-request') {
     activeTab = 'my-requests';
   }
@@ -645,6 +738,9 @@
               {#if Number(form.lunchBreak) > 0}
                 <span class="requests-subtitle text-xs mt-1">(After deducting {Number(form.lunchBreak)} minutes for lunch break)</span>
               {/if}
+            <div class="flex flex-col gap-1.5 lg:col-span-2 rounded-lg bg-blue-50 border border-blue-200 p-3">
+              <span class="requests-label text-sm font-medium">Total Overtime Hours</span>
+              <div class="text-lg font-bold text-blue-900">{overtimeHours} hour{overtimeHours !== 1 ? 's' : ''}</div>
             </div>
           {/if}
         {/if}
@@ -724,7 +820,11 @@
           {#each filteredRequests as request (request.id)}
           {@const statusMeta = STATUS_META[request.status] ?? STATUS_META.Pending}
           {@const statusTone = String(request.status || 'Pending').toLowerCase()}
-          <article class={`requests-panel request-card request-card-${statusTone} rounded-2xl border p-5 shadow-md`}>
+          <article
+            id={`request-card-${request.id}`}
+            class={`requests-panel request-card request-card-${statusTone} rounded-2xl border p-5 shadow-md`}
+            class:request-card-focused={highlightedRequestId === request.id}
+          >
             <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div class="flex items-start gap-3">
                 <div class="inline-flex h-10 w-10 items-center justify-center rounded-lg request-type-icon">
@@ -952,30 +1052,36 @@
   }
 
   .tab-switch {
-    border-color: var(--rq-border);
-    background: #e9f2fc;
-    padding: 0.2rem;
+    border: none;
+    background: transparent;
+    padding: 0;
+    display: flex;
+    gap: 0.75rem;
   }
 
   .tab-button {
-    border: none;
+    border: 1px solid #cbd5e1;
     background: transparent;
-    color: #34506e;
-    padding: 0.55rem 1rem;
-    border-radius: 0.7rem;
+    color: #64748b;
+    padding: 0.55rem 1.2rem;
+    border-radius: 0.6rem;
     transition: all 0.2s ease;
+    font-weight: 500;
+    cursor: pointer;
   }
 
   .tab-button:hover {
-    background: #dbeafe;
-    color: #0f6cbd;
+    border-color: #0066cc;
+    color: #0066cc;
+    background: transparent;
   }
 
   .tab-button-active {
-    background: linear-gradient(90deg, #0f6cbd, #0ea5e9);
+    background: #0066cc;
     color: #ffffff;
-    font-weight: 700;
-    box-shadow: 0 10px 20px -14px rgba(15, 108, 189, 0.9);
+    border-color: #0066cc;
+    font-weight: 600;
+    box-shadow: none;
   }
 
   .request-kpi {
@@ -1038,6 +1144,13 @@
 
   .overtime-hours-display .requests-subtitle {
     color: #2874c7;
+  .overtime-hours-summary {
+    background: #e8f2fd;
+    border-color: #bfdbfe;
+  }
+
+  .overtime-hours-value {
+    color: #1e3a8a;
   }
 
   .requests-input {
@@ -1138,6 +1251,24 @@
   .request-card:hover {
     transform: translateY(-2px);
     box-shadow: 0 18px 36px -26px rgba(15, 23, 42, 0.45);
+  }
+
+  .request-card-focused {
+    border-color: #0f6cbd;
+    box-shadow: 0 0 0 3px rgba(15, 108, 189, 0.2), 0 18px 36px -24px rgba(15, 23, 42, 0.45);
+    animation: request-focus-pulse 1.3s ease 1;
+  }
+
+  @keyframes request-focus-pulse {
+    0% {
+      transform: translateY(-2px);
+    }
+    50% {
+      transform: translateY(-4px);
+    }
+    100% {
+      transform: translateY(0);
+    }
   }
 
   .request-type-icon {
@@ -1321,18 +1452,35 @@
     background: linear-gradient(150deg, rgba(22, 35, 56, 0.96), rgba(19, 30, 49, 0.98));
   }
 
+  :global(.dark) .overtime-hours-summary {
+    background: #1a2c45;
+    border-color: #334b6b;
+  }
+
+  :global(.dark) .overtime-hours-value {
+    color: #dbe7f5;
+  }
+
   :global(.dark) .tab-switch {
-    background: #1a2c46;
-    border-color: #335174;
+    background: transparent;
+    border: none;
   }
 
   :global(.dark) .tab-button {
-    color: #b3c7df;
+    color: #94a3b8;
+    border-color: #475569;
   }
 
   :global(.dark) .tab-button:hover {
-    background: #233652;
-    color: #e2ebf7;
+    border-color: #0066cc;
+    color: #0066cc;
+    background: transparent;
+  }
+
+  :global(.dark) .tab-button-active {
+    background: #0066cc;
+    color: #ffffff;
+    border-color: #0066cc;
   }
 
   :global(.dark) .requests-input,

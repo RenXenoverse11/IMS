@@ -1,6 +1,6 @@
 <script>
   import { onDestroy, onMount } from 'svelte';
-  import { Bell, Check, Moon, RefreshCw, Search, Sun } from 'lucide-svelte';
+  import { Bell, Check, Moon, RefreshCw, Sun } from 'lucide-svelte';
   import {
     subscribeToCurrentUser,
     listNotifications,
@@ -162,11 +162,6 @@
     {/if}
   </div>
 
-  <div class="search-shell">
-    <Search size={14} />
-    <input type="text" placeholder="Search..." />
-  </div>
-
   <div class="header-actions">
     <button class="sync-button" type="button" on:click={handleSyncNow} disabled={syncing} aria-label="Sync latest data">
       <RefreshCw size={14} class={syncing ? 'sync-icon-spin' : ''} />
@@ -243,19 +238,6 @@
           </div>
         </div>
       {/if}
-    </div>
-
-    <div class="menu-shell">
-      <div class="profile-button" aria-label={userName}>
-        <div class="avatar">
-          {#if userPhotoUrl}
-            <img src={userPhotoUrl} alt={`${userName} avatar`} class="avatar-image" />
-          {:else}
-            {userInitials}
-          {/if}
-        </div>
-        <span class="profile-name">{userName}</span>
-      </div>
     </div>
   </div>
 </header>

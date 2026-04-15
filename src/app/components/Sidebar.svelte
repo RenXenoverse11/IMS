@@ -37,7 +37,7 @@
     { path: '/supervisor/time-logs', label: 'Time Logs', icon: Clock },
     { path: '/supervisor/requests', label: 'Requests', icon: FileCheck },
     { path: '/supervisor/activity', label: 'Activity', icon: Activity },
-    { path: '/supervisor/documents', label: 'Documents', icon: FolderOpen },
+    { path: '/documents', label: 'Documents', icon: FolderOpen },
     { path: '/settings', label: 'Settings', icon: Settings },
   ];
 
@@ -75,7 +75,7 @@
   $: userRole = formatRole(currentUser?.role);
   $: userPhotoUrl = String(currentUser?.profile_photo_url || '').trim();
   $: userInitials = buildInitials(userName);
-  $: isSupervisorUser = String(currentUser?.role || '').trim() === 'Supervisor';
+  $: isSupervisorUser = String(currentUser?.role || '').trim().toLowerCase() === 'supervisor';
   $: navItems = isSupervisorUser ? supervisorNavItems : studentNavItems;
   $: logoSrc = $theme === 'dark' ? '/ims-logo-dark.jfif' : '/ims-logo-white.jfif';
 

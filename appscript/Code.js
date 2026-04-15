@@ -411,11 +411,15 @@ function handleRegisterAccount_(payload) {
 
   savePendingRegistration_(pendingRecord);
 
-  MailApp.sendEmail({
-    to: email,
-    subject: 'Verify your Internship Management System account',
-    htmlBody: buildOtpEmailHtml_(fullName, otpCode, OTP_EXPIRY_MINUTES_)
-  });
+  MailApp.sendEmail(
+    email,
+    'Verify your Internship Management System account',
+    '',
+    {
+      htmlBody: buildOtpEmailHtml_(fullName, otpCode, OTP_EXPIRY_MINUTES_),
+      name: 'IMS'
+    }
+  );
 
   return {
     ok: true,
@@ -704,11 +708,15 @@ function handleResendEmailOtp_(payload) {
     pending.otp_last_sent_at = isoNow_();
     savePendingRegistration_(pending);
 
-    MailApp.sendEmail({
-      to: email,
-      subject: 'Your new OTP for Internship Management System',
-      htmlBody: buildOtpEmailHtml_(String(pending.full_name || 'User'), pendingOtpCode, OTP_EXPIRY_MINUTES_)
-    });
+    MailApp.sendEmail(
+      email,
+      'Your new OTP for Internship Management System',
+      '',
+      {
+        htmlBody: buildOtpEmailHtml_(String(pending.full_name || 'User'), pendingOtpCode, OTP_EXPIRY_MINUTES_),
+        name: 'IMS'
+      }
+    );
 
     return {
       ok: true,
@@ -744,11 +752,15 @@ function handleResendEmailOtp_(payload) {
   record.user.otp_last_sent_at = isoNow_();
   updateUserRecord_(record);
 
-  MailApp.sendEmail({
-    to: email,
-    subject: 'Your new OTP for Internship Management System',
-    htmlBody: buildOtpEmailHtml_(String(record.user.full_name || 'User'), otpCode, OTP_EXPIRY_MINUTES_)
-  });
+  MailApp.sendEmail(
+    email,
+    'Your new OTP for Internship Management System',
+    '',
+    {
+      htmlBody: buildOtpEmailHtml_(String(record.user.full_name || 'User'), otpCode, OTP_EXPIRY_MINUTES_),
+      name: 'IMS'
+    }
+  );
 
   return { ok: true, message: 'A new OTP has been sent to your email.', verification_email: email };
 }
@@ -1810,6 +1822,20 @@ function handleCreateRequest_(payload) {
     return { ok: false, error: 'Missing required fields: user_id, request_type, request_date, reason' };
   }
 
+  var requesterRecord = findUserRecordByUserId_(userId);
+  if (!requesterRecord) {
+    return { ok: false, error: 'User not found.' };
+  }
+
+  var requesterRole = String(requesterRecord.user.role || '').trim().toLowerCase();
+  if (requesterRole === 'supervisor') {
+    return { ok: false, error: 'Supervisor accounts cannot create requests.' };
+  }
+
+  if (!requesterName) {
+    requesterName = String(requesterRecord.user.full_name || '').trim() || 'Student';
+  }
+
   // Overtime-specific validation
   if (requestType === 'Overtime') {
     if (!startTime || !endTime) {
@@ -1881,6 +1907,21 @@ function handleCreateRequest_(payload) {
       'request',
       requestId
     );
+
+    try {
+      sendSupervisorRequestEmail_(supervisorUserId, {
+        requestId: requestId,
+        requesterName: requesterName,
+        requestType: requestType,
+        requestDate: requestDate,
+        reason: reason,
+        startTime: startTime,
+        endTime: endTime,
+        totalHours: totalHours,
+      });
+    } catch (mailErr) {
+      Logger.log('Unable to send supervisor request email: ' + (mailErr && mailErr.message ? mailErr.message : String(mailErr)));
+    }
   }
 
   return {
@@ -1940,6 +1981,15 @@ function handleListAssignedStudentRequests_(payload) {
     return { ok: false, error: 'supervisor_user_id is required.' };
   }
 
+  var supervisorRecord = findUserRecordByUserId_(supervisorUserId);
+  if (!supervisorRecord) {
+    return { ok: false, error: 'Supervisor not found.' };
+  }
+
+  if (String(supervisorRecord.user.role || '').trim().toLowerCase() !== 'supervisor') {
+    return { ok: false, error: 'Only supervisors can view assigned student requests.' };
+  }
+
   var assignmentSheet = getSupervisorAssignmentsSheet_();
   var assignments = readSheetObjects_(assignmentSheet);
   
@@ -1981,9 +2031,19 @@ function handleListAssignedStudentRequests_(payload) {
 function handleUpdateRequestStatus_(payload) {
   var requestId = String(payload.request_id || '').trim();
   var newStatus = String(payload.status || '').trim();
+  var supervisorUserId = String(payload.supervisor_user_id || '').trim();
 
-  if (!requestId || !newStatus) {
-    return { ok: false, error: 'request_id and status are required.' };
+  if (!requestId || !newStatus || !supervisorUserId) {
+    return { ok: false, error: 'request_id, status, and supervisor_user_id are required.' };
+  }
+
+  var supervisorRecord = findUserRecordByUserId_(supervisorUserId);
+  if (!supervisorRecord) {
+    return { ok: false, error: 'Supervisor not found.' };
+  }
+
+  if (String(supervisorRecord.user.role || '').trim().toLowerCase() !== 'supervisor') {
+    return { ok: false, error: 'Only supervisors can update request status.' };
   }
 
   var sheet = getRequestsSheet_();
@@ -1997,10 +2057,14 @@ function handleUpdateRequestStatus_(payload) {
 
   for (var i = 1; i < rows.length; i++) {
     if (String(rows[i][requestIdColIndex - 1] || '').trim() === requestId) {
+      var studentUserId = String(rows[i][userIdColIndex - 1] || '').trim();
+      if (!isStudentAssignedToSupervisor_(supervisorUserId, studentUserId)) {
+        return { ok: false, error: 'You are not assigned to this student request.' };
+      }
+
       sheet.getRange(i + 1, updateColIndex, 1, 1).setValue(newStatus);
 
       // Notify the student who created the request
-      var studentUserId = String(rows[i][userIdColIndex - 1] || '').trim();
       var requestType = String(rows[i][requestTypeColIndex - 1] || '').trim();
       if (studentUserId) {
         var notifType = newStatus.toLowerCase() === 'approved' ? 'approval' : 'rejection';
@@ -2047,6 +2111,56 @@ function handleDeleteRequest_(payload) {
     Logger.log('ERROR in handleDeleteRequest_: ' + e.toString());
     return { ok: false, error: 'Error deleting request: ' + e.toString() };
   }
+  var userId = String(payload.user_id || '').trim();
+
+  if (!requestId || !userId) {
+    return { ok: false, error: 'request_id and user_id are required.' };
+  }
+
+  var requesterRecord = findUserRecordByUserId_(userId);
+  if (!requesterRecord) {
+    return { ok: false, error: 'User not found.' };
+  }
+
+  if (String(requesterRecord.user.role || '').trim().toLowerCase() === 'supervisor') {
+    return { ok: false, error: 'Supervisor accounts cannot delete requests.' };
+  }
+
+  var sheet = getRequestsSheet_();
+  var headers = getHeaders_(sheet);
+  var values = getSheetValues_(sheet);
+  var requestIdColIndex = findColumnIndex_(headers, 'request_id');
+  var userIdColIndex = findColumnIndex_(headers, 'user_id');
+  var statusColIndex = findColumnIndex_(headers, 'status');
+
+  if (requestIdColIndex === 0 || userIdColIndex === 0 || statusColIndex === 0) {
+    throw new Error('requests sheet must include request_id, user_id, and status columns.');
+  }
+
+  var rowIndex = -1;
+  var requestStatus = '';
+
+  for (var i = 1; i < values.length; i++) {
+    var rowRequestId = String(values[i][requestIdColIndex - 1] || '').trim();
+    var rowUserId = String(values[i][userIdColIndex - 1] || '').trim();
+
+    if (rowRequestId === requestId && rowUserId === userId) {
+      rowIndex = i + 1;
+      requestStatus = String(values[i][statusColIndex - 1] || '').trim();
+      break;
+    }
+  }
+
+  if (rowIndex <= 0) {
+    return { ok: false, error: 'Request not found.' };
+  }
+
+  if (requestStatus.toLowerCase() !== 'pending') {
+    return { ok: false, error: 'Only pending requests can be deleted.' };
+  }
+
+  sheet.deleteRow(rowIndex);
+  return { ok: true, message: 'Request deleted successfully.' };
 }
 
 // --- Notification handlers ---
@@ -2156,6 +2270,124 @@ function createNotification_(userId, title, description, type, relatedId) {
     is_read: 'false',
     created_at: isoNow_()
   });
+}
+
+function getAppBaseUrl_() {
+  var configured = String(PropertiesService.getScriptProperties().getProperty('APP_BASE_URL') || '').trim();
+  if (configured) {
+    return configured;
+  }
+
+  try {
+    var serviceUrl = String(ScriptApp.getService().getUrl() || '').trim();
+    if (serviceUrl) {
+      return serviceUrl;
+    }
+  } catch (err) {
+    // Ignore and use empty fallback.
+  }
+
+  return '';
+}
+
+function buildRequestDeepLinkUrl_(requestId) {
+  var baseUrl = getAppBaseUrl_();
+  if (!baseUrl) {
+    return '';
+  }
+
+  var params = ['page=requests'];
+  var cleanRequestId = String(requestId || '').trim();
+  if (cleanRequestId) {
+    params.push('requestId=' + encodeURIComponent(cleanRequestId));
+  }
+
+  var separator = baseUrl.indexOf('?') === -1 ? '?' : '&';
+  return baseUrl + separator + params.join('&');
+}
+
+function buildRequestEmailText_(requestDetails, deepLinkUrl) {
+  var lines = [
+    'A new request has been submitted.',
+    '',
+    'Student: ' + String(requestDetails.requesterName || 'Student'),
+    'Request Type: ' + String(requestDetails.requestType || ''),
+    'Date: ' + String(requestDetails.requestDate || ''),
+    'Reason/Notes: ' + String(requestDetails.reason || ''),
+  ];
+
+  var requestType = String(requestDetails.requestType || '').trim().toLowerCase();
+  if (requestType === 'overtime') {
+    lines.push('Start Time: ' + String(requestDetails.startTime || '-'));
+    lines.push('End Time: ' + String(requestDetails.endTime || '-'));
+    lines.push('Total Hours: ' + String(requestDetails.totalHours || 0));
+  }
+
+  if (deepLinkUrl) {
+    lines.push('');
+    lines.push('View Request: ' + deepLinkUrl);
+  }
+
+  return lines.join('\n');
+}
+
+function buildRequestEmailHtml_(requestDetails, deepLinkUrl) {
+  var requestType = String(requestDetails.requestType || '').trim();
+  var reasonHtml = escapeHtml_(String(requestDetails.reason || '')).replace(/\n/g, '<br>');
+  var overtimeRows = '';
+
+  if (requestType.toLowerCase() === 'overtime') {
+    overtimeRows = [
+      '<tr><td style="padding:6px 0;color:#475569;font-weight:600;">Start Time</td><td style="padding:6px 0;color:#0f172a;">' + escapeHtml_(requestDetails.startTime || '-') + '</td></tr>',
+      '<tr><td style="padding:6px 0;color:#475569;font-weight:600;">End Time</td><td style="padding:6px 0;color:#0f172a;">' + escapeHtml_(requestDetails.endTime || '-') + '</td></tr>',
+      '<tr><td style="padding:6px 0;color:#475569;font-weight:600;">Total Hours</td><td style="padding:6px 0;color:#0f172a;">' + escapeHtml_(String(requestDetails.totalHours || 0)) + '</td></tr>',
+    ].join('');
+  }
+
+  var actionBlock = deepLinkUrl
+    ? '<a href="' + deepLinkUrl + '" style="display:inline-block;margin-top:14px;padding:10px 16px;background:#0f6cbd;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:700;">View Request</a>'
+    : '<p style="margin:14px 0 0;color:#64748b;font-size:13px;">Request link unavailable. Open the IMS app and go to Requests.</p>';
+
+  return [
+    '<div style="font-family:Arial,sans-serif;color:#0f172a;line-height:1.45">',
+    '<h2 style="margin:0 0 12px;color:#1d4ed8;">Internship Management System</h2>',
+    '<p style="margin:0 0 12px;">A new request has been submitted and is waiting for your review.</p>',
+    '<table style="border-collapse:collapse;min-width:320px;">',
+    '<tr><td style="padding:6px 0;color:#475569;font-weight:600;">Student</td><td style="padding:6px 0;color:#0f172a;">' + escapeHtml_(requestDetails.requesterName || 'Student') + '</td></tr>',
+    '<tr><td style="padding:6px 0;color:#475569;font-weight:600;">Request Type</td><td style="padding:6px 0;color:#0f172a;">' + escapeHtml_(requestType) + '</td></tr>',
+    '<tr><td style="padding:6px 0;color:#475569;font-weight:600;">Date</td><td style="padding:6px 0;color:#0f172a;">' + escapeHtml_(requestDetails.requestDate || '') + '</td></tr>',
+    '<tr><td style="padding:6px 0;color:#475569;font-weight:600;vertical-align:top;">Reason/Notes</td><td style="padding:6px 0;color:#0f172a;">' + reasonHtml + '</td></tr>',
+    overtimeRows,
+    '</table>',
+    actionBlock,
+    '<p style="margin:14px 0 0;color:#64748b;font-size:12px;">If you are not logged in, you will be redirected to login first, then back to Requests.</p>',
+    '</div>',
+  ].join('');
+}
+
+function sendSupervisorRequestEmail_(supervisorUserId, requestDetails) {
+  var supervisorRecord = findUserRecordByUserId_(supervisorUserId);
+  if (!supervisorRecord) {
+    return;
+  }
+
+  var supervisorEmail = normalizeEmail_(supervisorRecord.user.email);
+  if (!supervisorEmail) {
+    return;
+  }
+
+  var deepLinkUrl = buildRequestDeepLinkUrl_(requestDetails.requestId);
+  var subject = 'New ' + String(requestDetails.requestType || 'Request') + ' Request - ' + String(requestDetails.requesterName || 'Student');
+
+  MailApp.sendEmail(
+    supervisorEmail,
+    subject,
+    buildRequestEmailText_(requestDetails, deepLinkUrl),
+    {
+      htmlBody: buildRequestEmailHtml_(requestDetails, deepLinkUrl),
+      name: 'IMS'
+    }
+  );
 }
 
 // Validates that overtime doesn't overlap with default work schedule (Mon-Fri, 9am-5pm)
@@ -2975,8 +3207,63 @@ function jsonResponse_(obj) {
 var DOCUMENTS_SHEET_ = 'documents';
 var DOCUMENTS_HEADERS_ = ['id', 'user_id', 'name', 'folder', 'category', 'type', 'size', 'url', 'is_link', 'uploaded_date', 'access_level', 'shared_with', 'created_by', 'created_date'];
 var ACT_ATTACHMENTS_SHEET_ = 'act_attachments';
-var ACT_ATTACHMENTS_HEADERS_ = ['id', 'user_id', 'link', 'uploaded_at', 'uploaded_by'];
+var ACT_ATTACHMENTS_HEADERS_ = ['id', 'user_id', 'file_type', 'file_size', 'link', 'uploaded_at', 'uploaded_by'];
 var DOCUMENT_UPLOADS_FOLDER_ = 'IMS Documents Uploads';
+
+// Add a new attachment to act_attachments with sequential ATT_0001 IDs
+function addActivityTaskAttachment(payload) {
+  try {
+    var taskId = String(payload.task_id || '').trim();
+    var userId = String(payload.user_id || '').trim();
+    var fileType = String(payload.file_type || '').trim();
+    var fileSize = String(payload.file_size || '').trim();
+    var link = String(payload.link || '').trim();
+    var uploadedAt = String(payload.uploaded_at || new Date().toISOString()).trim();
+    var uploadedBy = String(payload.uploaded_by || '').trim();
+
+    if (!userId) {
+      return { ok: false, error: 'user_id is required.' };
+    }
+
+    var sheet = getOrCreateSheetWithHeaders_(ACT_ATTACHMENTS_SHEET_, ACT_ATTACHMENTS_HEADERS_);
+    // Generate sequential ATT_0001 ID
+    var lastId = 0;
+    var data = sheet.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      var val = String(data[i][0] || '');
+      if (/^ATT_\d+$/.test(val)) {
+        var num = parseInt(val.replace('ATT_', ''), 10);
+        if (!isNaN(num) && num > lastId) lastId = num;
+      }
+    }
+    var attId = 'ATT_' + String(lastId + 1).padStart(4, '0');
+
+    sheet.appendRow([
+      attId,
+      userId,
+      fileType,
+      fileSize,
+      link,
+      uploadedAt,
+      uploadedBy,
+    ]);
+
+    return {
+      ok: true,
+      attachment: {
+        id: attId,
+        user_id: userId,
+        file_type: fileType,
+        file_size: fileSize,
+        link: link,
+        uploaded_at: uploadedAt,
+        uploaded_by: uploadedBy
+      }
+    };
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) };
+  }
+}
 
 function getOrCreateDocumentUploadsFolder_() {
   var folders = DriveApp.getFoldersByName(DOCUMENT_UPLOADS_FOLDER_);
@@ -3311,5 +3598,6 @@ function authorizeImsScopes_() {
 function authorizeImsScopes() {
   return authorizeImsScopes_()
 }
+
 
 
