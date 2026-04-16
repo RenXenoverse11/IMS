@@ -552,17 +552,21 @@
     return '';
   }
 
-  function openDocument(doc) {
+  function openDocument(doc, event) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    
     const targetUrl = resolveDocumentUrl_(doc);
     if (!targetUrl) {
       showActionMessage_('This document has no preview link yet.', 'error');
       return;
     }
 
-    const openedWindow = window.open(targetUrl, '_blank', 'noopener,noreferrer');
+    const openedWindow = window.open(targetUrl, '_blank');
     if (!openedWindow) {
-      showActionMessage_('Popup blocked. Opening document in this tab...', 'success');
-      window.location.href = targetUrl;
+      showActionMessage_('Popup blocked. Please allow popups for this site.', 'error');
     }
   }
 
@@ -840,7 +844,7 @@
                                 <FileText size={16} />
                               {/if}
                             </div>
-                            <button class="file-name-btn" title="Open document" on:click={() => openDocument(doc)}>
+                            <button type="button" class="file-name-btn" title="Open document" on:click={(e) => openDocument(doc, e)}>
                               <span class="file-name">{doc.name}</span>
                             </button>
                           </div>
@@ -862,9 +866,10 @@
                         <td class="col-actions">
                           <div class="action-buttons">
                             <button
+                              type="button"
                               class="icon-btn"
                               title="View/Download"
-                              on:click={() => openDocument(doc)}
+                              on:click={(e) => openDocument(doc, e)}
                             >
                               {#if doc.isLink}
                                 <Eye size={14} />
