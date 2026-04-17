@@ -1,5 +1,5 @@
-<script>
-  import { onMount } from 'svelte';
+﻿<script>
+  import { onMount, onDestroy } from 'svelte';
   import {
     AlertCircle,
     Calendar,
@@ -269,7 +269,7 @@
     }
 
     try {
-      console.log('🔵 Starting session:', {
+      console.log('Ã°Å¸â€Âµ Starting session:', {
         user_id: user.user_id,
         log_date: date,
         time_in: timeIn,
@@ -282,21 +282,21 @@
         time_in: timeIn,
       });
 
-      console.log('🔵 Response from start_session:', response);
+      console.log('Ã°Å¸â€Âµ Response from start_session:', response);
       
       if (response && response.ok === true) {
-        console.log('✅ Session started successfully');
+        console.log('Ã¢Å“â€¦ Session started successfully');
         isLoggedIn = true; // Enable logout button
         logSyncError = '';
       } else {
-        console.log('❌ Session failed:', response);
+        console.log('Ã¢ÂÅ’ Session failed:', response);
         logSyncError = response?.error || 'Failed to start session';
         isLoggedIn = false;
       }
       
       isLoggingIn = false;
     } catch (err) {
-      console.error('❌ Login error:', err);
+      console.error('Ã¢ÂÅ’ Login error:', err);
       logSyncError = err?.message || 'Unable to process login.';
       isLoggedIn = false;
       isLoggingIn = false;
@@ -327,7 +327,7 @@
     const hours = calculateHours(timeIn, timeOut, includeLunch);
 
     try {
-      console.log('🔴 Ending session:', {
+      console.log('Ã°Å¸â€Â´ Ending session:', {
         user_id: user.user_id,
         log_date: date,
         time_in: timeIn,
@@ -343,10 +343,10 @@
         hours_rendered: hours,
       });
 
-      console.log('🔴 Response from end_session:', response);
+      console.log('Ã°Å¸â€Â´ Response from end_session:', response);
 
       if (response && response.ok === true) {
-        console.log('✅ Session ended successfully');
+        console.log('Ã¢Å“â€¦ Session ended successfully');
         logSyncError = '';
         
         // Clear session state
@@ -359,12 +359,12 @@
         await loadEntriesFromApi();
       } else {
         logSyncError = response?.error || 'Unable to complete session.';
-        console.log('❌ Logout failed:', response);
+        console.log('Ã¢ÂÅ’ Logout failed:', response);
       }
 
       isLoggingOut = false;
     } catch (err) {
-      console.error('❌ Logout error:', err);
+      console.error('Ã¢ÂÅ’ Logout error:', err);
       logSyncError = err?.message || 'Unable to log out right now.';
       isLoggingOut = false;
       return;
@@ -415,7 +415,7 @@
     }
 
     try {
-      console.log('🔍 Checking for active session for user:', user.user_id);
+      console.log('Ã°Å¸â€Â Checking for active session for user:', user.user_id);
       
       // Call backend to check if user has active session for today
       const response = await authApi.callApiAction('get_active_session', {
@@ -423,19 +423,19 @@
         log_date: date,
       });
 
-      console.log('🔍 Active session check response:', response);
+      console.log('Ã°Å¸â€Â Active session check response:', response);
       
       if (response && response.ok === true && response.session) {
-        console.log('✅ Found active session! Restoring state...');
+        console.log('Ã¢Å“â€¦ Found active session! Restoring state...');
         // Restore login time from active session
         timeIn = response.session.time_in || timeIn;
         isLoggedIn = true;
       } else {
-        console.log('ℹ️ No active session found for today');
+        console.log('Ã¢â€žÂ¹Ã¯Â¸Â No active session found for today');
         isLoggedIn = false;
       }
     } catch (err) {
-      console.error('❌ Error checking active session:', err);
+      console.error('Ã¢ÂÅ’ Error checking active session:', err);
       isLoggedIn = false;
     }
   }
@@ -443,17 +443,17 @@
   async function showDebugInfo() {
     try {
       const response = await authApi.callApiAction('debug_sessions_sheet', {});
-      console.log('🔧 DEBUG_SESSIONS_SHEET Response:', response);
+      console.log('Ã°Å¸â€Â§ DEBUG_SESSIONS_SHEET Response:', response);
       
       if (response && response.ok === true) {
-        console.log('✅ Active Sessions:', JSON.stringify(response.active_sessions, null, 2));
-        console.log('✅ Time Logs:', JSON.stringify(response.time_logs, null, 2));
+        console.log('Ã¢Å“â€¦ Active Sessions:', JSON.stringify(response.active_sessions, null, 2));
+        console.log('Ã¢Å“â€¦ Time Logs:', JSON.stringify(response.time_logs, null, 2));
         alert('Check browser console (Cmd+Option+I) for detailed debug information!');
       } else {
         alert('Debug Error: ' + (response?.error || 'Unknown error'));
       }
     } catch (err) {
-      console.error('❌ Debug error:', err);
+      console.error('Ã¢ÂÅ’ Debug error:', err);
       alert('Error: ' + err.message);
     }
   }
@@ -530,1229 +530,1032 @@
       tone: 'forecast',
     },
   ];
+
+  // ---- Weekly Chart (Chart.js via CDN) ----
+  let _chartJsPromise = null;
+  function _loadChartJs() {
+    if (_chartJsPromise) return _chartJsPromise;
+    _chartJsPromise = new Promise((resolve, reject) => {
+      if (typeof window !== 'undefined' && window.Chart) { resolve(window.Chart); return; }
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js';
+      s.onload = () => resolve(window.Chart);
+      s.onerror = reject;
+      document.head.appendChild(s);
+    });
+    return _chartJsPromise;
+  }
+
+  let tlChart = null;
+
+  function getTlColors() {
+    const isDark = document.documentElement.classList.contains('dark') || document.body.classList.contains('dark');
+    return {
+      accent:        isDark ? '#3b82f6' : '#2563eb',
+      accent2:       isDark ? '#60a5fa' : '#3b82f6',
+      green:         isDark ? '#22c55e' : '#16a34a',
+      grid:          isDark ? 'rgba(255,255,255,0.06)' : '#e2e8f0',
+      text2:         isDark ? '#94a3b8' : '#64748b',
+      surface2:      isDark ? '#1e2736' : '#f8fafc',
+      tooltipBg:     isDark ? '#1e2736' : '#ffffff',
+      tooltipBorder: isDark ? 'rgba(59,130,246,0.4)' : '#e2e8f0',
+      text:          isDark ? '#f1f5f9' : '#0f172a',
+    };
+  }
+
+  function buildWeeklyData() {
+    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const totals = [0, 0, 0, 0, 0, 0, 0];
+    const now = new Date();
+    const dow = now.getDay();
+    const diffToMon = dow === 0 ? -6 : 1 - dow;
+    const monday = new Date(now);
+    monday.setDate(now.getDate() + diffToMon);
+    monday.setHours(0, 0, 0, 0);
+    for (const entry of completedEntries) {
+      const d = new Date(entry.date + 'T00:00:00');
+      const idx = Math.round((d - monday) / 86400000);
+      if (idx >= 0 && idx < 7) totals[idx] = (totals[idx] || 0) + (Number(entry.hours) || 0);
+    }
+    return { days, totals };
+  }
+
+  async function initTlChart() {
+    if (typeof window === 'undefined') return;
+    const canvas = document.getElementById('tlWeekChart');
+    if (!canvas) return;
+    const Chart = await _loadChartJs();
+    const ctx = canvas.getContext('2d');
+    const c = getTlColors();
+    const { days, totals } = buildWeeklyData();
+    if (tlChart) { tlChart.destroy(); tlChart = null; }
+    const gradient = ctx.createLinearGradient(0, 0, 0, 160);
+    gradient.addColorStop(0, c.accent + '30');
+    gradient.addColorStop(1, c.accent + '00');
+    const maxVal = Math.max(...totals);
+    tlChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: days,
+        datasets: [
+          {
+            data: totals,
+            borderColor: c.accent,
+            backgroundColor: gradient,
+            fill: true,
+            tension: 0.4,
+            pointRadius: totals.map((v) => v === maxVal && v > 0 ? 5 : 3),
+            pointBackgroundColor: totals.map((v) => v === maxVal && v > 0 ? c.accent : c.accent2),
+            pointBorderColor: c.surface2,
+            pointBorderWidth: 2,
+            borderWidth: 2.5,
+            segment: {
+              borderDash: (seg) => seg.p1DataIndex >= 5 ? [4, 4] : undefined,
+              borderColor: (seg) => seg.p1DataIndex >= 5 ? c.accent + '80' : c.accent,
+            },
+          },
+          {
+            data: [8, 8, 8, 8, 8, 8, 8],
+            borderColor: c.green + '60',
+            borderDash: [4, 4],
+            borderWidth: 1.5,
+            pointRadius: 0,
+            fill: false,
+            tension: 0,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            filter: (item) => item.datasetIndex === 0,
+            backgroundColor: c.tooltipBg,
+            borderColor: c.tooltipBorder,
+            borderWidth: 1,
+            padding: 10,
+            titleColor: c.text2,
+            bodyColor: c.text,
+            bodyFont: { family: 'DM Mono', size: 13, weight: '600' },
+            titleFont: { family: 'DM Sans', size: 11 },
+            callbacks: {
+              title: (items) => items[0].label,
+              label: (item) => `  ${item.raw}h logged`,
+            },
+          },
+        },
+        scales: {
+          x: {
+            grid: { color: c.grid },
+            ticks: { color: c.text2, font: { family: 'DM Sans', size: 11 } },
+            border: { color: 'transparent' },
+          },
+          y: {
+            min: 0, max: 12,
+            grid: { color: c.grid },
+            ticks: { color: c.text2, font: { family: 'DM Mono', size: 10 }, stepSize: 4, callback: (v) => v + 'h' },
+            border: { color: 'transparent' },
+          },
+        },
+      },
+    });
+  }
+
+  let _themeObserver = null;
+
+  // Augment the existing onMount to also init the chart
+  onMount(() => {
+    // chart init (deferred so DOM is ready)
+    setTimeout(initTlChart, 50);
+    _themeObserver = new MutationObserver(() => initTlChart());
+    _themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    _themeObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+  });
+
+  onDestroy(() => {
+    if (_themeObserver) _themeObserver.disconnect();
+    if (tlChart) { tlChart.destroy(); tlChart = null; }
+  });
+
+  // Rebuild chart when entries change
+  $: if (typeof window !== 'undefined' && completedEntries) {
+    initTlChart();
+  }
 </script>
 
-<section class="timelog-shell flex flex-col gap-6">
-  <div class="grid grid-cols-1 gap-4 md:grid-cols-2 2xl:grid-cols-4">
+<svelte:head>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+</svelte:head>
+
+<section class="tl-page">
+
+  <!-- Page Heading -->
+  <div class="tl-heading">
+    <h1>Time Log</h1>
+    <p>Track and manage your daily work hours.</p>
+  </div>
+
+  <!-- Error banner -->
+  {#if logSyncError}
+    <div class="tl-error-banner">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      {logSyncError}
+    </div>
+  {/if}
+
+  <!-- Stat Cards -->
+  <div class="tl-stat-grid">
     {#each statCards as card (card.label)}
-      <article class={`stat-card stat-${card.tone} rounded-2xl border p-5 shadow-md`}>
-        <div class={`stat-icon stat-icon-${card.tone} mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl`}>
-          <svelte:component this={card.icon} size={18} />
+      <div class="tl-stat-card tl-stat-{card.tone}">
+        <div class="tl-stat-icon">
+          <svelte:component this={card.icon} size={17} strokeWidth={2.2} />
         </div>
-        <p class="theme-heading text-3xl font-bold tracking-tight">{card.value}</p>
-        <p class="theme-text mt-2 text-sm font-medium">{card.label}</p>
-        <p class={`mt-1 text-xs ${card.tone === 'success' ? 'stat-sub-emphasis' : 'theme-muted'}`}>{card.sub}</p>
-      </article>
+        <div class="tl-stat-body">
+          <div class="tl-stat-label">{card.label}</div>
+          <div class="tl-stat-value">{card.value}</div>
+          <div class="tl-stat-sub">{card.sub}</div>
+        </div>
+      </div>
     {/each}
   </div>
 
-  {#if logSyncError}
-    <p class="rounded-xl border border-red-300 bg-red-100 px-4 py-3 text-sm font-medium text-red-700 dark:border-red-500/40 dark:bg-red-500/15 dark:text-red-300">
-      {logSyncError}
-    </p>
-  {/if}
-
-  <section class="theme-panel progress-panel rounded-2xl border p-6 shadow-md">
-    <div class="mb-4 flex items-start justify-between gap-4">
+  <!-- Progress Section -->
+  <div class="tl-progress-section">
+    <div class="tl-progress-header">
       <div>
-        <h3 class="theme-heading text-base font-semibold">Hours Progress</h3>
-        <p class="theme-text mt-1 text-sm">{completedHours} of {requiredHours} required hours completed</p>
-        <p class="mt-1 text-xs font-medium progress-helper">All logged entries are counted immediately toward your OJT hours.</p>
+        <div class="tl-progress-title">Hours Progress</div>
+        <div class="tl-progress-meta">{completedHours} of {requiredHours} required hours completed</div>
+        <div class="tl-progress-detail">All logged entries are counted immediately toward your OJT hours.</div>
       </div>
-      <span class="progress-percent-chip rounded-full px-3 py-1 text-lg font-extrabold">{progressPercent}%</span>
+      <span class="tl-progress-badge">{progressPercent}%</span>
     </div>
-
-    <div class="theme-soft progress-track h-4 w-full overflow-hidden rounded-full">
-      <div
-        class="progress-fill h-full rounded-full transition-all duration-700"
-        style={`width: ${progressPercent}%`}
-      ></div>
+    <div class="tl-progress-track">
+      <div class="tl-progress-fill" style="width: {Math.max(progressPercent, 0.5)}%"></div>
     </div>
-
-    <div class="theme-muted mt-3 flex items-center justify-between text-xs">
+    <div class="tl-progress-labels">
       <span>0h</span>
-      <span class="progress-remaining font-semibold">{remainingHours}h remaining</span>
+      <span class="tl-progress-remaining">{remainingHours}h remaining</span>
       <span>{requiredHours}h</span>
     </div>
-  </section>
-
-  <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
-    <!-- Panel 1: Time In -->
-    <section class="theme-panel entry-panel rounded-xl border p-6 shadow-md">
-      <h3 class="theme-heading text-base font-semibold">Time In</h3>
-
-      <div class="mt-5 flex flex-col gap-4">
-        <label class="flex flex-col gap-1.5">
-          <span class="theme-text text-sm font-medium">Date</span>
-          <input
-            bind:value={date}
-            type="date"
-            class="theme-input entry-input w-full rounded-xl border px-4 py-3 outline-none transition"
-          />
-        </label>
-
-        <label class="flex flex-col gap-1.5">
-          <span class="theme-text text-sm font-medium">Login Time *</span>
-          <input
-            bind:value={timeIn}
-            type="time"
-            class="theme-input entry-input w-full rounded-xl border px-4 py-3 outline-none transition"
-          />
-        </label>
-
-          <button
-          class="timelog-submit-btn w-full inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3.5 text-sm font-semibold transition"
-          type="button"
-          on:click={handleLogin}
-          disabled={!canLogin || isLoggingIn}
-          title={isLoggedIn ? 'Already logged in for today' : !canLogin ? 'Enter date and login time' : 'Submit login time'}
-        >
-          {#if isLoggingIn}
-            <span class="spinning-icon"><Loader2 size={15} /></span>
-            <span>Logging In...</span>
-          {:else}
-            <Clock size={15} />
-            <span>Log In</span>
-          {/if}
-        </button>
-
-        {#if isLoggedIn}
-          <div class="status-chip status-active rounded-xl border px-4 py-2 text-sm">
-            <p class="theme-heading font-semibold">✓ Logged In</p>
-            <p class="theme-muted text-xs">Proceed to Time Out</p>
-          </div>
-        {:else if date && !timeIn}
-          <div class="status-chip status-inactive rounded-xl border px-4 py-2 text-sm">
-            <p class="theme-text font-semibold">→ Ready</p>
-            <p class="theme-muted text-xs">Enter login time</p>
-          </div>
-        {/if}
-      </div>
-    </section>
-
-    <!-- Panel 2: Time Out -->
-    <section class="theme-panel entry-panel rounded-xl border p-6 shadow-md">
-      <h3 class="theme-heading text-base font-semibold">Time Out</h3>
-
-      <div class="mt-5 flex flex-col gap-4">
-        <label class="flex flex-col gap-1.5">
-          <span class="theme-text text-sm font-medium">Logout Time *</span>
-          <input
-            bind:value={timeOut}
-            type="time"
-            class="theme-input entry-input w-full rounded-xl border px-4 py-3 outline-none transition"
-          />
-        </label>
-
-        {#if timeIn && timeOut && formHours > 0}
-          <div class="lunch-toggle-row flex items-center justify-between rounded-xl border px-4 py-3">
-            <div class="flex items-center gap-2.5">
-              <div class="lunch-toggle-icon inline-flex h-8 w-8 items-center justify-center rounded-lg">
-                <Coffee size={15} />
-              </div>
-              <div>
-                <p class="theme-heading text-sm font-medium">Include Lunch</p>
-                <p class="theme-muted text-xs">{includeLunch ? 'Counted' : 'Not counted'}</p>
-              </div>
-            </div>
-            <button
-              type="button"
-              class="lunch-toggle-switch relative h-6 w-11 shrink-0 rounded-full transition-colors duration-200"
-              style={`background-color: ${includeLunch ? '#0f766e' : '#cbd5e1'};`}
-              on:click={handleLunchToggle}
-              aria-label="Toggle include lunch"
-            >
-              <span class={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200 ${includeLunch ? 'translate-x-5' : 'translate-x-0'}`}></span>
-            </button>
-          </div>
-
-          <div class="duration-chip rounded-xl border px-4 py-3 text-sm shadow-sm">
-            <strong class="font-semibold">{formHours}h</strong>
-            {#if !includeLunch && formHours > 0}
-              <span class="theme-muted text-xs ml-1">(1h lunch deducted)</span>
-            {/if}
-          </div>
-        {/if}
-
-        <button
-          class="timelog-logout-btn w-full inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3.5 text-sm font-semibold transition"
-          type="button"
-          on:click={handleLogout}
-          disabled={!canLogout || isLoggingOut}
-          title={!canLogout ? 'Complete all fields' : 'Submit logout time'}
-        >
-          {#if isLoggingOut}
-            <span class="spinning-icon"><Loader2 size={15} /></span>
-            <span>Logging Out...</span>
-          {:else}
-            <Clock size={15} />
-            <span>Log Out</span>
-          {/if}
-        </button>
-
-        {#if !isLoggedIn}
-          <div class="status-chip status-inactive rounded-xl border px-4 py-2 text-sm">
-            <p class="theme-text font-semibold">→ Not logged in</p>
-            <p class="theme-muted text-xs">Use Time In first</p>
-          </div>
-        {/if}
-      </div>
-    </section>
   </div>
-  <section class="theme-panel history-panel overflow-hidden rounded-2xl border shadow-md">
-    <div class="theme-divider flex items-center justify-between border-b px-6 py-4">
-      <h3 class="theme-heading text-base font-semibold">Time Log History</h3>
-      <span class="theme-muted text-sm">{completedEntries.length} completed entries</span>
+
+  <!-- Three-column Card Row -->
+  <div class="tl-three-col">
+
+    <!-- Time In Card -->
+    <div class="tl-card">
+      <div class="tl-card-title">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        Time In
+      </div>
+      <div class="tl-field">
+        <label>Date</label>
+        <input type="date" bind:value={date} />
+      </div>
+      <div class="tl-field">
+        <label>Login Time <span class="tl-req">*</span></label>
+        <input type="time" bind:value={timeIn} />
+      </div>
+      <button
+        class="tl-btn-primary"
+        type="button"
+        on:click={handleLogin}
+        disabled={!canLogin || isLoggingIn}
+      >
+        {#if isLoggingIn}
+          <span class="tl-spin"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg></span>
+          Logging In...
+        {:else}
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          Log In
+        {/if}
+      </button>
+      {#if isLoggedIn}
+        <div class="tl-status-pill tl-status-success">
+          <span class="tl-status-dot"></span> Logged in Ã¢â‚¬â€ proceed to Log Out
+        </div>
+      {/if}
     </div>
 
-    <div class="overflow-x-auto overflow-y-auto max-h-96 table-scroll-container">
-      <table class="min-w-full border-collapse">
-        <thead>
-          <tr class="theme-divider border-b">
-            <th class="theme-muted px-6 py-3 text-left text-xs font-semibold uppercase tracking-[0.08em]">Date</th>
-            <th class="theme-muted px-6 py-3 text-left text-xs font-semibold uppercase tracking-[0.08em]">Type</th>
-            <th class="theme-muted px-6 py-3 text-left text-xs font-semibold uppercase tracking-[0.08em]">Time In</th>
-            <th class="theme-muted px-6 py-3 text-left text-xs font-semibold uppercase tracking-[0.08em]">Time Out</th>
-            <th class="theme-muted px-6 py-3 text-left text-xs font-semibold uppercase tracking-[0.08em]">Hours</th>
-            <th class="theme-muted px-6 py-3 text-left text-xs font-semibold uppercase tracking-[0.08em]">Created</th>
-            <th class="theme-muted px-6 py-3 text-left text-xs font-semibold uppercase tracking-[0.08em]">Status</th>
-            <th class="theme-muted px-6 py-3 text-left text-xs font-semibold uppercase tracking-[0.08em]"></th>
-           </tr>
-        </thead>
+    <!-- Log Out Card -->
+    <div class="tl-card">
+      <div class="tl-card-title">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Log Out
+      </div>
+      <div class="tl-field">
+        <label>Logout Time <span class="tl-req">*</span></label>
+        <input type="time" bind:value={timeOut} disabled={!isLoggedIn} />
+      </div>
 
+      {#if isLoggedIn && timeIn && timeOut && formHours > 0}
+        <div class="tl-lunch-row">
+          <div class="tl-lunch-left">
+            <div class="tl-lunch-icon">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>
+            </div>
+            <div>
+              <div class="tl-lunch-label">Include Lunch</div>
+              <div class="tl-lunch-sub">{includeLunch ? 'Counted' : 'Not counted'}</div>
+            </div>
+          </div>
+          <button
+            type="button"
+            class="tl-toggle-switch"
+            class:tl-toggle-on={includeLunch}
+            on:click={handleLunchToggle}
+            aria-label="Toggle include lunch"
+          >
+            <span class="tl-toggle-knob" class:tl-knob-on={includeLunch}></span>
+          </button>
+        </div>
+        <div class="tl-duration-chip">
+          <strong>{formHours}h</strong>
+          {#if !includeLunch && formHours > 0}
+            <span class="tl-duration-note">(1h lunch deducted)</span>
+          {/if}
+        </div>
+      {/if}
+
+      <button
+        class="tl-btn-danger"
+        class:tl-btn-disabled={!canLogout || isLoggingOut}
+        type="button"
+        on:click={handleLogout}
+        disabled={!canLogout || isLoggingOut}
+      >
+        {#if isLoggingOut}
+          <span class="tl-spin"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg></span>
+          Logging Out...
+        {:else}
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          Log Out
+        {/if}
+      </button>
+
+      {#if !isLoggedIn}
+        <div class="tl-status-pill tl-status-amber">
+          <span class="tl-status-dot"></span> Not logged in Ã¢â‚¬â€ use Time In first
+        </div>
+      {/if}
+    </div>
+
+    <!-- Weekly Overview -->
+    <div class="tl-card tl-card-chart">
+      <div class="tl-chart-header">
+        <div>
+          <div class="tl-card-title">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            Weekly Overview
+          </div>
+          <div class="tl-chart-sub">Hours logged this week</div>
+        </div>
+        <button class="tl-week-btn">This Week</button>
+      </div>
+      <div class="tl-chart-wrap">
+        <canvas id="tlWeekChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Time Log History Table -->
+  <div class="tl-table-section">
+    <div class="tl-table-header">
+      <span class="tl-table-title">Time Log History</span>
+      <span class="tl-entry-count">{completedEntries.length} completed {completedEntries.length === 1 ? 'entry' : 'entries'}</span>
+    </div>
+    <div class="tl-table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Type</th>
+            <th>Time In</th>
+            <th>Time Out</th>
+            <th>Hours</th>
+            <th>Created</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
         <tbody>
           {#each completedEntries as entry (entry.id)}
-            {@const meta = statusMeta[entry.status] ?? statusMeta.recorded}
-            {@const StatusIcon = meta.icon}
-            {@const entryTypeLabel = 'Time Entry'}
-            {@const entryTypeClass = 'entry-type-entry'}
-            <tr class="theme-table-row border-b transition">
-              <td class="theme-text px-6 py-4 text-sm">{formatTableDate(entry.date)}</td>
-              <td class="px-6 py-4">
-                <span class={`entry-type-badge ${entryTypeClass}`}>{entryTypeLabel}</span>
-              </td>
-              <td class="theme-text px-6 py-4 text-sm">{entry.timeIn}</td>
-              <td class="theme-text px-6 py-4 text-sm">{entry.timeOut || '—'}</td>
-              <td class="theme-heading px-6 py-4 text-sm font-semibold">{entry.hours}h</td>
-              <td class="theme-text px-6 py-4 text-sm">{entry.createdAt || '—'}</td>
-              <td class="px-6 py-4">
-                <span class={meta.badgeClass}>
-                  <StatusIcon size={13} />
-                  {meta.label}
+            <tr>
+              <td class="tl-td-primary">{formatTableDate(entry.date)}</td>
+              <td><span class="tl-tag tl-tag-blue">TIME ENTRY</span></td>
+              <td class="tl-mono">{entry.timeIn}</td>
+              <td class="tl-mono">{entry.timeOut || 'Ã¢â‚¬â€'}</td>
+              <td class="tl-mono tl-hours-val">{entry.hours}h</td>
+              <td class="tl-mono tl-created-val">{entry.createdAt || 'Ã¢â‚¬â€'}</td>
+              <td>
+                <span class="tl-tag tl-tag-green">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                  Recorded
                 </span>
               </td>
-              <td class="px-6 py-4">
+              <td>
                 <button
-                  class="history-delete-btn inline-flex h-8 w-8 items-center justify-center rounded-lg transition"
+                  class="tl-del-btn"
                   type="button"
                   on:click={() => handleDelete(entry.id)}
                   aria-label="Delete time entry"
                   title="Delete this entry"
                 >
-                  <Trash2 size={13} />
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
                 </button>
               </td>
-             </tr>
+            </tr>
           {/each}
+          {#if completedEntries.length === 0}
+            <tr>
+              <td colspan="8" class="tl-empty-row">No time entries yet. Log in to start tracking your hours.</td>
+            </tr>
+          {/if}
         </tbody>
-       </table>
+      </table>
     </div>
-  </section>
+  </div>
 
+  <!-- Delete Confirmation Modal -->
   {#if showDeleteConfirm && deleteConfirmEntry}
-    <div class="modal-overlay">
-      <div class="modal-container">
-        <div class="modal-header">
-          <h2 class="modal-title">Confirm Delete</h2>
-          <button class="modal-close-btn" on:click={cancelDelete} aria-label="Close dialog">
-            ✕
-          </button>
+    <div class="tl-modal-overlay" on:click|self={cancelDelete}>
+      <div class="tl-modal" role="dialog" aria-modal="true" aria-labelledby="tl-modal-title">
+        <div class="tl-modal-header">
+          <h2 id="tl-modal-title" class="tl-modal-title">Confirm Delete</h2>
+          <button class="tl-modal-close" on:click={cancelDelete} aria-label="Close">Ã¢Å“â€¢</button>
         </div>
-
-        <div class="modal-content">
-          <p class="modal-message">Are you sure you want to delete this time entry?</p>
-          
-          <div class="modal-entry-preview">
-            <div class="preview-row">
-              <span class="preview-label">Date:</span>
-              <span class="preview-value">{formatTableDate(deleteConfirmEntry.date)}</span>
-            </div>
-            <div class="preview-row">
-              <span class="preview-label">Time In:</span>
-              <span class="preview-value">{deleteConfirmEntry.timeIn}</span>
-            </div>
-            <div class="preview-row">
-              <span class="preview-label">Time Out:</span>
-              <span class="preview-value">{deleteConfirmEntry.timeOut || '—'}</span>
-            </div>
-            <div class="preview-row">
-              <span class="preview-label">Hours:</span>
-              <span class="preview-value font-semibold">{deleteConfirmEntry.hours}h</span>
-            </div>
+        <div class="tl-modal-body">
+          <p class="tl-modal-msg">Are you sure you want to delete this time entry?</p>
+          <div class="tl-modal-preview">
+            <div class="tl-preview-row"><span class="tl-preview-label">Date</span><span class="tl-preview-val">{formatTableDate(deleteConfirmEntry.date)}</span></div>
+            <div class="tl-preview-row"><span class="tl-preview-label">Time In</span><span class="tl-preview-val">{deleteConfirmEntry.timeIn}</span></div>
+            <div class="tl-preview-row"><span class="tl-preview-label">Time Out</span><span class="tl-preview-val">{deleteConfirmEntry.timeOut || 'Ã¢â‚¬â€'}</span></div>
+            <div class="tl-preview-row"><span class="tl-preview-label">Hours</span><span class="tl-preview-val tl-preview-bold">{deleteConfirmEntry.hours}h</span></div>
           </div>
-
-          <p class="modal-warning">This action cannot be undone.</p>
+          <p class="tl-modal-warning">This action cannot be undone.</p>
         </div>
-
-        <div class="modal-footer">
-          <button class="modal-cancel-btn" on:click={cancelDelete}>
-            Cancel
-          </button>
-          <button class="modal-delete-btn" on:click={confirmDelete}>
-            Delete Entry
-          </button>
+        <div class="tl-modal-footer">
+          <button class="tl-modal-cancel" on:click={cancelDelete}>Cancel</button>
+          <button class="tl-modal-delete" on:click={confirmDelete}>Delete Entry</button>
         </div>
       </div>
     </div>
   {/if}
+
 </section>
 
 <style>
-  .timelog-shell {
-    --tl-surface: #ffffff;
-    --tl-surface-soft: #f4f8fc;
-    --tl-border: #d8e2ef;
-    --tl-text: #0f172a;
-    --tl-muted: #5f7188;
-    --tl-accent: #0f6cbd;
-    --tl-accent-soft: #d8ebff;
-    position: relative;
-    border-radius: 1.25rem;
-    padding: 0.35rem;
-    isolation: isolate;
+  /* ---- Design tokens (light) ---- */
+  .tl-page {
+    --tl-bg:          #f0f4f8;
+    --tl-surface:     #ffffff;
+    --tl-surface2:    #f8fafc;
+    --tl-border:      #e2e8f0;
+    --tl-border2:     #cbd5e1;
+    --tl-accent:      #2563eb;
+    --tl-accent2:     #3b82f6;
+    --tl-accent-glow: rgba(37,99,235,0.12);
+    --tl-green:       #16a34a;
+    --tl-green-dim:   rgba(22,163,74,0.12);
+    --tl-amber:       #d97706;
+    --tl-amber-dim:   rgba(217,119,6,0.12);
+    --tl-red:         #dc2626;
+    --tl-red-dim:     rgba(220,38,38,0.12);
+    --tl-purple:      #7c3aed;
+    --tl-purple-dim:  rgba(124,58,237,0.12);
+    --tl-text:        #0f172a;
+    --tl-text2:       #64748b;
+    --tl-text3:       #94a3b8;
+    --tl-radius:      14px;
+    --tl-radius-sm:   8px;
+    --tl-shadow-sm:   0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.03);
+    --tl-shadow:      0 4px 16px rgba(0,0,0,0.1);
+
+    font-family: 'DM Sans', sans-serif;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    padding: 28px 32px;
+    min-height: 0;
   }
 
-  .timelog-shell::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    z-index: -2;
-    border-radius: 1.25rem;
-    background: radial-gradient(120% 120% at 0% 0%, #e4f1ff 0%, #f6fafe 55%, #ecf3fb 100%);
+  /* ---- Dark mode overrides ---- */
+  :global(.dark) .tl-page {
+    --tl-bg:          #0d1117;
+    --tl-surface:     #161c27;
+    --tl-surface2:    #1e2736;
+    --tl-border:      rgba(255,255,255,0.06);
+    --tl-border2:     rgba(255,255,255,0.1);
+    --tl-accent:      #3b82f6;
+    --tl-accent2:     #60a5fa;
+    --tl-accent-glow: rgba(59,130,246,0.18);
+    --tl-green:       #22c55e;
+    --tl-green-dim:   rgba(34,197,94,0.14);
+    --tl-amber:       #f59e0b;
+    --tl-amber-dim:   rgba(245,158,11,0.12);
+    --tl-red:         #ef4444;
+    --tl-red-dim:     rgba(239,68,68,0.14);
+    --tl-purple:      #a78bfa;
+    --tl-purple-dim:  rgba(167,139,250,0.14);
+    --tl-text:        #f1f5f9;
+    --tl-text2:       #94a3b8;
+    --tl-text3:       #4b5563;
+    --tl-shadow-sm:   0 1px 3px rgba(0,0,0,0.18);
+    --tl-shadow:      0 8px 20px rgba(0,0,0,0.35);
   }
 
-  .timelog-shell::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    z-index: -1;
-    border-radius: 1.25rem;
-    background-image: linear-gradient(110deg, rgba(15, 108, 189, 0.07), transparent 52%);
-    pointer-events: none;
-  }
-
-  .theme-panel,
-  .stat-card {
-    background: var(--tl-surface);
-    border-color: var(--tl-border);
-    box-shadow: 0 18px 38px -32px rgba(15, 23, 42, 0.42);
-  }
-
-  .stat-card {
-    position: relative;
-    overflow: hidden;
-  }
-
-  .stat-card::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    height: 3px;
-    opacity: 0.9;
-  }
-
-  .stat-primary::before {
-    background: linear-gradient(90deg, #0f6cbd, #38bdf8);
-  }
-
-  .stat-success::before {
-    background: linear-gradient(90deg, #0f766e, #10b981);
-  }
-
-  .stat-info::before {
-    background: linear-gradient(90deg, #1d4ed8, #3b82f6);
-  }
-
-  .stat-forecast::before {
-    background: linear-gradient(90deg, #0f766e, #06b6d4);
-  }
-
-  .stat-icon {
-    border: 1px solid transparent;
-  }
-
-  .stat-icon-primary {
-    background: #e0efff;
-    color: #0f6cbd;
-    border-color: #bfdbfe;
-  }
-
-  .stat-icon-success {
-    background: #dcfce7;
-    color: #0f766e;
-    border-color: #86efac;
-  }
-
-  .stat-icon-info {
-    background: #dbeafe;
-    color: #1d4ed8;
-    border-color: #93c5fd;
-  }
-
-  .stat-icon-forecast {
-    background: #cffafe;
-    color: #0f766e;
-    border-color: #67e8f9;
-  }
-
-  .stat-sub-emphasis {
-    color: #0f766e;
+  /* ---------- PAGE HEADING ---------- */
+  .tl-heading h1 {
+    font-size: 22px;
     font-weight: 700;
-  }
-
-  .progress-panel {
-    background: linear-gradient(145deg, #ffffff, #f6fbff);
-  }
-
-  .progress-helper {
-    color: #0f6cbd;
-  }
-
-  .progress-track {
-    border: 1px solid #c4d9f2;
-    background: #ecf4fd;
-  }
-
-  .progress-fill {
-    background: linear-gradient(90deg, #0f6cbd, #14b8a6 55%, #06b6d4);
-  }
-
-  .progress-remaining {
-    color: #0f6cbd;
-  }
-
-  .progress-percent-chip {
-    background: var(--tl-accent-soft);
-    color: #0f3868;
-    border: 1px solid #93c5fd;
-    line-height: 1;
-  }
-
-  .entry-panel {
-    background: linear-gradient(145deg, #ffffff, #f3f8ff);
-  }
-
-  .notes-panel,
-  .history-panel {
-    background: linear-gradient(145deg, #ffffff, #f8fbff);
-  }
-
-  .entry-input {
-    background: #edf4fb;
-    border-color: #bed2e8;
+    letter-spacing: -0.4px;
     color: var(--tl-text);
+    margin: 0;
+  }
+  .tl-heading p {
+    font-size: 13px;
+    color: var(--tl-text2);
+    margin: 3px 0 0;
+  }
+
+  /* ---------- ERROR BANNER ---------- */
+  .tl-error-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background: var(--tl-red-dim);
+    border: 1px solid rgba(220,38,38,0.25);
+    border-radius: var(--tl-radius-sm);
+    font-size: 13px;
+    color: var(--tl-red);
     font-weight: 500;
   }
 
-  .entry-input:focus,
-  .theme-input:focus {
-    border-color: #60a5fa;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+  /* ---------- STAT CARDS ---------- */
+  .tl-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
   }
-
-  .entry-input::placeholder,
-  .theme-placeholder::placeholder,
-  .theme-muted {
-    color: var(--tl-muted);
+  .tl-stat-card {
+    background: var(--tl-surface);
+    border: 1px solid var(--tl-border);
+    border-radius: var(--tl-radius);
+    padding: 18px 20px;
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    box-shadow: var(--tl-shadow-sm);
+    transition: box-shadow 0.2s, transform 0.2s;
   }
-
-  .theme-heading {
-    color: var(--tl-text);
+  .tl-stat-card:hover { box-shadow: var(--tl-shadow); transform: translateY(-1px); }
+  .tl-stat-icon {
+    width: 40px; height: 40px;
+    border-radius: 10px;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
   }
+  /* tone colours */
+  .tl-stat-primary .tl-stat-icon { background: var(--tl-accent-glow); color: var(--tl-accent); }
+  .tl-stat-success .tl-stat-icon { background: var(--tl-green-dim);   color: var(--tl-green); }
+  .tl-stat-info    .tl-stat-icon { background: var(--tl-amber-dim);   color: var(--tl-amber); }
+  .tl-stat-forecast .tl-stat-icon { background: var(--tl-purple-dim); color: var(--tl-purple); }
 
-  .theme-text {
-    color: var(--tl-text);
+  .tl-stat-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--tl-text2);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
   }
-
-  .theme-soft,
-  .theme-soft-panel {
-    background: var(--tl-surface-soft);
-  }
-
-  .theme-soft-panel,
-  .theme-divider,
-  .theme-table-row,
-  .theme-input {
-    border-color: var(--tl-border);
-  }
-
-  .theme-input {
-    background: #eef5fc;
-    color: var(--tl-text);
-  }
-
-  .theme-table-row:hover {
-    background: #f3f8ff;
-  }
-
-  .feature-icon {
-    border: 1px solid transparent;
-  }
-
-  .notes-icon {
-    background: #e0efff;
-    color: #0f6cbd;
-    border-color: #bfdbfe;
-  }
-
-  .predictor-icon {
-    background: #cffafe;
-    color: #0f766e;
-    border-color: #67e8f9;
-  }
-
-  .duration-chip {
-    background: #e0efff;
-    border-color: #93c5fd;
-    color: #0f3868;
-  }
-
-  .lunch-toggle-row {
-    background: var(--tl-surface-soft);
-    border-color: var(--tl-border);
-    transition: border-color 150ms ease;
-  }
-
-  .lunch-toggle-row:hover {
-    border-color: #93c5fd;
-  }
-
-  .lunch-toggle-icon {
-    background: #fff7ed;
-    color: #c2410c;
-    border: 1px solid #fdba74;
-  }
-
-  .lunch-toggle-switch {
-    cursor: pointer;
-  }
-
-  :global(.dark) .lunch-toggle-row:hover {
-    border-color: rgba(125, 211, 252, 0.45);
-  }
-
-  :global(.dark) .lunch-toggle-icon {
-    background: rgba(194, 65, 12, 0.18);
-    color: #fdba74;
-    border-color: rgba(253, 186, 116, 0.4);
-  }
-
-  .theme-button-soft {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    background: #e2edf9;
-    border-color: #bfd5ec;
-    color: #11406d;
-    font-size: 1.05rem;
-    line-height: 1;
-    font-weight: 800;
-  }
-
-  .predictor-step:hover,
-  .theme-button-soft:hover {
-    background: #d2e4f7;
-  }
-
-  .predictor-chip {
-    display: inline-flex;
-    align-items: center;
-    border-radius: 999px;
-    padding: 0.25rem 0.65rem;
-    font-size: 0.75rem;
+  .tl-stat-value {
+    font-size: 24px;
     font-weight: 700;
-    border: 1px solid transparent;
+    letter-spacing: -0.5px;
+    color: var(--tl-text);
+    margin: 3px 0 2px;
   }
-
-  .predictor-chip-delay {
-    background: #fee2e2;
-    color: #b91c1c;
-    border-color: #fca5a5;
+  .tl-stat-sub {
+    font-size: 11.5px;
+    color: var(--tl-text2);
   }
+  .tl-stat-success .tl-stat-sub { color: var(--tl-accent); }
 
-  .predictor-chip-ahead {
-    background: #dcfce7;
-    color: #0f766e;
-    border-color: #86efac;
+  /* ---------- PROGRESS SECTION ---------- */
+  .tl-progress-section {
+    background: var(--tl-surface);
+    border: 1px solid var(--tl-border);
+    border-radius: var(--tl-radius);
+    padding: 20px 24px;
+    box-shadow: var(--tl-shadow-sm);
   }
-
-  .predictor-estimate {
-    background: linear-gradient(145deg, #dbeafe, #cffafe);
-    border-color: #7dd3fc;
+  .tl-progress-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 14px;
   }
-
-  .predictor-estimate-label {
-    color: #0f6cbd;
-  }
-
-  .predictor-estimate-sub {
-    color: #0f766e;
-  }
-
-  .predictor-estimate-pill {
-    background: #0f3868;
-    color: #ffffff;
-    border: 1px solid #0f6cbd;
-  }
-
-  .timelog-submit-btn {
-    background: linear-gradient(90deg, #0f6cbd, #0ea5e9);
-    color: #ffffff;
-    box-shadow: 0 14px 28px -16px rgba(15, 108, 189, 0.9);
-  }
-
-  .timelog-submit-btn:hover:not(:disabled) {
-    filter: brightness(1.05);
-    transform: translateY(-1px);
-  }
-
-  .timelog-submit-btn:disabled {
-    background: #6b7280;
-    color: #e5e7eb;
-    cursor: not-allowed;
-    opacity: 1;
-    box-shadow: none;
-  }
-
-  .status-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.375rem;
-    border-radius: 999px;
-    padding: 0.25rem 0.75rem;
-    font-size: 0.75rem;
+  .tl-progress-title { font-size: 14px; font-weight: 600; color: var(--tl-text); }
+  .tl-progress-meta  { font-size: 12px; color: var(--tl-text2); margin-top: 3px; }
+  .tl-progress-detail { font-size: 12px; color: var(--tl-accent); margin-top: 4px; font-weight: 500; }
+  .tl-progress-badge {
+    background: var(--tl-accent);
+    color: #fff;
+    font-size: 11px;
     font-weight: 700;
-    line-height: 1.15;
+    padding: 3px 10px;
+    border-radius: 999px;
+    flex-shrink: 0;
   }
-
-  .status-recorded {
-    background: #dcfce7;
-    color: #0f766e;
-    border: 1px solid #86efac;
+  .tl-progress-track {
+    height: 8px;
+    background: var(--tl-bg, var(--tl-surface2));
+    border-radius: 999px;
+    overflow: hidden;
+    border: 1px solid var(--tl-border);
   }
-
-  .history-delete-btn {
-    color: #7b8ea8;
+  :global(.dark) .tl-progress-track { background: rgba(255,255,255,0.04); }
+  .tl-progress-fill {
+    height: 100%;
+    min-width: 2px;
+    background: linear-gradient(90deg, var(--tl-accent), var(--tl-accent2));
+    border-radius: 999px;
+    box-shadow: 0 0 8px var(--tl-accent-glow);
+    transition: width 0.7s ease;
   }
-
-  .history-delete-btn:hover {
-    background: #fee2e2;
-    color: #dc2626;
+  .tl-progress-labels {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 8px;
+    font-size: 11.5px;
+    color: var(--tl-text3);
+    font-family: 'DM Mono', monospace;
   }
+  .tl-progress-remaining { color: var(--tl-accent); }
 
-  .history-edit-btn {
-    color: #7b8ea8;
+  /* ---------- THREE COLUMN ---------- */
+  .tl-three-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1.4fr;
+    gap: 14px;
+    align-items: start;
   }
-
-  .history-edit-btn:hover {
-    background: #dbeafe;
-    color: #2563eb;
+  .tl-card {
+    background: var(--tl-surface);
+    border: 1px solid var(--tl-border);
+    border-radius: var(--tl-radius);
+    padding: 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    box-shadow: var(--tl-shadow-sm);
   }
-
-  :global(.dark) .timelog-shell {
-    --tl-surface: #162338;
-    --tl-surface-soft: #1b2a42;
-    --tl-border: #2b3c57;
-    --tl-text: #e5edf8;
-    --tl-muted: #9ab0cb;
-    --tl-accent: #5bb1ff;
-    --tl-accent-soft: rgba(91, 177, 255, 0.18);
+  .tl-card-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--tl-text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
+  .tl-card-title svg { color: var(--tl-text2); }
 
-  :global(.dark) .timelog-shell::before {
-    background: radial-gradient(130% 130% at 0% 0%, #173459 0%, #101a2b 48%, #0b1422 100%);
+  /* Fields */
+  .tl-field { display: flex; flex-direction: column; gap: 6px; }
+  .tl-field label {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--tl-text2);
   }
-
-  :global(.dark) .timelog-shell::after {
-    background-image: linear-gradient(110deg, rgba(91, 177, 255, 0.12), transparent 55%);
+  .tl-req { color: var(--tl-red); }
+  .tl-field input {
+    background: var(--tl-surface2);
+    border: 1px solid var(--tl-border);
+    border-radius: var(--tl-radius-sm);
+    padding: 9px 12px;
+    color: var(--tl-text);
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    width: 100%;
   }
-
-  :global(.dark) .theme-panel,
-  :global(.dark) .stat-card {
-    box-shadow: 0 20px 38px -30px rgba(2, 8, 23, 0.95);
+  .tl-field input:focus {
+    border-color: var(--tl-accent);
+    box-shadow: 0 0 0 3px var(--tl-accent-glow);
   }
-
-  :global(.dark) .progress-panel,
-  :global(.dark) .entry-panel,
-  :global(.dark) .notes-panel,
-  :global(.dark) .history-panel {
-    background: linear-gradient(150deg, rgba(22, 35, 56, 0.96), rgba(19, 30, 49, 0.98));
-  }
-
-  :global(.dark) .progress-track {
-    background: #1a2c46;
-    border-color: #335174;
-  }
-
-  :global(.dark) .progress-fill {
-    background: linear-gradient(90deg, #5bb1ff, #2dd4bf 58%, #22d3ee);
-  }
-
-  :global(.dark) .progress-helper,
-  :global(.dark) .progress-remaining {
-    color: #7cc3ff;
-  }
-
-  :global(.dark) .progress-percent-chip {
-    color: #dbeafe;
-    border-color: rgba(125, 211, 252, 0.45);
-  }
-
-  :global(.dark) .stat-icon-primary {
-    background: rgba(91, 177, 255, 0.18);
-    color: #93c5fd;
-    border-color: rgba(125, 211, 252, 0.38);
-  }
-
-  :global(.dark) .stat-icon-success {
-    background: rgba(16, 185, 129, 0.16);
-    color: #6ee7b7;
-    border-color: rgba(110, 231, 183, 0.4);
-  }
-
-  :global(.dark) .stat-icon-info {
-    background: rgba(59, 130, 246, 0.18);
-    color: #93c5fd;
-    border-color: rgba(147, 197, 253, 0.4);
-  }
-
-  :global(.dark) .stat-icon-forecast {
-    background: rgba(45, 212, 191, 0.16);
-    color: #67e8f9;
-    border-color: rgba(103, 232, 249, 0.42);
-  }
-
-  :global(.dark) .stat-sub-emphasis {
-    color: #6ee7b7;
-  }
-
-  :global(.dark) .entry-input,
-  :global(.dark) .theme-input {
-    background: #1a2c45;
-    border-color: #334b6b;
-    color: #e2e8f0;
-  }
-
-  :global(.dark) .entry-input:focus,
-  :global(.dark) .theme-input:focus {
-    border-color: #7cc3ff;
-    box-shadow: 0 0 0 3px rgba(91, 177, 255, 0.24);
-  }
-
-  :global(.dark) .theme-table-row:hover {
-    background: rgba(43, 60, 87, 0.45);
-  }
-
-  :global(.dark) .duration-chip {
-    background: rgba(91, 177, 255, 0.16);
-    border-color: rgba(125, 211, 252, 0.42);
-    color: #bfdbfe;
-  }
-
-  :global(.dark) .theme-button-soft {
-    background: #2a3f5d;
-    border-color: #426389;
-    color: #cfe6ff;
-  }
-
-  :global(.dark) .predictor-step:hover,
-  :global(.dark) .theme-button-soft:hover {
-    background: #365276;
-  }
-
-  :global(.dark) .predictor-chip-delay {
-    background: rgba(239, 68, 68, 0.2);
-    color: #fca5a5;
-    border-color: rgba(239, 68, 68, 0.45);
-  }
-
-  :global(.dark) .predictor-chip-ahead {
-    background: rgba(16, 185, 129, 0.2);
-    color: #6ee7b7;
-    border-color: rgba(16, 185, 129, 0.45);
-  }
-
-  :global(.dark) .predictor-estimate {
-    background: linear-gradient(145deg, rgba(30, 64, 102, 0.65), rgba(19, 78, 74, 0.6));
-    border-color: rgba(103, 232, 249, 0.45);
-  }
-
-  :global(.dark) .predictor-estimate-label {
-    color: #93c5fd;
-  }
-
-  :global(.dark) .predictor-estimate-sub {
-    color: #99f6e4;
-  }
-
-  :global(.dark) .predictor-estimate-pill {
-    background: #0b2746;
-    border-color: #2563eb;
-  }
-
-  :global(.dark) .timelog-submit-btn:disabled {
-    background: #374151;
-    color: #cbd5e1;
-  }
-
-  :global(.dark) .status-recorded {
-    background: rgba(16, 185, 129, 0.2);
-    color: #86efac;
-    border-color: rgba(16, 185, 129, 0.45);
-  }
-
-  :global(.dark) .history-delete-btn {
-    color: #9caec7;
-  }
-
-  :global(.dark) .history-delete-btn:hover {
-    background: rgba(239, 68, 68, 0.2);
-    color: #fca5a5;
-  }
-
-  :global(.dark) .history-edit-btn {
-    color: #9caec7;
-  }
-
-  :global(.dark) .history-edit-btn:hover {
-    background: rgba(37, 99, 235, 0.2);
-    color: #93c5fd;
-  }
-
-  .timelog-logout-btn {
-    color: #dc2626;
-    background: #fee2e2;
-    border: 1px solid #fecaca;
-  }
-
-  .timelog-logout-btn:hover:not(:disabled) {
-    background: #fecaca;
-    color: #b91c1c;
-  }
-
-  .timelog-logout-btn:disabled {
+  .tl-field input:disabled {
     opacity: 0.5;
     cursor: not-allowed;
   }
 
-  .entry-type-badge {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 6px;
-    padding: 0.35rem 0.75rem;
-    font-size: 0.75rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-
-  .entry-type-login {
-    background: #dbeafe;
-    color: #0c4a6e;
-    border: 1px solid #bfdbfe;
-  }
-
-  .entry-type-logout {
-    background: #fecdd3;
-    color: #7c2d12;
-    border: 1px solid #fca5a5;
-  }
-
-  .entry-type-entry {
-    background: #dcfce7;
-    color: #0f766e;
-    border: 1px solid #86efac;
-  }
-
-  .status-chip {
-    border-radius: 8px;
-    padding: 0.75rem 1rem;
-    font-size: 0.95rem;
-  }
-
-  .btn-danger:active {
-    background: #dc2626;
-  }
-  
-  .spinning-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    animation: spin 1s linear infinite;
-  }
-
-  @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-  }
-
-  .status-active {
-    background: #dbeafe;
-    border-color: #bfdbfe;
-    color: #0c4a6e;
-  }
-
-  .status-inactive {
-    background: #f3f4f6;
-    border-color: #d1d5db;
-    color: #374151;
-  }
-
-  :global(.dark) .timelog-logout-btn {
-    color: #fca5a5;
-    background: rgba(239, 68, 68, 0.15);
-    border-color: rgba(239, 68, 68, 0.35);
-  }
-
-  :global(.dark) .timelog-logout-btn:hover:not(:disabled) {
-    background: rgba(239, 68, 68, 0.25);
-    color: #fda4af;
-  }
-
-  :global(.dark) .entry-type-login {
-    background: rgba(30, 144, 255, 0.18);
-    color: #93c5fd;
-    border-color: rgba(96, 165, 250, 0.35);
-  }
-
-  :global(.dark) .entry-type-logout {
-    background: rgba(239, 68, 68, 0.18);
-    color: #fca5a5;
-    border-color: rgba(239, 68, 68, 0.35);
-  }
-
-  :global(.dark) .entry-type-entry {
-    background: rgba(34, 197, 94, 0.18);
-    color: #86efac;
-    border-color: rgba(34, 197, 94, 0.35);
-  }
-
-  :global(.dark) .status-active {
-    background: rgba(30, 144, 255, 0.15);
-    border-color: rgba(96, 165, 250, 0.35);
-    color: #93c5fd;
-  }
-
-  :global(.dark) .status-inactive {
-    background: rgba(107, 114, 128, 0.15);
-    border-color: rgba(107, 114, 128, 0.35);
-    color: #d1d5db;
-  }
-
-  .active-session-panel {
-    background: linear-gradient(135deg, #f0fdfa 0%, #f7f9fc 100%);
-    border-color: #99f6e4;
-  }
-
-  :global(.dark) .active-session-panel {
-    background: linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(30, 144, 255, 0.08) 100%);
-    border-color: rgba(16, 185, 129, 0.35);
-  }
-
-  .session-icon {
-    background: linear-gradient(135deg, #14b8a6 0%, #06b6d4 100%);
-    color: white;
-  }
-
-  .empty-session-panel {
-    background: #f9fafb;
-    border-color: #e5e7eb;
-  }
-
-  :global(.dark) .empty-session-panel {
-    background: rgba(107, 114, 128, 0.1);
-    border-color: rgba(107, 114, 128, 0.3);
-  }
-
-  .empty-icon {
-    background: #f3f4f6;
-    color: #9ca3af;
-  }
-
-  :global(.dark) .empty-icon {
-    background: rgba(107, 114, 128, 0.2);
-    color: #6b7280;
-  }
-
-  @media (max-width: 768px) {
-    .timelog-shell {
-      border-radius: 1rem;
-      padding: 0;
-    }
-  }
-
-  /* Table scrollbar styling */
-  .table-scroll-container {
-    scrollbar-width: thin;
-    scrollbar-color: rgba(96, 165, 250, 0.5) transparent;
-  }
-
-  .table-scroll-container::-webkit-scrollbar {
-    height: 8px;
-    width: 8px;
-  }
-
-  .table-scroll-container::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  .table-scroll-container::-webkit-scrollbar-thumb {
-    background: rgba(96, 165, 250, 0.5);
-    border-radius: 4px;
-  }
-
-  .table-scroll-container::-webkit-scrollbar-thumb:hover {
-    background: rgba(96, 165, 250, 0.7);
-  }
-
-  :global(.dark) .table-scroll-container {
-    scrollbar-color: rgba(96, 165, 250, 0.4) transparent;
-  }
-
-  :global(.dark) .table-scroll-container::-webkit-scrollbar-thumb {
-    background: rgba(96, 165, 250, 0.4);
-  }
-
-  :global(.dark) .table-scroll-container::-webkit-scrollbar-thumb:hover {
-    background: rgba(96, 165, 250, 0.6);
-  }
-
-  /* Delete Confirmation Modal */
-  .modal-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.5);
+  /* Buttons */
+  .tl-btn-primary {
+    width: 100%;
+    padding: 11px;
+    background: linear-gradient(135deg, var(--tl-accent), var(--tl-accent2));
+    border: none;
+    border-radius: var(--tl-radius-sm);
+    color: #fff;
+    font-family: 'DM Sans', inherit;
+    font-size: 13.5px;
+    font-weight: 600;
+    cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 50;
-    padding: 1rem;
-    backdrop-filter: blur(2px);
+    gap: 8px;
+    box-shadow: 0 4px 14px var(--tl-accent-glow);
+    transition: opacity 0.2s, transform 0.15s;
+  }
+  .tl-btn-primary:hover:not(:disabled) { opacity: 0.9; transform: translateY(-1px); }
+  .tl-btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none !important;
   }
 
-  .modal-container {
-    background: #ffffff;
-    border-radius: 1rem;
-    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+  .tl-btn-danger {
+    width: 100%;
+    padding: 11px;
+    background: linear-gradient(135deg, var(--tl-red), #b91c1c);
+    border: none;
+    border-radius: var(--tl-radius-sm);
+    color: #fff;
+    font-family: 'DM Sans', inherit;
+    font-size: 13.5px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    box-shadow: 0 4px 14px var(--tl-red-dim);
+    transition: opacity 0.2s, transform 0.15s;
+  }
+  .tl-btn-danger:hover:not(:disabled) { opacity: 0.9; transform: translateY(-1px); }
+  .tl-btn-disabled,
+  .tl-btn-danger:disabled {
+    background: var(--tl-surface2) !important;
+    color: var(--tl-text3) !important;
+    box-shadow: none !important;
+    cursor: not-allowed;
+    border: 1px solid var(--tl-border);
+    transform: none !important;
+  }
+
+  /* Status pills */
+  .tl-status-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-radius: var(--tl-radius-sm);
+    font-size: 12.5px;
+    font-weight: 500;
+  }
+  .tl-status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+    flex-shrink: 0;
+  }
+  .tl-status-amber {
+    background: var(--tl-amber-dim);
+    border: 1px solid rgba(217,119,6,0.2);
+    color: var(--tl-amber);
+  }
+  .tl-status-success {
+    background: var(--tl-green-dim);
+    border: 1px solid rgba(22,163,74,0.2);
+    color: var(--tl-green);
+  }
+
+  /* Lunch toggle */
+  .tl-lunch-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border-radius: var(--tl-radius-sm);
+    border: 1px solid var(--tl-border);
+    background: var(--tl-surface2);
+    transition: border-color 0.15s;
+  }
+  .tl-lunch-row:hover { border-color: var(--tl-accent2); }
+  .tl-lunch-left { display: flex; align-items: center; gap: 10px; }
+  .tl-lunch-icon {
+    width: 30px; height: 30px;
+    border-radius: 8px;
+    display: grid; place-items: center;
+    background: rgba(217,119,6,0.12);
+    color: var(--tl-amber);
+  }
+  :global(.dark) .tl-lunch-icon { background: rgba(245,158,11,0.15); }
+  .tl-lunch-label { font-size: 13px; font-weight: 500; color: var(--tl-text); }
+  .tl-lunch-sub   { font-size: 11px; color: var(--tl-text2); }
+
+  .tl-toggle-switch {
+    width: 44px; height: 24px;
+    background: var(--tl-border2);
+    border: none;
+    border-radius: 999px;
+    cursor: pointer;
+    position: relative;
+    transition: background 0.2s;
+    padding: 0;
+  }
+  .tl-toggle-on { background: var(--tl-green) !important; }
+  .tl-toggle-knob {
+    position: absolute;
+    left: 3px; top: 3px;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    transition: transform 0.2s;
+  }
+  .tl-knob-on { transform: translateX(20px); }
+
+  .tl-duration-chip {
+    padding: 9px 12px;
+    border-radius: var(--tl-radius-sm);
+    border: 1px solid var(--tl-border2);
+    background: var(--tl-accent-glow);
+    color: var(--tl-accent);
+    font-size: 13px;
+  }
+  .tl-duration-note { font-size: 11px; color: var(--tl-text2); margin-left: 6px; }
+
+  /* Spin animation */
+  .tl-spin {
+    display: inline-flex; align-items: center; justify-content: center;
+    animation: tlSpin 1s linear infinite;
+  }
+  @keyframes tlSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+  /* Chart card */
+  .tl-card-chart { gap: 12px; }
+  .tl-chart-header { display: flex; align-items: flex-start; justify-content: space-between; }
+  .tl-chart-sub { font-size: 11.5px; color: var(--tl-text2); margin-top: 3px; }
+  .tl-week-btn {
+    padding: 5px 12px;
+    border-radius: 999px;
+    background: var(--tl-accent);
+    color: #fff;
+    font-family: 'DM Sans', inherit;
+    font-size: 11.5px;
+    font-weight: 600;
+    border: none;
+    cursor: default;
+  }
+  .tl-chart-wrap { position: relative; height: 160px; }
+  .tl-chart-wrap canvas { display: block; }
+
+  /* ---------- TABLE ---------- */
+  .tl-table-section {
+    background: var(--tl-surface);
+    border: 1px solid var(--tl-border);
+    border-radius: var(--tl-radius);
+    overflow: hidden;
+    box-shadow: var(--tl-shadow-sm);
+  }
+  .tl-table-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 22px;
+    border-bottom: 1px solid var(--tl-border);
+  }
+  .tl-table-title { font-size: 14px; font-weight: 600; color: var(--tl-text); }
+  .tl-entry-count  { font-size: 12px; color: var(--tl-text2); }
+  .tl-table-scroll { overflow-x: auto; max-height: 400px; overflow-y: auto; }
+  .tl-table-scroll table { width: 100%; border-collapse: collapse; }
+  .tl-table-scroll thead th {
+    text-align: left;
+    padding: 11px 22px;
+    font-size: 10.5px;
+    font-weight: 700;
+    color: var(--tl-text3);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    border-bottom: 1px solid var(--tl-border);
+    background: var(--tl-surface2);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+  .tl-table-scroll tbody tr {
+    border-bottom: 1px solid var(--tl-border);
+    transition: background 0.15s;
+  }
+  .tl-table-scroll tbody tr:last-child { border-bottom: none; }
+  .tl-table-scroll tbody tr:hover { background: var(--tl-accent-glow); }
+  .tl-table-scroll tbody td {
+    padding: 13px 22px;
+    font-size: 13px;
+    color: var(--tl-text2);
+  }
+  .tl-td-primary { color: var(--tl-text) !important; font-weight: 600; }
+  .tl-mono { font-family: 'DM Mono', monospace; font-size: 12px; }
+  .tl-hours-val { color: var(--tl-green) !important; font-weight: 700; }
+  .tl-created-val { font-size: 11.5px !important; }
+
+  .tl-empty-row {
+    text-align: center;
+    color: var(--tl-text3) !important;
+    padding: 32px 22px !important;
+    font-size: 13px !important;
+    font-style: italic;
+  }
+
+  .tl-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+  .tl-tag-blue  { background: var(--tl-accent-glow); color: var(--tl-accent2); }
+  .tl-tag-green { background: var(--tl-green-dim);  color: var(--tl-green); }
+
+  .tl-del-btn {
+    width: 28px; height: 28px;
+    border-radius: 6px;
+    border: 1px solid var(--tl-border);
+    background: transparent;
+    color: var(--tl-text3);
+    cursor: pointer;
+    display: inline-grid;
+    place-items: center;
+    transition: all 0.15s;
+  }
+  .tl-del-btn:hover {
+    background: var(--tl-red-dim);
+    color: var(--tl-red);
+    border-color: rgba(220,38,38,0.3);
+  }
+
+  /* ---------- SCROLLBAR ---------- */
+  .tl-table-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(96,165,250,0.4) transparent;
+  }
+  .tl-table-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+  .tl-table-scroll::-webkit-scrollbar-thumb {
+    background: rgba(96,165,250,0.4);
+    border-radius: 999px;
+  }
+
+  /* ---------- DELETE MODAL ---------- */
+  .tl-modal-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.5);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 200;
+    padding: 1rem;
+    backdrop-filter: blur(2px);
+    animation: tlFadeIn 0.15s ease;
+  }
+  @keyframes tlFadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+  .tl-modal {
+    background: var(--tl-surface);
+    border: 1px solid var(--tl-border);
+    border-radius: var(--tl-radius);
+    box-shadow: 0 20px 40px rgba(0,0,0,0.25);
     max-width: 420px;
     width: 100%;
     overflow: hidden;
-    animation: modalSlideIn 0.3s ease-out;
+    animation: tlSlideIn 0.2s ease;
   }
+  @keyframes tlSlideIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
 
-  @keyframes modalSlideIn {
-    from {
-      opacity: 0;
-      transform: scale(0.95);
-    }
-    to {
-      opacity: 1;
-      transform: scale(1);
-    }
+  .tl-modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 24px 16px;
+    border-bottom: 1px solid var(--tl-border);
   }
-
-  :global(.dark) .modal-container {
-    background: #1f2937;
-    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+  .tl-modal-title { font-size: 16px; font-weight: 600; color: var(--tl-text); margin: 0; }
+  .tl-modal-close {
+    background: none; border: none;
+    font-size: 16px; color: var(--tl-text2);
+    cursor: pointer; width: 28px; height: 28px;
+    display: grid; place-items: center;
+    border-radius: 6px; transition: all 0.15s;
   }
+  .tl-modal-close:hover { background: var(--tl-surface2); color: var(--tl-text); }
 
-  .modal-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 1.5rem;
-    border-bottom: 1px solid #e5e7eb;
+  .tl-modal-body { padding: 20px 24px; }
+  .tl-modal-msg { font-size: 14px; color: var(--tl-text); font-weight: 500; margin: 0 0 16px; }
+
+  .tl-modal-preview {
+    background: var(--tl-surface2);
+    border: 1px solid var(--tl-border);
+    border-radius: var(--tl-radius-sm);
+    padding: 12px 16px;
+    margin-bottom: 14px;
   }
-
-  :global(.dark) .modal-header {
-    border-bottom-color: #374151;
+  .tl-preview-row {
+    display: flex; justify-content: space-between;
+    padding: 6px 0;
+    font-size: 13px;
+    border-bottom: 1px solid var(--tl-border);
   }
+  .tl-preview-row:last-child { border-bottom: none; }
+  .tl-preview-label { color: var(--tl-text2); }
+  .tl-preview-val   { color: var(--tl-text); font-weight: 500; }
+  .tl-preview-bold  { font-weight: 700; }
 
-  .modal-title {
-    font-size: 1.125rem;
-    font-weight: 600;
-    color: #1f2937;
+  .tl-modal-warning {
+    font-size: 12px; color: var(--tl-red);
+    padding-top: 12px;
+    border-top: 1px solid var(--tl-border);
     margin: 0;
   }
 
-  :global(.dark) .modal-title {
-    color: #f3f4f6;
+  .tl-modal-footer {
+    display: flex; gap: 10px;
+    padding: 16px 24px;
+    border-top: 1px solid var(--tl-border);
+    background: var(--tl-surface2);
   }
-
-  .modal-close-btn {
-    background: none;
-    border: none;
-    font-size: 1.5rem;
-    color: #6b7280;
-    cursor: pointer;
-    padding: 0;
-    width: 2rem;
-    height: 2rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 0.375rem;
+  .tl-modal-cancel, .tl-modal-delete {
+    flex: 1; padding: 10px 14px;
+    border-radius: var(--tl-radius-sm);
+    font-family: 'DM Sans', inherit;
+    font-size: 13.5px; font-weight: 600;
+    cursor: pointer; border: none;
     transition: all 0.2s;
   }
-
-  .modal-close-btn:hover {
-    background: #f3f4f6;
-    color: #1f2937;
+  .tl-modal-cancel {
+    background: var(--tl-border);
+    color: var(--tl-text);
   }
-
-  :global(.dark) .modal-close-btn:hover {
-    background: rgba(75, 85, 99, 0.5);
-    color: #f3f4f6;
+  .tl-modal-cancel:hover { background: var(--tl-border2); }
+  .tl-modal-delete {
+    background: var(--tl-red);
+    color: #fff;
+    box-shadow: 0 4px 12px var(--tl-red-dim);
   }
+  .tl-modal-delete:hover { opacity: 0.9; transform: translateY(-1px); }
 
-  .modal-content {
-    padding: 1.5rem;
+  /* ---------- RESPONSIVE ---------- */
+  @media (max-width: 1100px) {
+    .tl-three-col { grid-template-columns: 1fr 1fr; }
+    .tl-card-chart { grid-column: 1 / -1; }
   }
-
-  .modal-message {
-    font-size: 1rem;
-    color: #374151;
-    margin: 0 0 1.25rem 0;
-    font-weight: 500;
-  }
-
-  :global(.dark) .modal-message {
-    color: #d1d5db;
-  }
-
-  .modal-entry-preview {
-    background: #f9fafb;
-    border: 1px solid #e5e7eb;
-    border-radius: 0.5rem;
-    padding: 1rem;
-    margin: 1rem 0;
-  }
-
-  :global(.dark) .modal-entry-preview {
-    background: rgba(75, 85, 99, 0.2);
-    border-color: #374151;
-  }
-
-  .preview-row {
-    display: flex;
-    justify-content: space-between;
-    padding: 0.5rem 0;
-    font-size: 0.875rem;
-  }
-
-  .preview-row:not(:last-child) {
-    border-bottom: 1px solid #e5e7eb;
-  }
-
-  :global(.dark) .preview-row:not(:last-child) {
-    border-bottom-color: #374151;
-  }
-
-  .preview-label {
-    color: #6b7280;
-    font-weight: 500;
-  }
-
-  :global(.dark) .preview-label {
-    color: #9ca3af;
-  }
-
-  .preview-value {
-    color: #1f2937;
-    font-weight: 500;
-  }
-
-  :global(.dark) .preview-value {
-    color: #f3f4f6;
-  }
-
-  .modal-warning {
-    font-size: 0.75rem;
-    color: #dc2626;
-    margin: 1rem 0 0 0;
-    padding-top: 1rem;
-    border-top: 1px solid #e5e7eb;
-  }
-
-  :global(.dark) .modal-warning {
-    color: #fca5a5;
-    border-top-color: #374151;
-  }
-
-  .modal-footer {
-    display: flex;
-    gap: 0.75rem;
-    padding: 1rem 1.5rem;
-    border-top: 1px solid #e5e7eb;
-    background: #f9fafb;
-  }
-
-  :global(.dark) .modal-footer {
-    border-top-color: #374151;
-    background: rgba(75, 85, 99, 0.1);
-  }
-
-  .modal-cancel-btn,
-  .modal-delete-btn {
-    flex: 1;
-    padding: 0.75rem 1rem;
-    border-radius: 0.5rem;
-    font-weight: 600;
-    font-size: 0.875rem;
-    cursor: pointer;
-    transition: all 0.2s;
-    border: none;
-  }
-
-  .modal-cancel-btn {
-    background: #e5e7eb;
-    color: #1f2937;
-  }
-
-  .modal-cancel-btn:hover {
-    background: #d1d5db;
-  }
-
-  :global(.dark) .modal-cancel-btn {
-    background: rgba(107, 114, 128, 0.4);
-    color: #f3f4f6;
-  }
-
-  :global(.dark) .modal-cancel-btn:hover {
-    background: rgba(107, 114, 128, 0.6);
-  }
-
-  .modal-delete-btn {
-    background: #dc2626;
-    color: #ffffff;
-  }
-
-  .modal-delete-btn:hover {
-    background: #b91c1c;
-  }
-
-  .modal-delete-btn:active {
-    transform: scale(0.98);
-  }
-
-  :global(.dark) .modal-delete-btn {
-    background: rgba(239, 68, 68, 0.85);
-  }
-
-  :global(.dark) .modal-delete-btn:hover {
-    background: rgba(239, 68, 68, 1);
+  @media (max-width: 680px) {
+    .tl-page { padding: 18px 16px; gap: 16px; }
+    .tl-stat-grid { grid-template-columns: 1fr 1fr; }
+    .tl-three-col { grid-template-columns: 1fr; }
+    .tl-card-chart { grid-column: auto; }
   }
 </style>
