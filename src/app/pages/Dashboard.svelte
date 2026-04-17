@@ -403,141 +403,218 @@
       <div class="success-banner">{successMessage}</div>
     {/if}
 
-    <!-- Welcome banner -->
-    <div class="welcome-card">
-      <div>
-        <div class="welcome-name">Welcome back, {currentUser?.full_name || 'Intern'}!</div>
-        <div class="welcome-meta">
-          <span class="badge">Intern</span>
-          {#if readonlyDepartment}
-            <span class="welcome-info">• {normalizeDepartment(readonlyDepartment)}</span>
-          {/if}
-          {#if readonlyCourse}
-            <span class="welcome-info">• {readonlyCourse}</span>
-          {/if}
-          {#if readonlySchool}
-            <span class="welcome-info">• {readonlySchool}</span>
-          {/if}
+    {#if loading}
+      <!-- Skeleton Loading State -->
+      <!-- Welcome Banner Skeleton -->
+      <div class="welcome-card skeleton-welcome">
+        <div>
+          <div class="skeleton skeleton-text" style="width: 200px; height: 24px; margin-bottom: 8px;"></div>
+          <div class="skeleton skeleton-text" style="width: 300px; height: 16px;"></div>
+        </div>
+        <div class="view-toggle">
+          <div class="skeleton skeleton-text" style="width: 60px; height: 32px; border-radius: 20px;"></div>
+          <div class="skeleton skeleton-text" style="width: 80px; height: 32px; border-radius: 20px;"></div>
         </div>
       </div>
-      <div class="view-toggle">
-        <span class="view-label">View:</span>
-        <div class="toggle-group">
-          <button
-            class="toggle-btn"
-            class:active={progressMode === PROGRESS_MODES.APPROVED}
-            on:click={() => progressMode = PROGRESS_MODES.APPROVED}
-          >Approved</button>
-          <button
-            class="toggle-btn"
-            class:active={progressMode === PROGRESS_MODES.ALL}
-            on:click={() => progressMode = PROGRESS_MODES.ALL}
-          >All Requests</button>
-        </div>
-      </div>
-    </div>
 
-    <!-- Stat cards -->
-    <div class="stat-grid">
-      <div class="stat-card">
-        <div class="stat-top-bar bar-blue"></div>
-        <div class="stat-label">Hours Needed</div>
-        <div class="stat-icon icon-blue">🎯</div>
-        <div class="stat-value">{totalOjtHours || 0}</div>
-        <div class="stat-desc">total OJT hours</div>
+      <!-- Stat Cards Skeletons -->
+      <div class="stat-grid">
+        {#each [1,2,3,4] as _}
+          <div class="stat-card skeleton-stat">
+            <div class="skeleton skeleton-text" style="width: 60px; height: 12px; margin-bottom: 12px;"></div>
+            <div class="skeleton skeleton-text" style="width: 50px; height: 32px;"></div>
+            <div class="skeleton skeleton-text" style="width: 80px; height: 12px; margin-top: 8px;"></div>
+          </div>
+        {/each}
       </div>
-      <div class="stat-card">
-        <div class="stat-top-bar bar-green"></div>
-        <div class="stat-label">Hours Completed</div>
-        <div class="stat-icon icon-green">✅</div>
-        <div class="stat-value">{hoursCompleted}</div>
-        <div class="stat-desc">all rendered hours</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-top-bar bar-purple"></div>
-        <div class="stat-label">Hours Remaining</div>
-        <div class="stat-icon icon-purple">⏱️</div>
-        <div class="stat-value">{hoursRemaining}</div>
-        <div class="stat-desc">left to finish</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-top-bar bar-amber"></div>
-        <div class="stat-label">Working Days Needed</div>
-        <div class="stat-icon icon-amber">📅</div>
-        <div class="stat-value">{daysAndHoursNeeded}</div>
-        <div class="stat-desc">to complete OJT</div>
-      </div>
-    </div>
 
-    <!-- Mid card -->
-    <div class="mid-card">
-      <div class="mid-left">
-        <div class="mid-section-label">Estimated End Date</div>
-        <div class="mid-date">{computedEstimatedEndDate ? formatDateLong(computedEstimatedEndDate) : '—'}</div>
-        <div class="mid-meta">Start: {startDateDisplay} • Weekdays only (Mon–Fri)</div>
-      </div>
-      <div class="mid-right mid-divider">
-        <div class="progress-header">
-          <span class="progress-label">Progress</span>
-          <span class="progress-count">{hoursCompleted} / {totalOjtHours || 0} hrs</span>
+      <!-- Mid Card Skeleton -->
+      <div class="mid-card skeleton-mid">
+        <div class="mid-left">
+          <div class="skeleton skeleton-text" style="width: 100px; height: 11px; margin-bottom: 8px;"></div>
+          <div class="skeleton skeleton-text" style="width: 140px; height: 28px; margin-bottom: 6px;"></div>
+          <div class="skeleton skeleton-text" style="width: 250px; height: 14px;"></div>
         </div>
-        <div class="progress-bar-bg">
-          <div class="progress-bar-fill" style="width: {progressPercent}%;"></div>
+        <div class="mid-right mid-divider">
+          <div class="skeleton skeleton-text" style="width: 80px; height: 14px; margin-bottom: 8px;"></div>
+          <div class="skeleton skeleton-text" style="width: 100%; height: 6px; margin-bottom: 8px;"></div>
+          <div class="skeleton skeleton-text" style="width: 50px; height: 28px;"></div>
         </div>
-        <div class="progress-pct">{progressPercent}%</div>
       </div>
-    </div>
 
-    <!-- Bottom grid -->
-    <div class="bottom-grid">
-      <div class="bottom-card">
-        <div class="bottom-card-header">
-          <span class="bottom-card-title">Recent Activity</span>
-          <a href="/activity" class="view-all">View All →</a>
-        </div>
-        <div class="activity-list">
-          {#if Array.isArray(activityLogs) && activityLogs.length}
-            {#each activityLogs as item (item.id || item.activity_id || item.created_at || activityTitle(item))}
-              <div class="activity-item">
-                <div class="dot {item.type === 'logout' ? 'dot-green' : 'dot-blue'}"></div>
-                <div>
-                  <div class="activity-text">{activityTitle(item)}</div>
-                  <div class="activity-date">{activityWhen(item)}</div>
-                </div>
+      <!-- Bottom Grid Skeletons -->
+      <div class="bottom-grid">
+        <div class="bottom-card skeleton-bottom">
+          <div class="bottom-card-header">
+            <div class="skeleton skeleton-text" style="width: 100px; height: 16px;"></div>
+            <div class="skeleton skeleton-text" style="width: 60px; height: 14px;"></div>
+          </div>
+          {#each [1,2,3] as _}
+            <div class="activity-item">
+              <div class="skeleton" style="width: 8px; height: 8px; border-radius: 50%; margin-top: 4px;"></div>
+              <div style="flex: 1;">
+                <div class="skeleton skeleton-text" style="width: 120px; height: 16px; margin-bottom: 4px;"></div>
+                <div class="skeleton skeleton-text" style="width: 80px; height: 12px;"></div>
               </div>
-            {/each}
-          {:else}
-            <div class="empty-state">No recent activity yet.</div>
-          {/if}
+            </div>
+          {/each}
+        </div>
+
+        <div class="bottom-card skeleton-bottom">
+          <div class="bottom-card-header">
+            <div class="skeleton skeleton-text" style="width: 100px; height: 16px;"></div>
+            <div class="skeleton skeleton-text" style="width: 60px; height: 14px;"></div>
+          </div>
+          {#each [1,2] as _}
+            <div class="task-item">
+              <div style="flex: 1;">
+                <div class="skeleton skeleton-text" style="width: 140px; height: 16px; margin-bottom: 4px;"></div>
+                <div class="skeleton skeleton-text" style="width: 90px; height: 12px;"></div>
+              </div>
+              <div class="skeleton skeleton-text" style="width: 50px; height: 24px; border-radius: 6px;"></div>
+            </div>
+          {/each}
         </div>
       </div>
 
-      <div class="bottom-card">
-        <div class="bottom-card-header">
-          <span class="bottom-card-title">Upcoming Tasks</span>
-          <a href="/tasks" class="view-all">View All →</a>
+    {:else}
+      <!-- Actual Content (unchanged) -->
+      <!-- Welcome banner -->
+      <div class="welcome-card">
+        <div>
+          <div class="welcome-name">Welcome back, {currentUser?.full_name || 'Intern'}!</div>
+          <div class="welcome-meta">
+            <span class="badge">Intern</span>
+            {#if readonlyDepartment}
+              <span class="welcome-info">• {normalizeDepartment(readonlyDepartment)}</span>
+            {/if}
+            {#if readonlyCourse}
+              <span class="welcome-info">• {readonlyCourse}</span>
+            {/if}
+            {#if readonlySchool}
+              <span class="welcome-info">• {readonlySchool}</span>
+            {/if}
+          </div>
         </div>
-        <div class="tasks-list">
-          {#if Array.isArray(tasks) && tasks.length}
-            {#each tasks as task (task.task_id || task.id || task.due_date || task.title)}
-              <div class="task-item">
-                <div class="task-info">
-                  <div class="task-name">{String(task.title || task.name || 'Task')}</div>
-                  <div class="task-deadline">
-                    {task.due_date ? `Due: ${formatDateLong(String(task.due_date).slice(0, 10))}` : 'No due date'}
+        <div class="view-toggle">
+          <span class="view-label">View:</span>
+          <div class="toggle-group">
+            <button
+              class="toggle-btn"
+              class:active={progressMode === PROGRESS_MODES.APPROVED}
+              on:click={() => progressMode = PROGRESS_MODES.APPROVED}
+            >Approved</button>
+            <button
+              class="toggle-btn"
+              class:active={progressMode === PROGRESS_MODES.ALL}
+              on:click={() => progressMode = PROGRESS_MODES.ALL}
+            >All Requests</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stat cards -->
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-top-bar bar-blue"></div>
+          <div class="stat-label">Hours Needed</div>
+          <div class="stat-icon icon-blue">🎯</div>
+          <div class="stat-value">{totalOjtHours || 0}</div>
+          <div class="stat-desc">total OJT hours</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-top-bar bar-green"></div>
+          <div class="stat-label">Hours Completed</div>
+          <div class="stat-icon icon-green">✅</div>
+          <div class="stat-value">{hoursCompleted}</div>
+          <div class="stat-desc">all rendered hours</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-top-bar bar-purple"></div>
+          <div class="stat-label">Hours Remaining</div>
+          <div class="stat-icon icon-purple">⏱️</div>
+          <div class="stat-value">{hoursRemaining}</div>
+          <div class="stat-desc">left to finish</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-top-bar bar-amber"></div>
+          <div class="stat-label">Working Days Needed</div>
+          <div class="stat-icon icon-amber">📅</div>
+          <div class="stat-value">{daysAndHoursNeeded}</div>
+          <div class="stat-desc">to complete OJT</div>
+        </div>
+      </div>
+
+      <!-- Mid card -->
+      <div class="mid-card">
+        <div class="mid-left">
+          <div class="mid-section-label">Estimated End Date</div>
+          <div class="mid-date">{computedEstimatedEndDate ? formatDateLong(computedEstimatedEndDate) : '—'}</div>
+          <div class="mid-meta">Start: {startDateDisplay} • Weekdays only (Mon–Fri)</div>
+        </div>
+        <div class="mid-right mid-divider">
+          <div class="progress-header">
+            <span class="progress-label">Progress</span>
+            <span class="progress-count">{hoursCompleted} / {totalOjtHours || 0} hrs</span>
+          </div>
+          <div class="progress-bar-bg">
+            <div class="progress-bar-fill" style="width: {progressPercent}%;"></div>
+          </div>
+          <div class="progress-pct">{progressPercent}%</div>
+        </div>
+      </div>
+
+      <!-- Bottom grid -->
+      <div class="bottom-grid">
+        <div class="bottom-card">
+          <div class="bottom-card-header">
+            <span class="bottom-card-title">Recent Activity</span>
+            <a href="/activity" class="view-all">View All →</a>
+          </div>
+          <div class="activity-list">
+            {#if Array.isArray(activityLogs) && activityLogs.length}
+              {#each activityLogs as item (item.id || item.activity_id || item.created_at || activityTitle(item))}
+                <div class="activity-item">
+                  <div class="dot {item.type === 'logout' ? 'dot-green' : 'dot-blue'}"></div>
+                  <div>
+                    <div class="activity-text">{activityTitle(item)}</div>
+                    <div class="activity-date">{activityWhen(item)}</div>
                   </div>
                 </div>
-                <span class="priority-badge priority-{String(task.priority || 'medium').toLowerCase()}">
-                  {String(task.priority || 'Medium')}
-                </span>
-              </div>
-            {/each}
-          {:else}
-            <div class="empty-state">No upcoming tasks yet.</div>
-          {/if}
+              {/each}
+            {:else}
+              <div class="empty-state">No recent activity yet.</div>
+            {/if}
+          </div>
+        </div>
+
+        <div class="bottom-card">
+          <div class="bottom-card-header">
+            <span class="bottom-card-title">Upcoming Tasks</span>
+            <a href="/tasks" class="view-all">View All →</a>
+          </div>
+          <div class="tasks-list">
+            {#if Array.isArray(tasks) && tasks.length}
+              {#each tasks as task (task.task_id || task.id || task.due_date || task.title)}
+                <div class="task-item">
+                  <div class="task-info">
+                    <div class="task-name">{String(task.title || task.name || 'Task')}</div>
+                    <div class="task-deadline">
+                      {task.due_date ? `Due: ${formatDateLong(String(task.due_date).slice(0, 10))}` : 'No due date'}
+                    </div>
+                  </div>
+                  <span class="priority-badge priority-{String(task.priority || 'medium').toLowerCase()}">
+                    {String(task.priority || 'Medium')}
+                  </span>
+                </div>
+              {/each}
+            {:else}
+              <div class="empty-state">No upcoming tasks yet.</div>
+            {/if}
+          </div>
         </div>
       </div>
-    </div>
+    {/if}
   </div>
 </div>
 
@@ -558,7 +635,7 @@
 
   /* Dark mode styles - triggered by parent .dark class */
   :global(.dark) .dashboard-root {
-    background: #0d1117;
+    background: #0f1929;
     color: #e2e8f0;
   }
 
@@ -991,6 +1068,91 @@
   }
   :global(.dark) .empty-state {
     color: #4a5568;
+  }
+
+  /* ===== Skeleton Loading Styles ===== */
+  .skeleton {
+    position: relative;
+    overflow: hidden;
+    background: rgba(0, 0, 0, 0.08);
+    border-radius: 4px;
+  }
+  :global(.dark) .skeleton {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .skeleton::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    transform: translateX(-100%);
+    background-image: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0) 0,
+      rgba(255, 255, 255, 0.3) 20%,
+      rgba(255, 255, 255, 0.6) 60%,
+      rgba(255, 255, 255, 0)
+    );
+    animation: shimmer 1.5s infinite;
+  }
+  :global(.dark) .skeleton::after {
+    background-image: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0) 0,
+      rgba(255, 255, 255, 0.05) 20%,
+      rgba(255, 255, 255, 0.1) 60%,
+      rgba(255, 255, 255, 0)
+    );
+  }
+
+  @keyframes shimmer {
+    100% {
+      transform: translateX(100%);
+    }
+  }
+
+  .skeleton-text {
+    background: rgba(0, 0, 0, 0.08);
+    border-radius: 6px;
+    height: 1em;
+  }
+  :global(.dark) .skeleton-text {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .skeleton-welcome {
+    background: #2355e8;
+  }
+  :global(.dark) .skeleton-welcome {
+    background: #1a2a5e;
+    border: 0.5px solid #2a3a6e;
+  }
+
+  .skeleton-stat {
+    background: #ffffff;
+  }
+  :global(.dark) .skeleton-stat {
+    background: #161b2e;
+    border-color: #2a3050;
+  }
+
+  .skeleton-mid {
+    background: #ffffff;
+  }
+  :global(.dark) .skeleton-mid {
+    background: #161b2e;
+    border-color: #2a3050;
+  }
+
+  .skeleton-bottom {
+    background: #ffffff;
+  }
+  :global(.dark) .skeleton-bottom {
+    background: #161b2e;
+    border-color: #2a3050;
   }
 
   /* Responsive */
