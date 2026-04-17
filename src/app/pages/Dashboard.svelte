@@ -423,13 +423,13 @@
 
       <div class="dash-stat-grid">
         {#each [1, 2, 3, 4] as _}
-          <div class="dash-stat-card skeleton-card">
-            <div class="dash-stat-top">
-              <div class="skeleton skeleton-text" style="width: 90px; height: 12px;"></div>
-              <div class="skeleton" style="width: 36px; height: 36px; border-radius: 10px;"></div>
+          <div class="dash-stat-card skeleton-stat">
+            <div class="skeleton skeleton-icon"></div>
+            <div class="dash-stat-body">
+              <div class="skeleton-text" style="width: 80px; height: 11px;"></div>
+              <div class="skeleton-text" style="width: 60px; height: 24px; margin: 8px 0 4px;"></div>
+              <div class="skeleton-text" style="width: 100px; height: 12px;"></div>
             </div>
-            <div class="skeleton skeleton-text" style="width: 92px; height: 30px;"></div>
-            <div class="skeleton skeleton-text" style="width: 110px; height: 12px;"></div>
           </div>
         {/each}
       </div>
@@ -996,7 +996,7 @@
     padding: 22px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 14px;
   }
 
   .dash-end-value {
@@ -1107,7 +1107,7 @@
   }
 
   .dash-panel {
-    min-height: 180px;
+    min-height: 160px;
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -1373,6 +1373,16 @@
   :global(.dark) .skeleton-text {
     background: rgba(255, 255, 255, 0.06);
   }
+
+  /* Additional skeleton helpers to match TimeLog sizing */
+  .skeleton-icon { width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0; }
+  .skeleton-icon-sm { width: 28px; height: 28px; border-radius: 6px; }
+  .skeleton-field { height: 44px; border-radius: 8px; margin: 4px 0; }
+  .skeleton-btn { height: 44px; border-radius: 8px; margin-top: 8px; }
+  .skeleton-chart { height: 160px; border-radius: 8px; margin-top: 8px; }
+  .skeleton-progress-track { height: 8px; border-radius: 999px; margin: 12px 0 8px; }
+  .skeleton-stat .dash-stat-body { flex: 1; }
+  .skeleton-stat { display: flex; align-items: flex-start; gap: 14px; }
 
   .dash-banner-skeleton {
     background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 60%, #3b82f6 100%);
