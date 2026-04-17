@@ -745,8 +745,8 @@
 
   <!-- Upload Modal -->
   {#if showUploadModal}
-    <div class="modal-overlay" on:click={() => (showUploadModal = false)}>
-      <div class="modal" on:click={(e) => e.stopPropagation()}>
+    <div class="modal-overlay" role="button" tabindex="0" on:click={() => (showUploadModal = false)} on:keydown={(e) => (e.key === 'Enter' || e.key === ' ' ? (showUploadModal = false) : null)} aria-label="Close dialog">
+      <div class="modal" role="dialog" aria-modal="true" tabindex="-1" on:click={(e) => e.stopPropagation()} on:keydown={(e) => e.key === 'Escape' ? (showUploadModal = false) : null}>
         <div class="modal-header">
           <h2>Upload Document</h2>
           <button class="close-btn" on:click={() => (showUploadModal = false)}>×</button>
@@ -755,7 +755,7 @@
         <div class="modal-body">
           <!-- Folder Selection Tabs -->
           <div class="form-group">
-            <label>Select Folder</label>
+            <div class="form-label">Select Folder</div>
             <div class="folder-tabs">
               <button
                 class="folder-tab"
@@ -780,7 +780,7 @@
           </div>
 
           <!-- Upload Area -->
-          <div class="upload-area">
+            <div class="upload-area">
             <input
               type="file"
               id="fileInput"
@@ -806,8 +806,8 @@
 
   <!-- Upload Preview Modal -->
   {#if showUploadPreview && pendingFilePreview}
-    <div class="modal-overlay" on:click={() => cancelUpload()}>
-      <div class="modal" on:click={(e) => e.stopPropagation()}>
+    <div class="modal-overlay" role="button" tabindex="0" on:click={() => cancelUpload()} on:keydown={(e) => (e.key === 'Enter' || e.key === ' ' ? cancelUpload() : null)} aria-label="Close dialog">
+      <div class="modal" role="dialog" aria-modal="true" tabindex="-1" on:click={(e) => e.stopPropagation()} on:keydown={(e) => e.key === 'Escape' ? cancelUpload() : null}>
         <div class="modal-header">
           <h2>Review Document</h2>
           <button class="close-btn" on:click={() => cancelUpload()}>×</button>
@@ -825,17 +825,17 @@
 
             <div class="preview-details">
               <div class="preview-section">
-                <label for="preview-name">File Name</label>
+                <div class="form-label">File Name</div>
                 <p class="preview-value" id="preview-name">{pendingFilePreview.name}</p>
               </div>
 
               <div class="preview-section">
-                <label for="preview-size">File Size</label>
+                <div class="form-label">File Size</div>
                 <p class="preview-value" id="preview-size">{pendingFilePreview.size}</p>
               </div>
 
               <div class="preview-section">
-                <label for="preview-folder">Upload Folder</label>
+                <div class="form-label">Upload Folder</div>
                 <p class="preview-value" id="preview-folder">
                   {#if pendingFilePreview.folder === '/'}
                     All Documents
@@ -872,8 +872,8 @@
 
   <!-- Link Modal -->
   {#if showLinkModal}
-    <div class="modal-overlay" on:click={() => (showLinkModal = false)}>
-      <div class="modal" on:click={(e) => e.stopPropagation()}>
+    <div class="modal-overlay" role="button" tabindex="0" on:click={() => (showLinkModal = false)} on:keydown={(e) => (e.key === 'Enter' || e.key === ' ' ? (showLinkModal = false) : null)} aria-label="Close dialog">
+      <div class="modal" role="dialog" aria-modal="true" tabindex="-1" on:click={(e) => e.stopPropagation()} on:keydown={(e) => e.key === 'Escape' ? (showLinkModal = false) : null}>
         <div class="modal-header">
           <h2>Add Link</h2>
           <button class="close-btn" on:click={() => (showLinkModal = false)}>×</button>
@@ -882,7 +882,7 @@
         <div class="modal-body">
           <!-- Folder Selection Tabs -->
           <div class="form-group">
-            <label>Select Folder</label>
+            <div class="form-label">Select Folder</div>
             <div class="folder-tabs">
               <button
                 class="folder-tab"
@@ -940,8 +940,8 @@
 
   <!-- Create Folder Modal -->
   {#if showCreateFolderModal}
-    <div class="modal-overlay" on:click={() => (showCreateFolderModal = false)}>
-      <div class="modal" on:click={(e) => e.stopPropagation()}>
+    <div class="modal-overlay" role="button" tabindex="0" on:click={() => (showCreateFolderModal = false)} on:keydown={(e) => (e.key === 'Enter' || e.key === ' ' ? (showCreateFolderModal = false) : null)} aria-label="Close dialog">    
+      <div class="modal" role="dialog" aria-modal="true" tabindex="-1" on:click={(e) => e.stopPropagation()} on:keydown={(e) => e.key === 'Escape' ? (showCreateFolderModal = false) : null}>
         <div class="modal-header">
           <h2>Create Folder</h2>
           <button class="close-btn" on:click={() => (showCreateFolderModal = false)}>×</button>
@@ -978,8 +978,8 @@
 
   <!-- Rename Folder Modal -->
   {#if showRenameFolderModal && folderToRename}
-    <div class="modal-overlay" on:click={() => (showRenameFolderModal = false)}>
-      <div class="modal" on:click={(e) => e.stopPropagation()}>
+    <div class="modal-overlay" role="button" tabindex="0" on:click={() => (showRenameFolderModal = false)} on:keydown={(e) => (e.key === 'Enter' || e.key === ' ' ? (showRenameFolderModal = false) : null)} aria-label="Close dialog">    
+      <div class="modal" role="dialog" aria-modal="true" tabindex="-1" on:click={(e) => e.stopPropagation()} on:keydown={(e) => e.key === 'Escape' ? (showRenameFolderModal = false) : null}>
         <div class="modal-header">
           <h2>Rename Folder</h2>
           <button class="close-btn" on:click={() => (showRenameFolderModal = false)}>×</button>
@@ -1011,8 +1011,8 @@
 
   <!-- Delete Folder Confirmation Modal -->
   {#if showDeleteFolderConfirm && folderToDelete}
-    <div class="modal-overlay" on:click={() => (showDeleteFolderConfirm = false)}>
-      <div class="modal" on:click={(e) => e.stopPropagation()}>
+    <div class="modal-overlay" role="button" tabindex="0" on:click={() => (showDeleteFolderConfirm = false)} on:keydown={(e) => (e.key === 'Enter' || e.key === ' ' ? (showDeleteFolderConfirm = false) : null)} aria-label="Close dialog">
+      <div class="modal" role="dialog" aria-modal="true" tabindex="-1" on:click={(e) => e.stopPropagation()} on:keydown={(e) => e.key === 'Escape' ? (showDeleteFolderConfirm = false) : null}>
         <div class="modal-header">
           <h2>Delete Folder</h2>
           <button class="close-btn" on:click={() => (showDeleteFolderConfirm = false)}>×</button>
@@ -1037,8 +1037,8 @@
 
   <!-- Share Modal -->
   {#if showShareModal && selectedDocForShare}
-    <div class="modal-overlay" on:click={() => (showShareModal = false)}>
-      <div class="modal" on:click={(e) => e.stopPropagation()}>
+    <div class="modal-overlay" role="button" tabindex="0" on:click={() => (showShareModal = false)} on:keydown={(e) => (e.key === 'Enter' || e.key === ' ' ? (showShareModal = false) : null)} aria-label="Close dialog">
+      <div class="modal" role="dialog" aria-modal="true" tabindex="-1" on:click={(e) => e.stopPropagation()} on:keydown={(e) => e.key === 'Escape' ? (showShareModal = false) : null}>
         <div class="modal-header">
           <h2>Share "{selectedDocForShare.name}"</h2>
           <button class="close-btn" on:click={() => (showShareModal = false)}>×</button>
@@ -1047,7 +1047,7 @@
         <div class="modal-body">
           <!-- Shareable Link -->
           <div class="form-group">
-            <label>Shareable Link</label>
+            <div class="form-label">Shareable Link</div>
             <div class="share-link-box">
               <input
                 type="text"

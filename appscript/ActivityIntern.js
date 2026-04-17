@@ -1,4 +1,4 @@
-var ACTIVITY_WORKLOG_HEADERS_ = ['task_id', 'user_id', 'task', 'notes', 'learnings', 'date', 'created_at', 'created_by', 'updated_by', 'status'];
+var ACTIVITY_WORKLOG_HEADERS_ = ['task_id', 'user_id', 'task', 'notes', 'learnings', 'date', 'status', 'created_at', 'created_by', 'updated_by'];
 
 // Save a worklog to the 'activity_worklogs' sheet
 function addActivityWorklog(payload) {
@@ -27,8 +27,7 @@ function addActivityWorklog(payload) {
 		payload.date || '',
 		payload.created_at || now.toISOString(),
 		payload.created_by || '',
-		payload.updated_by || '',
-		String(payload.status || 'Pending')
+		payload.updated_by || ''
 	];
 	sheet.appendRow(row);
 	return { ok: true, task_id: uniqueKey };
