@@ -251,7 +251,7 @@
   $: progressPercent = totalOjtHours > 0 ? Math.min(100, Math.round((hoursCompleted / totalOjtHours) * 100)) : 0;
   $: startDateDisplay = formStartDate ? formatDateLong(formStartDate) : 'Not set yet';
   $: estimatedEndDateDisplay = computedEstimatedEndDate ? formatDateLong(computedEstimatedEndDate) : 'Not available yet';
-  $: progressFooterRemaining = `${hoursRemaining}h remaining`;
+  $: progressFooterRemaining = `${Number(hoursRemaining || 0).toFixed(1)}h remaining`;
 
   function normalizeActivityDotKind(item) {
     const type = String(item?.type || item?.action || item?.status || '').toLowerCase();
@@ -546,7 +546,7 @@
           </div>
           <div class="dash-stat-body">
             <div class="dash-stat-label">Hours Completed</div>
-            <div class="dash-stat-value">{hoursCompleted}</div>
+            <div class="dash-stat-value">{Number(hoursCompleted || 0).toFixed(1)}</div>
             <div class="dash-stat-sub">all rendered hours</div>
           </div>
         </div>
@@ -557,7 +557,7 @@
           </div>
           <div class="dash-stat-body">
             <div class="dash-stat-label">Hours Remaining</div>
-            <div class="dash-stat-value">{hoursRemaining}</div>
+            <div class="dash-stat-value">{Number(hoursRemaining || 0).toFixed(1)}</div>
             <div class="dash-stat-sub">left to finish</div>
           </div>
         </div>
@@ -584,7 +584,7 @@
         <div class="dash-card dash-progress-card">
           <div class="dash-progress-top">
             <span class="dash-progress-label">Progress</span>
-            <span class="dash-progress-count">{hoursCompleted} / {totalOjtHours || 0} hrs</span>
+            <span class="dash-progress-count">{Number(hoursCompleted || 0).toFixed(1)} / {totalOjtHours || 0} hrs</span>
           </div>
           <div class="dash-progress-track">
             <div class="dash-progress-fill" style="width: {Math.max(progressPercent, 0.5)}%;"></div>

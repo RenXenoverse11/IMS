@@ -576,8 +576,8 @@
     return addWorkingDays(start, Math.max(0, projectedWorkingDays - 1));
   })();
   $: statCards = [
-    { label: 'Total Hours Required', value: `${requiredHours}h`, sub: 'Per internship agreement', icon: Target, tone: 'primary' },
-    { label: 'Hours Completed', value: `${completedHours}h`, sub: `${remainingHours}h remaining`, icon: CheckCircle2, tone: 'success' },
+    { label: 'Total Hours Required', value: `${Number(requiredHours || 0).toFixed(1)}h`, sub: 'Per internship agreement', icon: Target, tone: 'primary' },
+    { label: 'Hours Completed', value: `${Number(completedHours || 0).toFixed(1)}h`, sub: `${Number(remainingHours || 0).toFixed(1)}h remaining`, icon: CheckCircle2, tone: 'success' },
     { label: 'Avg. Daily Hours', value: `${AVERAGE_DAILY_HOURS}h`, sub: 'Based on schedule', icon: Clock, tone: 'info' },
     { label: 'Est. Completion', value: formatShortDate(estimatedDate), sub: String(estimatedDate.getFullYear()), icon: Calendar, tone: 'forecast' },
   ];
