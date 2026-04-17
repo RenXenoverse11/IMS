@@ -6,7 +6,7 @@
     getStudentDashboard,
   } from '../lib/auth.js';
   import { Target, CheckCircle, Hourglass, CalendarDays, ClipboardList, ArrowRight } from 'lucide-svelte';
-
+  
   const PROGRESS_MODES = {
     APPROVED: 'APPROVED',
     ALL: 'ALL',
@@ -25,7 +25,6 @@
   let successMessage = '';
 
   let progressMode = PROGRESS_MODES.APPROVED;
-
   let profile = null;
   let timeLogs = [];
   let totalCompletedHours = 0;
@@ -200,7 +199,6 @@
 
     let remaining = Math.max(0, Math.trunc(Number(workingDays || 0)));
     const cursor = new Date(start);
-
     while (isWeekend(cursor)) {
       cursor.setDate(cursor.getDate() + 1);
     }
@@ -388,7 +386,7 @@
       loadDashboard();
     }
   });
-
+  
   onDestroy(() => {
     if (typeof unsubscribeAuth === 'function') unsubscribeAuth();
     document.removeEventListener('visibilitychange', onVisibilityChange);
@@ -1104,6 +1102,7 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 14px;
+    align-items: start; /* Added this para hindi mag-stretch */
   }
 
   .dash-panel {
@@ -1374,7 +1373,6 @@
     background: rgba(255, 255, 255, 0.06);
   }
 
-  /* Additional skeleton helpers to match TimeLog sizing */
   .skeleton-icon { width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0; }
   .skeleton-icon-sm { width: 28px; height: 28px; border-radius: 6px; }
   .skeleton-field { height: 44px; border-radius: 8px; margin: 4px 0; }
