@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { Upload, Link2, Folder, FolderOpen, FileText, Download, Trash2, Eye, Plus, Search, Share2, Copy, X, Check, ChevronRight, Loader2 } from 'lucide-svelte';
+  import { Upload, Link2, Folder, FolderOpen, FileText, Download, Trash2, Eye, Plus, Search, Share2, Copy, X, Check, ChevronRight, Home } from 'lucide-svelte';
   import * as authApi from '../lib/auth.js';
 
   // Folder structure
@@ -8,7 +8,7 @@
     root: {
       name: 'My Documents',
       path: '/',
-      subfolders: [],
+      subfolders: ['Legal', 'Meetings', 'Work', 'Reference'],
     },
   };
 
@@ -17,6 +17,7 @@
   let userId = null;
 
   let searchQuery = '';
+  let selectedCategory = 'All';
   let currentFolder = '/';
   let showUploadModal = false;
   let showLinkModal = false;
@@ -30,7 +31,6 @@
   let copiedId = null;
   let uploadToFolder = '/';
   let newFolderName = '';
-  let isCreatingFolder = false;
   let showRenameFolderModal = false;
   let folderToRename = null;
   let renameFolderInputValue = '';
@@ -39,23 +39,19 @@
   let showUploadPreview = false;
   let pendingFile = null;
   let pendingFilePreview = null;
-  let isUploading = false;
   let actionMessage = '';
   let actionMessageType = 'success';
   let actionMessageTimer = null;
-  let isAddingLink = false;
-  
-  // Group Workspace State
-  let currentUser = null;
-  let isSupervisor = false;
-  let isGroupView = true;
 
   const AUTH_SESSION_STORAGE_KEY = 'ims-auth-session-user';
 
+  const categories = ['All', 'Legal', 'Reference', 'Meetings', 'Work', 'Other'];
+
   $: filteredDocuments = documents.filter((doc) => {
     const matchesSearch = doc.name.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCategory = selectedCategory === 'All' || doc.category === selectedCategory;
     const matchesFolder = currentFolder === '/' || doc.folder === currentFolder;
-    return matchesSearch && matchesFolder;
+    return matchesSearch && matchesCategory && matchesFolder;
   });
 
   $: folderDocuments = documents.filter(doc => doc.folder === currentFolder);
@@ -110,6 +106,7 @@
       user_id: String(doc.user_id || doc.userId || ''),
       name: String(doc.name || ''),
       folder: String(doc.folder || '/'),
+      category: String(doc.category || 'Other'),
       type: String(doc.type || (isLink ? 'link' : 'file')),
       size: String(doc.size || ''),
       url: String(doc.url || ''),
@@ -158,35 +155,6 @@
     }, 3200);
   }
 
-  function getDefaultUploadFolder_() {
-    const firstFolder = folderStructure.root.subfolders[0];
-    return firstFolder ? '/' + firstFolder : '/';
-  }
-
-  function openUploadModal_() {
-    if (folderStructure.root.subfolders.length === 0) {
-      showActionMessage_('Create a folder first before uploading.');
-      showCreateFolderModal = true;
-      return;
-    }
-    if (!uploadToFolder || uploadToFolder === '/') {
-      uploadToFolder = getDefaultUploadFolder_();
-    }
-    showUploadModal = true;
-  }
-
-  function openLinkModal_() {
-    if (folderStructure.root.subfolders.length === 0) {
-      showActionMessage_('Create a folder first before adding links.');
-      showCreateFolderModal = true;
-      return;
-    }
-    if (!uploadToFolder || uploadToFolder === '/') {
-      uploadToFolder = getDefaultUploadFolder_();
-    }
-    showLinkModal = true;
-  }
-
   // API Call helper
   function callBackend_(action, payload) {
     return new Promise((resolve, reject) => {
@@ -226,51 +194,6 @@
     }
   }
 
-  async function loadFolders_() {
-    try {
-      const response = await callBackend_('get_document_folders', { user_id: userId });
-      if (response?.ok && Array.isArray(response.folders) && response.folders.length > 0) {
-        folderStructure.root.subfolders = [...response.folders];
-      } else {
-        folderStructure.root.subfolders = [...folderStructure.root.subfolders];
-      }
-    } catch (err) {
-      console.error('Error loading folders:', err);
-    } finally {
-      if (!uploadToFolder || uploadToFolder === '/') {
-        uploadToFolder = getDefaultUploadFolder_();
-      }
-    }
-  }
-
-  async function loadInitialData_() {
-    try {
-      isLoading = true;
-      const response = await callBackend_('get_documents_bootstrap_data', { user_id: userId });
-      
-      if (response?.ok) {
-        // Update folders
-        if (Array.isArray(response.folders)) {
-          folderStructure.root.subfolders = [...response.folders];
-        }
-        
-        // Update documents
-        documents = Array.isArray(response.documents)
-          ? response.documents.map(mapDocumentFromApi_)
-          : [];
-      } else {
-        console.error('Failed to load initial docs data:', response?.error);
-      }
-    } catch (err) {
-      console.error('Error in bootstrap loading:', err);
-    } finally {
-      isLoading = false;
-      if (!uploadToFolder || uploadToFolder === '/') {
-        uploadToFolder = getDefaultUploadFolder_();
-      }
-    }
-  }
-
   async function handleFileUpload(event) {
     const files = event.target.files;
     if (files && files.length > 0) {
@@ -283,6 +206,7 @@
       // Create preview without saving to database yet
       pendingFile = {
         name: file.name,
+        category: 'Other',
         type: file.type.includes('pdf') ? 'pdf' : 'file',
         size: (file.size / 1024 / 1024).toFixed(1) + ' MB',
         folder: uploadToFolder,
@@ -296,28 +220,19 @@
       };
       
       showUploadPreview = true;
-      showUploadModal = false;
     }
   }
 
   async function confirmUpload() {
-    if (!pendingFile || isUploading) return;
-    if (folderStructure.root.subfolders.length === 0) {
-      alert('Please create a folder first before uploading.');
-      return;
-    }
-    if (folderStructure.root.subfolders.length > 0 && uploadToFolder === '/') {
-      alert('Please select a folder before uploading.');
-      return;
-    }
+    if (!pendingFile) return;
     
     try {
-      isUploading = true;
       const fileDataBase64 = await fileToBase64_(pendingFile.rawFile);
 
       const response = await callBackend_('upload_document', {
         user_id: userId,
         name: pendingFile.name,
+        category: pendingFile.category,
         type: pendingFile.type,
         size: pendingFile.size,
         folder: pendingFile.folder,
@@ -332,7 +247,7 @@
         await loadDocuments_();
         showUploadModal = false;
         showUploadPreview = false;
-        uploadToFolder = getDefaultUploadFolder_();
+        uploadToFolder = '/';
         pendingFile = null;
         pendingFilePreview = null;
         showActionMessage_('Document uploaded and saved to database.');
@@ -344,32 +259,17 @@
       console.error('Upload error:', err);
       showActionMessage_('Upload failed. Please try again.', 'error');
       alert('Error uploading document');
-    } finally {
-      isUploading = false;
     }
   }
 
   function cancelUpload() {
-    if (isUploading) return;
     showUploadPreview = false;
-    showUploadModal = true;
     pendingFile = null;
     pendingFilePreview = null;
   }
 
   async function addLink() {
     if (newLinkName.trim() && newLinkUrl.trim()) {
-      if (isAddingLink) return;
-
-      if (folderStructure.root.subfolders.length === 0) {
-        alert('Please create a folder first before adding a link.');
-        return;
-      }
-      if (folderStructure.root.subfolders.length > 0 && uploadToFolder === '/') {
-        alert('Please select a folder before adding a link.');
-        return;
-      }
-
       let normalizedUrl = '';
       try {
         normalizedUrl = new URL(newLinkUrl.trim()).toString();
@@ -379,10 +279,10 @@
       }
 
       try {
-        isAddingLink = true;
         const response = await callBackend_('upload_document', {
           user_id: userId,
           name: newLinkName.trim(),
+          category: 'Meetings',
           type: 'link',
           url: normalizedUrl,
           folder: uploadToFolder,
@@ -395,7 +295,7 @@
           newLinkName = '';
           newLinkUrl = '';
           showLinkModal = false;
-          uploadToFolder = getDefaultUploadFolder_();
+          uploadToFolder = '/';
           showActionMessage_('Link uploaded and saved to database.');
         } else {
           showActionMessage_('Add link failed: ' + (response.error || 'Unknown error.'), 'error');
@@ -405,8 +305,6 @@
         console.error('Link error:', err);
         showActionMessage_('Add link failed. Please try again.', 'error');
         alert('Error adding link');
-      } finally {
-        isAddingLink = false;
       }
     }
   }
@@ -552,21 +450,17 @@
     return '';
   }
 
-  function openDocument(doc, event) {
-    if (event) {
-      event.preventDefault();
-      event.stopPropagation();
-    }
-    
+  function openDocument(doc) {
     const targetUrl = resolveDocumentUrl_(doc);
     if (!targetUrl) {
       showActionMessage_('This document has no preview link yet.', 'error');
       return;
     }
 
-    const openedWindow = window.open(targetUrl, '_blank');
+    const openedWindow = window.open(targetUrl, '_blank', 'noopener,noreferrer');
     if (!openedWindow) {
-      showActionMessage_('Popup blocked. Please allow popups for this site.', 'error');
+      showActionMessage_('Popup blocked. Opening document in this tab...', 'success');
+      window.location.href = targetUrl;
     }
   }
 
@@ -666,20 +560,15 @@
   onMount(async () => {
     // Resolve authenticated user id first to keep document records consistent.
     try {
-      const authUser = authApi.getCurrentUser() || (await authApi.restoreAuthSession());
-      currentUser = authUser;
       userId = resolveCurrentUserId_();
-      
       if (!userId) {
         console.error('Unable to resolve authenticated user id for documents.');
         isLoading = false;
         return;
       }
 
-      isSupervisor = currentUser?.role === 'Supervisor';
-
-      // Load group-based data in a single optimized bootstrap trip
-      await loadInitialData_();
+      // Load documents from backend
+      await loadDocuments_();
     } catch (err) {
       console.error('Error initializing documents:', err);
       showActionMessage_('Unable to load documents. Please refresh.', 'error');
@@ -697,7 +586,7 @@
       <div class="page-subtitle">Upload and manage your important documents, records, and links</div>
     </div>
     <div class="action-bar">
-      <button class="btn btn-ghost" on:click={openLinkModal_}>
+      <button class="btn btn-ghost" on:click={() => (showLinkModal = true)}>
         <Link2 size={14} />
         <span>Add Link</span>
       </button>
@@ -705,7 +594,7 @@
         <Folder size={14} />
         <span>Create Folder</span>
       </button>
-      <button class="btn btn-primary" on:click={openUploadModal_}>
+      <button class="btn btn-primary" on:click={() => (showUploadModal = true)}>
         <Upload size={14} />
         <span>Upload Document</span>
       </button>
@@ -719,208 +608,191 @@
       </div>
     {/if}
 
-    {#if isLoading}
-      <!-- Skeleton Stats -->
-      <div class="skeleton-stats">
-        <div class="skeleton skeleton-stat-card"></div>
-        <div class="skeleton skeleton-stat-card"></div>
-        <div class="skeleton skeleton-stat-card"></div>
-        <div class="skeleton skeleton-stat-card"></div>
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-label">Total Folders</div>
+        <div class="stat-value">{folderStructure.root.subfolders.length}</div>
+        <div class="stat-sub">Organized categories</div>
       </div>
+      <div class="stat-card">
+        <div class="stat-label">Your Documents</div>
+        <div class="stat-value">{documents.filter((doc) => !doc.isLink).length}</div>
+        <div class="stat-sub">Files uploaded</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Shared Links</div>
+        <div class="stat-value">{documents.filter((doc) => doc.isLink).length}</div>
+        <div class="stat-sub">External references</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Total Items</div>
+        <div class="stat-value">{documents.length}</div>
+        <div class="stat-sub">Across all folders</div>
+      </div>
+    </div>
 
-      <div class="section-header" style="margin-top: 32px;">
-        <span class="section-title">Folders</span>
-      </div>
-      <div class="skeleton-folders">
-        <div class="skeleton skeleton-folder-card"></div>
-        <div class="skeleton skeleton-folder-card"></div>
-        <div class="skeleton skeleton-folder-card"></div>
-      </div>
+    <div class="section-header">
+      <span class="section-title">Folders</span>
+      <a class="section-link">Manage folders</a>
+    </div>
 
-      <div class="skeleton skeleton-table-panel"></div>
-    {:else}
-      <div class="stats-row">
-        <div class="stat-card">
-          <div class="stat-label">Group Folders</div>
-          <div class="stat-value">{folderStructure.root.subfolders.length}</div>
-          <div class="stat-sub">Organized categories</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Group Documents</div>
-          <div class="stat-value">{documents.filter((doc) => !doc.isLink).length}</div>
-          <div class="stat-sub">Files uploaded</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Group Links</div>
-          <div class="stat-value">{documents.filter((doc) => doc.isLink).length}</div>
-          <div class="stat-sub">External references</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Total Items</div>
-          <div class="stat-value">{documents.length}</div>
-          <div class="stat-sub">Across all group folders</div>
-        </div>
-      </div>
-
-      <div class="section-header">
-        <span class="section-title">Folders</span>
-        <span class="section-link">Manage folders</span>
-      </div>
-
-      <div class="folders-grid">
-        {#each folderStructure.root.subfolders as folder (folder)}
-          {@const folderPath = '/' + folder}
-          {@const docCount = documents.filter((d) => d.folder === folderPath).length}
-          <div class="folder-card-wrap">
-            <button class="folder-card" class:active={currentFolder === folderPath} on:click={() => (currentFolder = folderPath)}>
-              <div class="folder-icon-wrap">
-                {#if currentFolder === folderPath}
-                  <FolderOpen size={18} />
-                {:else}
-                  <Folder size={18} />
-                {/if}
-              </div>
-              <div class="folder-info">
-                <div class="folder-name">{folder}</div>
-                <div class="folder-count">{docCount} items</div>
-              </div>
+    <div class="folders-grid">
+      {#each folderStructure.root.subfolders as folder (folder)}
+        {@const folderPath = '/' + folder}
+        {@const docCount = documents.filter((d) => d.folder === folderPath).length}
+        <div class="folder-card-wrap">
+          <button class="folder-card" class:active={currentFolder === folderPath} on:click={() => (currentFolder = folderPath)}>
+            <div class="folder-icon-wrap">
+              {#if currentFolder === folderPath}
+                <FolderOpen size={18} />
+              {:else}
+                <Folder size={18} />
+              {/if}
+            </div>
+            <div class="folder-info">
+              <div class="folder-name">{folder}</div>
+              <div class="folder-count">{docCount} items</div>
+            </div>
+          </button>
+          <div class="folder-actions">
+            <button class="folder-action-btn rename-btn" title="Rename folder" on:click={() => openRenameFolderModal(folder)}>✎</button>
+            <button
+              class="folder-action-btn delete-btn"
+              title="Delete folder"
+              on:click={() => {
+                folderToDelete = folder;
+                showDeleteFolderConfirm = true;
+              }}
+            >
+              🗑
             </button>
-            {#if isSupervisor}
-              <div class="folder-actions">
-                <button class="folder-action-btn rename-btn" title="Rename folder" on:click={() => openRenameFolderModal(folder)}>✎</button>
-                <button
-                  class="folder-action-btn delete-btn"
-                  title="Delete folder"
-                  on:click={() => {
-                    folderToDelete = folder;
-                    showDeleteFolderConfirm = true;
-                  }}
-                >
-                  🗑
-                </button>
-              </div>
-            {/if}
           </div>
-        {/each}
-      </div>
+        </div>
+      {/each}
+    </div>
 
-      <div class="bottom-area">
-        <div>
-          <div class="search-filter-bar">
-            <div class="search-wrap">
-              <Search size={15} />
-              <input class="search-input" type="text" placeholder="Search documents..." bind:value={searchQuery} />
-            </div>
+    <div class="bottom-area">
+      <div>
+        <div class="search-filter-bar">
+          <div class="search-wrap">
+            <Search size={15} />
+            <input class="search-input" type="text" placeholder="Search documents..." bind:value={searchQuery} />
+          </div>
+          <div class="filter-chips">
+            {#each categories as category (category)}
+              <button class="chip" class:active={selectedCategory === category} on:click={() => (selectedCategory = category)}>{category}</button>
+            {/each}
+          </div>
+        </div>
+
+        <div class="docs-panel">
+          <div class="docs-panel-header">
+            <span class="docs-panel-title">Your Documents</span>
+            <span class="docs-count">{filteredDocuments.length} items</span>
           </div>
 
-          <div class="docs-panel">
-            <div class="docs-panel-header">
-              <span class="docs-panel-title">Group Shared Documents</span>
-              <span class="docs-count">{filteredDocuments.length} items</span>
-            </div>
-
-            {#if filteredDocuments.length > 0}
-              <div class="table-wrapper">
-                <table class="documents-table">
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      <th>Uploaded By</th>
-                      <th>Type</th>
-                      <th>Size</th>
-                      <th>Uploaded</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {#each filteredDocuments as doc (doc.id)}
-                      <tr class="table-row">
-                        <td class="col-name">
-                          <div class="file-info">
-                            <div class="file-icon">
-                              {#if doc.isLink}
-                                <Link2 size={16} />
-                              {:else}
-                                <FileText size={16} />
-                              {/if}
-                            </div>
-                            <button type="button" class="file-name-btn" title="Open document" on:click={(e) => openDocument(doc, e)}>
-                              <span class="file-name">{doc.name}</span>
-                            </button>
-                          </div>
-                        </td>
-                        <td class="col-uploader">
-                          <span class="uploader-name">{doc.created_by_name || '—'}</span>
-                        </td>
-                        <td class="col-type">
-                          <span class="type-badge">{doc.isLink ? 'Link' : 'File'}</span>
-                        </td>
-                        <td class="col-size">
-                          {#if doc.size}
-                            {doc.size}
-                          {:else}
-                            —
-                          {/if}
-                        </td>
-                        <td class="col-date">{formatDate(doc.uploadedDate)}</td>
-                        <td class="col-actions">
-                          <div class="action-buttons">
-                            <button
-                              type="button"
-                              class="icon-btn"
-                              title="View/Download"
-                              on:click={(e) => openDocument(doc, e)}
-                            >
-                              {#if doc.isLink}
-                                <Eye size={14} />
-                              {:else}
-                                <Download size={14} />
-                              {/if}
-                            </button>
-                            {#if currentUser?.role === 'Supervisor' || currentUser?.user_id === doc.created_by}
-                              <button class="icon-btn share-btn" title="Share" on:click={() => openShareModal(doc)}>
-                                <Share2 size={14} />
-                              </button>
-                              <button class="icon-btn delete-btn" title="Delete" on:click={() => deleteDocument(doc.id)}>
-                                <Trash2 size={14} />
-                              </button>
+          {#if filteredDocuments.length > 0}
+            <div class="table-wrapper">
+              <table class="documents-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Type</th>
+                    <th>Category</th>
+                    <th>Size</th>
+                    <th>Uploaded</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {#each filteredDocuments as doc (doc.id)}
+                    <tr class="table-row">
+                      <td class="col-name">
+                        <div class="file-info">
+                          <div class="file-icon">
+                            {#if doc.isLink}
+                              <Link2 size={16} />
+                            {:else}
+                              <FileText size={16} />
                             {/if}
                           </div>
-                        </td>
-                      </tr>
-                    {/each}
-                  </tbody>
-                </table>
+                          <button class="file-name-btn" title="Open document" on:click={() => openDocument(doc)}>
+                            <span class="file-name">{doc.name}</span>
+                          </button>
+                        </div>
+                      </td>
+                      <td class="col-type">
+                        <span class="type-badge">{doc.isLink ? 'Link' : 'File'}</span>
+                      </td>
+                      <td class="col-category">
+                        <span class="category-badge">{doc.category}</span>
+                      </td>
+                      <td class="col-size">
+                        {#if doc.size}
+                          {doc.size}
+                        {:else}
+                          —
+                        {/if}
+                      </td>
+                      <td class="col-date">{formatDate(doc.uploadedDate)}</td>
+                      <td class="col-status">
+                        <span class="status-badge" style={`background-color: ${getAccessBadgeColor(doc.accessLevel)}20; color: ${getAccessBadgeColor(doc.accessLevel)}`}>
+                          {doc.accessLevel === 'private' ? 'Private' : doc.accessLevel === 'shared' ? 'Shared' : 'Restricted'}
+                        </span>
+                      </td>
+                      <td class="col-actions">
+                        <div class="action-buttons">
+                          <button
+                            class="icon-btn"
+                            title="View/Download"
+                            on:click={() => openDocument(doc)}
+                          >
+                            {#if doc.isLink}
+                              <Eye size={14} />
+                            {:else}
+                              <Download size={14} />
+                            {/if}
+                          </button>
+                          <button class="icon-btn share-btn" title="Share" on:click={() => openShareModal(doc)}>
+                            <Share2 size={14} />
+                          </button>
+                          <button class="icon-btn delete-btn" title="Delete" on:click={() => deleteDocument(doc.id)}>
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            </div>
+          {:else}
+            <div class="empty-state">
+              <div class="empty-icon-wrap">
+                <FileText size={28} />
               </div>
-            {:else}
-              <div class="empty-state">
-                <div class="empty-icon-wrap">
-                  <FileText size={28} />
-                </div>
-                <div class="empty-title">No documents yet</div>
-                <div class="empty-sub">Start by uploading a document or adding a link to an external resource</div>
-                <div class="empty-actions">
-                  <button class="btn btn-ghost empty-btn" on:click={() => (showLinkModal = true)}>
-                    <Link2 size={13} />
-                    Add Link
-                  </button>
-                  <button class="btn btn-primary empty-btn" on:click={openUploadModal_}>
-                    <Upload size={13} />
-                    Upload Document
-                  </button>
-                </div>
+              <div class="empty-title">No documents yet</div>
+              <div class="empty-sub">Start by uploading a document or adding a link to an external resource</div>
+              <div class="empty-actions">
+                <button class="btn btn-ghost empty-btn" on:click={() => (showLinkModal = true)}>
+                  <Link2 size={13} />
+                  Add Link
+                </button>
+                <button class="btn btn-primary empty-btn" on:click={() => (showUploadModal = true)}>
+                  <Upload size={13} />
+                  Upload Document
+                </button>
               </div>
-            {/if}
-          </div>
+            </div>
+          {/if}
         </div>
       </div>
-    {/if}
+    </div>
   </div>
 
   <!-- Upload Modal -->
   {#if showUploadModal}
-    <!-- svelte-ignore a11y-click-events-have-key-events -->
-    <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div class="modal-overlay" on:click={() => (showUploadModal = false)}>
       <div class="modal" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
@@ -931,23 +803,27 @@
         <div class="modal-body">
           <!-- Folder Selection Tabs -->
           <div class="form-group">
-            <span class="label-heading">Select Folder</span>
+            <label>Select Folder</label>
             <div class="folder-tabs">
+              <button
+                class="folder-tab"
+                class:active={uploadToFolder === '/'}
+                on:click={() => (uploadToFolder = '/')}
+              >
+                <Home size={16} />
+                <span>All Documents</span>
+              </button>
               {#each folderStructure.root.subfolders as folder (folder)}
                 {@const folderPath = '/' + folder}
                 <button
-                  type="button"
                   class="folder-tab"
                   class:active={uploadToFolder === folderPath}
-                  on:click|stopPropagation={() => (uploadToFolder = folderPath)}
+                  on:click={() => (uploadToFolder = folderPath)}
                 >
                   <Folder size={16} />
                   <span>{folder}</span>
                 </button>
               {/each}
-            </div>
-            <div class="selected-folder-text">
-              Selected: {uploadToFolder.substring(1)}
             </div>
           </div>
 
@@ -978,13 +854,11 @@
 
   <!-- Upload Preview Modal -->
   {#if showUploadPreview && pendingFilePreview}
-    <!-- svelte-ignore a11y-click-events-have-key-events -->
-    <!-- svelte-ignore a11y-no-static-element-interactions -->
-    <div class="modal-overlay" on:click={() => !isUploading && cancelUpload()}>
+    <div class="modal-overlay" on:click={() => cancelUpload()}>
       <div class="modal" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
           <h2>Review Document</h2>
-          <button class="close-btn" on:click={() => cancelUpload()} disabled={isUploading}>×</button>
+          <button class="close-btn" on:click={() => cancelUpload()}>×</button>
         </div>
 
         <div class="modal-body">
@@ -1011,23 +885,33 @@
               <div class="preview-section">
                 <label for="preview-folder">Upload Folder</label>
                 <p class="preview-value" id="preview-folder">
-                  {pendingFilePreview.folder.substring(1)}
+                  {#if pendingFilePreview.folder === '/'}
+                    All Documents
+                  {:else}
+                    {pendingFilePreview.folder.substring(1)}
+                  {/if}
                 </p>
+              </div>
+
+              <div class="preview-section">
+                <label for="preview-category">Category</label>
+                <select id="preview-category" bind:value={pendingFile.category} style="width: 100%; padding: 0.5rem; border-radius: 8px; border: 1px solid var(--doc-border); background: #eef5fc; color: var(--doc-text);">
+                  <option value="Other">Other</option>
+                  <option value="Legal">Legal</option>
+                  <option value="Reference">Reference</option>
+                  <option value="Meetings">Meetings</option>
+                  <option value="Work">Work</option>
+                </select>
               </div>
             </div>
           </div>
         </div>
 
         <div class="modal-footer">
-          <button class="btn btn-secondary" on:click={() => cancelUpload()} disabled={isUploading}>Delete</button>
-          <button class="btn btn-primary" on:click={() => confirmUpload()} disabled={isUploading}>
-            {#if isUploading}
-              <span class="spinning-icon" style="margin-right: 0.4rem; display: inline-flex;"><Loader2 size={16} /></span>
-              <span>Uploading...</span>
-            {:else}
-              <Check size={18} />
-              <span>Save Document</span>
-            {/if}
+          <button class="btn btn-secondary" on:click={() => cancelUpload()}>Delete</button>
+          <button class="btn btn-primary" on:click={() => confirmUpload()}>
+            <Check size={18} />
+            <span>Save Document</span>
           </button>
         </div>
       </div>
@@ -1036,8 +920,6 @@
 
   <!-- Link Modal -->
   {#if showLinkModal}
-    <!-- svelte-ignore a11y-click-events-have-key-events -->
-    <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div class="modal-overlay" on:click={() => (showLinkModal = false)}>
       <div class="modal" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
@@ -1048,23 +930,27 @@
         <div class="modal-body">
           <!-- Folder Selection Tabs -->
           <div class="form-group">
-            <span class="label-heading">Select Folder</span>
+            <label>Select Folder</label>
             <div class="folder-tabs">
+              <button
+                class="folder-tab"
+                class:active={uploadToFolder === '/'}
+                on:click={() => (uploadToFolder = '/')}
+              >
+                <Home size={16} />
+                <span>All Documents</span>
+              </button>
               {#each folderStructure.root.subfolders as folder (folder)}
                 {@const folderPath = '/' + folder}
                 <button
-                  type="button"
                   class="folder-tab"
                   class:active={uploadToFolder === folderPath}
-                  on:click|stopPropagation={() => (uploadToFolder = folderPath)}
+                  on:click={() => (uploadToFolder = folderPath)}
                 >
                   <Folder size={16} />
                   <span>{folder}</span>
                 </button>
               {/each}
-            </div>
-            <div class="selected-folder-text">
-              Selected: {uploadToFolder.substring(1)}
             </div>
           </div>
 
@@ -1091,14 +977,9 @@
 
         <div class="modal-footer">
           <button class="btn btn-secondary" on:click={() => (showLinkModal = false)}>Cancel</button>
-          <button class="btn btn-primary" on:click={addLink} disabled={!newLinkName.trim() || !newLinkUrl.trim() || isAddingLink}>
-            {#if isAddingLink}
-              <span class="spinning-icon" style="margin-right: 0.4rem; display: inline-flex;"><Loader2 size={16} /></span>
-              <span>Adding...</span>
-            {:else}
-              <Plus size={18} />
-              <span>Add Link</span>
-            {/if}
+          <button class="btn btn-primary" on:click={addLink} disabled={!newLinkName.trim() || !newLinkUrl.trim()}>
+            <Plus size={18} />
+            <span>Add Link</span>
           </button>
         </div>
       </div>
@@ -1107,13 +988,11 @@
 
   <!-- Create Folder Modal -->
   {#if showCreateFolderModal}
-    <!-- svelte-ignore a11y-click-events-have-key-events -->
-    <!-- svelte-ignore a11y-no-static-element-interactions -->
-    <div class="modal-overlay" on:click={() => !isCreatingFolder && (showCreateFolderModal = false)}>
+    <div class="modal-overlay" on:click={() => (showCreateFolderModal = false)}>
       <div class="modal" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
           <h2>Create Folder</h2>
-          <button class="close-btn" on:click={() => (showCreateFolderModal = false)} disabled={isCreatingFolder}>×</button>
+          <button class="close-btn" on:click={() => (showCreateFolderModal = false)}>×</button>
         </div>
 
         <div class="modal-body">
@@ -1124,50 +1003,21 @@
               type="text"
               placeholder="e.g., Important Documents"
               bind:value={newFolderName}
-              disabled={isCreatingFolder}
             />
           </div>
         </div>
 
         <div class="modal-footer">
-          <button class="btn btn-secondary" on:click={() => (showCreateFolderModal = false)} disabled={isCreatingFolder}>Cancel</button>
-          <button class="btn btn-primary" on:click={async () => {
-            const folderName = String(newFolderName || '').trim();
-            if (!folderName || isCreatingFolder) {
-              return;
-            }
-
-            try {
-              isCreatingFolder = true;
-              const response = await callBackend_('create_folder', {
-                user_id: userId,
-                folder_name: folderName,
-              });
-
-              if (!response?.ok) {
-                alert(response?.error || 'Unable to create folder.');
-                return;
-              }
-
-              await loadFolders_();
-              uploadToFolder = '/' + folderName;
+          <button class="btn btn-secondary" on:click={() => (showCreateFolderModal = false)}>Cancel</button>
+          <button class="btn btn-primary" on:click={() => {
+            if (newFolderName.trim()) {
+              folderStructure.root.subfolders = [...folderStructure.root.subfolders, newFolderName];
               newFolderName = '';
               showCreateFolderModal = false;
-              showActionMessage_('Folder created.');
-            } catch (err) {
-              console.error('Create folder error:', err);
-              alert('Unable to create folder.');
-            } finally {
-              isCreatingFolder = false;
             }
-          }} disabled={!newFolderName.trim() || isCreatingFolder}>
-            {#if isCreatingFolder}
-              <span class="spinning-icon" style="margin-right: 0.4rem; display: inline-flex;"><Loader2 size={16} /></span>
-              <span>Creating...</span>
-            {:else}
-              <Folder size={18} />
-              <span>Create Folder</span>
-            {/if}
+          }} disabled={!newFolderName.trim()}>
+            <Folder size={18} />
+            <span>Create Folder</span>
           </button>
         </div>
       </div>
@@ -1176,8 +1026,6 @@
 
   <!-- Rename Folder Modal -->
   {#if showRenameFolderModal && folderToRename}
-    <!-- svelte-ignore a11y-click-events-have-key-events -->
-    <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div class="modal-overlay" on:click={() => (showRenameFolderModal = false)}>
       <div class="modal" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
@@ -1211,8 +1059,6 @@
 
   <!-- Delete Folder Confirmation Modal -->
   {#if showDeleteFolderConfirm && folderToDelete}
-    <!-- svelte-ignore a11y-click-events-have-key-events -->
-    <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div class="modal-overlay" on:click={() => (showDeleteFolderConfirm = false)}>
       <div class="modal" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
@@ -1239,8 +1085,6 @@
 
   <!-- Share Modal -->
   {#if showShareModal && selectedDocForShare}
-    <!-- svelte-ignore a11y-click-events-have-key-events -->
-    <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div class="modal-overlay" on:click={() => (showShareModal = false)}>
       <div class="modal" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
@@ -1251,10 +1095,9 @@
         <div class="modal-body">
           <!-- Shareable Link -->
           <div class="form-group">
-            <label for="shareLinkInput">Shareable Link</label>
+            <label>Shareable Link</label>
             <div class="share-link-box">
               <input
-                id="shareLinkInput"
                 type="text"
                 readonly
                 value={`${window.location.origin}/#/documents/${selectedDocForShare.id}`}
@@ -1473,28 +1316,6 @@
     opacity: 0.5;
     cursor: not-allowed;
   }
-  
-  .spinning-icon {
-    animation: spin 1s linear infinite;
-  }
-
-  @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-  }
-
-  .spinning-icon {
-    animation: spin 0.9s linear infinite;
-  }
-
-  @keyframes spin {
-    from {
-      transform: rotate(0deg);
-    }
-    to {
-      transform: rotate(360deg);
-    }
-  }
 
   .search-filter-container {
     display: flex;
@@ -1515,6 +1336,19 @@
     border: 1px solid var(--doc-border);
     border-radius: 10px;
     color: var(--doc-muted);
+  }
+
+  .search-box input {
+    flex: 1;
+    border: none;
+    background: none;
+    outline: none;
+    font-size: 0.95rem;
+    color: var(--doc-text);
+  }
+
+  .search-box input::placeholder {
+    color: #7c8fa8;
   }
 
   .category-tabs {
@@ -1581,13 +1415,6 @@
     border-color: transparent;
   }
 
-  .selected-folder-text {
-    margin-top: 0.5rem;
-    font-size: 0.82rem;
-    font-weight: 600;
-    color: var(--doc-muted);
-  }
-
   /* Table Styles */
   .documents-table-container {
     background: var(--doc-surface);
@@ -1602,6 +1429,13 @@
     align-items: center;
     padding: 1.5rem;
     border-bottom: 1px solid var(--doc-border);
+  }
+
+  .table-header h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--doc-text);
   }
 
   .doc-count {
@@ -1790,6 +1624,13 @@
     border-radius: 12px;
   }
 
+  .folder-nav > h3 {
+    margin: 0 0 0.5rem 0;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--doc-text);
+  }
+
   .folders-grid {
     display: grid;
     grid-template-columns: 1fr;
@@ -1832,6 +1673,11 @@
     flex-shrink: 0;
   }
 
+  .folder-item.active .folder-icon {
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+  }
+
   .folder-info {
     flex: 1;
   }
@@ -1843,10 +1689,18 @@
     font-size: 0.95rem;
   }
 
+  .folder-item.active .folder-name {
+    color: white;
+  }
+
   .folder-count {
     font-size: 0.85rem;
     color: var(--doc-muted);
     margin: 0.25rem 0 0 0;
+  }
+
+  .folder-item.active .folder-count {
+    color: rgba(255, 255, 255, 0.85);
   }
 
   .folder-item-wrapper {
@@ -1856,11 +1710,19 @@
     width: 100%;
   }
 
+  .folder-item-wrapper .folder-item {
+    flex: 1;
+  }
+
   .folder-actions {
     display: flex;
     gap: 0.4rem;
     opacity: 0;
     transition: opacity 0.2s ease;
+  }
+
+  .folder-item-wrapper:hover .folder-actions {
+    opacity: 1;
   }
 
   .folder-action-btn {
@@ -1916,6 +1778,18 @@
   .empty-state > :nth-child(1) {
     margin-bottom: 1rem;
     opacity: 0.5;
+  }
+
+  .empty-state h3 {
+    margin: 0 0 0.5rem;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--doc-text);
+  }
+
+  .empty-state p {
+    margin: 0;
+    font-size: 0.95rem;
   }
 
   /* Share Functionality Styles */
@@ -2172,45 +2046,6 @@
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
   }
 
-  .preview-content {
-    display: flex;
-    gap: 1rem;
-    align-items: flex-start;
-  }
-
-  .preview-details {
-    flex: 1;
-  }
-
-  .preview-section {
-    margin-bottom: 0.75rem;
-  }
-
-  .preview-section label {
-    display: block;
-    font-size: 0.8rem;
-    font-weight: 600;
-    color: var(--doc-muted);
-    margin-bottom: 0.2rem;
-  }
-
-  .preview-value {
-    margin: 0;
-    color: var(--doc-text);
-    font-size: 0.92rem;
-    font-weight: 500;
-    line-height: 1.35;
-  }
-
-  .preview-category-select {
-    width: 100%;
-    padding: 0.5rem;
-    border-radius: 8px;
-    border: 1px solid var(--doc-border);
-    background: #eef5fc;
-    color: var(--doc-text);
-  }
-
   .modal-footer {
     display: flex;
     gap: 0.75rem;
@@ -2275,20 +2110,6 @@
     box-shadow: 0 0 0 3px rgba(91, 177, 255, 0.24);
   }
 
-  :global(.dark) .preview-section label {
-    color: #b7c8dd;
-  }
-
-  :global(.dark) .preview-value {
-    color: #e8f1ff;
-  }
-
-  :global(.dark) .preview-category-select {
-    background: #1a2c45;
-    border-color: #334b6b;
-    color: #e8f1ff;
-  }
-
   :global(.dark) .btn-primary {
     background: linear-gradient(90deg, #0f6cbd, #0ea5e9);
     box-shadow: 0 14px 28px -16px rgba(15, 108, 189, 0.9);
@@ -2344,6 +2165,12 @@
     border: 1px solid rgba(16, 185, 129, 0.45);
   }
 
+  :global(.dark) .category-badge {
+    background: rgba(59, 130, 246, 0.18);
+    color: #93c5fd;
+    border: 1px solid rgba(147, 197, 253, 0.4);
+  }
+
   :global(.dark) .upload-area {
     border-color: #426389;
     background: rgba(15, 23, 42, 0.35);
@@ -2378,6 +2205,11 @@
     .header-actions {
       width: 100%;
       flex-direction: column;
+    }
+
+    .header-actions .btn {
+      width: 100%;
+      justify-content: center;
     }
 
     .modal {
@@ -2429,13 +2261,10 @@
     color: #60a5fa;
   }
 
-  .uploader-name {
-    font-size: 12px;
-    color: #94a3b8;
-    background: rgba(255, 255, 255, 0.05);
-    padding: 3px 8px;
-    border-radius: 4px;
-    white-space: nowrap;
+  .page-subtitle {
+    font-size: 13px;
+    color: #64748b;
+    margin-top: 3px;
   }
 
   .action-bar {
@@ -2487,82 +2316,6 @@
     border-color: rgba(255, 255, 255, 0.18);
     transform: translateY(0);
     box-shadow: none;
-  }
-
-  /* Skeleton Shimmer */
-  .skeleton {
-    position: relative;
-    overflow: hidden;
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 4px;
-  }
-
-  .skeleton::after {
-    content: "";
-    position: absolute;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    transform: translateX(-100%);
-    background-image: linear-gradient(
-      90deg,
-      rgba(255, 255, 255, 0) 0,
-      rgba(255, 255, 255, 0.03) 20%,
-      rgba(255, 255, 255, 0.06) 60%,
-      rgba(255, 255, 255, 0)
-    );
-    animation: shimmer 2s infinite;
-  }
-
-  @keyframes shimmer {
-    100% {
-      transform: translateX(100%);
-    }
-  }
-
-  /* Light mode skeleton overrides */
-  :global(html:not(.dark)) .skeleton {
-    background: rgba(15, 23, 42, 0.05); /* Slight dark on light */
-  }
-
-  :global(html:not(.dark)) .skeleton::after {
-    background-image: linear-gradient(
-      90deg,
-      rgba(255, 255, 255, 0) 0,
-      rgba(255, 255, 255, 0.4) 20%,
-      rgba(255, 255, 255, 0.7) 60%,
-      rgba(255, 255, 255, 0)
-    );
-  }
-
-  .skeleton-stats {
-    display: flex;
-    gap: 20px;
-  }
-
-  .skeleton-stat-card {
-    flex: 1;
-    height: 100px;
-    border-radius: 12px;
-  }
-
-  .skeleton-folders {
-    display: flex;
-    gap: 16px;
-    margin-top: 15px;
-  }
-
-  .skeleton-folder-card {
-    width: 260px;
-    height: 70px;
-    border-radius: 12px;
-  }
-
-  .skeleton-table-panel {
-    border-radius: 12px;
-    height: 400px;
-    margin-top: 24px;
   }
 
   .btn-primary {
@@ -2966,6 +2719,7 @@
   }
 
   .type-badge,
+  .category-badge,
   .status-badge {
     display: inline-flex;
     border-radius: 999px;
@@ -3087,10 +2841,6 @@
     color: #64748b;
   }
 
-  .selected-folder-text {
-    color: #94a3b8;
-  }
-
   .warning-text,
   .remove-share-btn,
   .folder-action-btn.delete-btn {
@@ -3132,98 +2882,141 @@
   }
 
   /* Light mode guard overrides for enterprise layout */
-  :global(html:not(.dark)) .page-shell {
+  :global(html:not(.dark)) .page-shell,
+  :global(body:not(.dark)) .page-shell {
     background: #f6f9fd;
     color: #0f172a;
   }
 
-  :global(html:not(.dark)) .topbar {
+  :global(html:not(.dark)) .topbar,
+  :global(body:not(.dark)) .topbar {
     border-bottom-color: #dbe6f2;
   }
 
-  :global(html:not(.dark)) .page-title {
+  :global(html:not(.dark)) .page-title,
+  :global(body:not(.dark)) .page-title {
     color: #0f172a;
   }
 
   :global(html:not(.dark)) .page-subtitle,
+  :global(body:not(.dark)) .page-subtitle,
   :global(html:not(.dark)) .stat-label,
+  :global(body:not(.dark)) .stat-label,
   :global(html:not(.dark)) .stat-sub,
+  :global(body:not(.dark)) .stat-sub,
   :global(html:not(.dark)) .folder-count,
+  :global(body:not(.dark)) .folder-count,
   :global(html:not(.dark)) .chip,
+  :global(body:not(.dark)) .chip,
   :global(html:not(.dark)) .docs-count,
-  :global(html:not(.dark)) .documents-table thead th {
+  :global(body:not(.dark)) .docs-count,
+  :global(html:not(.dark)) .documents-table thead th,
+  :global(body:not(.dark)) .documents-table thead th {
     color: #5f7188;
   }
 
   :global(html:not(.dark)) .btn-ghost,
-  :global(html:not(.dark)) .btn-secondary {
+  :global(html:not(.dark)) .btn-secondary,
+  :global(body:not(.dark)) .btn-ghost,
+  :global(body:not(.dark)) .btn-secondary {
     background: #eef5fc;
     color: #11406d;
     border-color: #d8e2ef;
   }
 
   :global(html:not(.dark)) .btn-ghost:hover,
-  :global(html:not(.dark)) .btn-secondary:hover {
+  :global(html:not(.dark)) .btn-secondary:hover,
+  :global(body:not(.dark)) .btn-ghost:hover,
+  :global(body:not(.dark)) .btn-secondary:hover {
     background: #e2edf9;
     color: #0f172a;
     border-color: #bfd5ec;
   }
 
   :global(html:not(.dark)) .stat-card,
+  :global(body:not(.dark)) .stat-card,
   :global(html:not(.dark)) .folder-card,
+  :global(body:not(.dark)) .folder-card,
   :global(html:not(.dark)) .docs-panel,
-  :global(html:not(.dark)) .modal {
+  :global(body:not(.dark)) .docs-panel,
+  :global(html:not(.dark)) .modal,
+  :global(body:not(.dark)) .modal {
     background: #ffffff;
     border-color: #d8e2ef;
   }
 
   :global(html:not(.dark)) .stat-value,
+  :global(body:not(.dark)) .stat-value,
   :global(html:not(.dark)) .folder-name,
+  :global(body:not(.dark)) .folder-name,
   :global(html:not(.dark)) .docs-panel-title,
+  :global(body:not(.dark)) .docs-panel-title,
   :global(html:not(.dark)) .file-name,
+  :global(body:not(.dark)) .file-name,
   :global(html:not(.dark)) .documents-table td,
+  :global(body:not(.dark)) .documents-table td,
   :global(html:not(.dark)) .modal-header h2,
+  :global(body:not(.dark)) .modal-header h2,
   :global(html:not(.dark)) .form-group label,
+  :global(body:not(.dark)) .form-group label,
   :global(html:not(.dark)) .confirmation-content p,
+  :global(body:not(.dark)) .confirmation-content p,
   :global(html:not(.dark)) .share-email,
-  :global(html:not(.dark)) .shares-list h3 {
+  :global(body:not(.dark)) .share-email,
+  :global(html:not(.dark)) .shares-list h3,
+  :global(body:not(.dark)) .shares-list h3 {
     color: #0f172a;
   }
 
   :global(html:not(.dark)) .search-input,
+  :global(body:not(.dark)) .search-input,
   :global(html:not(.dark)) .icon-btn,
+  :global(body:not(.dark)) .icon-btn,
   :global(html:not(.dark)) .folder-action-btn,
+  :global(body:not(.dark)) .folder-action-btn,
   :global(html:not(.dark)) .form-group input,
+  :global(body:not(.dark)) .form-group input,
   :global(html:not(.dark)) .form-group select,
+  :global(body:not(.dark)) .form-group select,
   :global(html:not(.dark)) .share-link-box input,
+  :global(body:not(.dark)) .share-link-box input,
   :global(html:not(.dark)) .copy-btn,
+  :global(body:not(.dark)) .copy-btn,
   :global(html:not(.dark)) .folder-tab,
+  :global(body:not(.dark)) .folder-tab,
   :global(html:not(.dark)) .upload-area,
+  :global(body:not(.dark)) .upload-area,
   :global(html:not(.dark)) .share-item,
+  :global(body:not(.dark)) .share-item,
   :global(html:not(.dark)) .share-form,
+  :global(body:not(.dark)) .share-form,
   :global(html:not(.dark)) .empty-shares,
-  :global(html:not(.dark)) .chip {
+  :global(body:not(.dark)) .empty-shares,
+  :global(html:not(.dark)) .chip,
+  :global(body:not(.dark)) .chip {
     background: #eef5fc;
     border-color: #d8e2ef;
     color: #0f172a;
   }
 
-  :global(html:not(.dark)) .documents-table thead {
+  :global(html:not(.dark)) .documents-table thead,
+  :global(body:not(.dark)) .documents-table thead {
     background: #f3f8ff;
   }
 
   :global(html:not(.dark)) .documents-table tbody tr,
+  :global(body:not(.dark)) .documents-table tbody tr,
   :global(html:not(.dark)) .docs-panel-header,
+  :global(body:not(.dark)) .docs-panel-header,
   :global(html:not(.dark)) .modal-header,
-  :global(html:not(.dark)) .modal-footer {
+  :global(body:not(.dark)) .modal-header,
+  :global(html:not(.dark)) .modal-footer,
+  :global(body:not(.dark)) .modal-footer {
     border-color: #d8e2ef;
   }
 
-  :global(html:not(.dark)) .documents-table tbody tr:hover {
+  :global(html:not(.dark)) .documents-table tbody tr:hover,
+  :global(body:not(.dark)) .documents-table tbody tr:hover {
     background: #f3f8ff;
-  }
-
-  :global(html:not(.dark)) .selected-folder-text {
-    color: #5f7188;
   }
 </style>
