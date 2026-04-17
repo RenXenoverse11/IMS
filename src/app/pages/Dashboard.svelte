@@ -5,20 +5,17 @@
     subscribeToCurrentUser,
     getStudentDashboard,
   } from '../lib/auth.js';
-  // Import professional SVG icons
-  import { Target, CheckCircle, Hourglass, CalendarDays } from 'lucide-svelte';
+  import { Target, CheckCircle, Hourglass, CalendarDays, ClipboardList, ArrowRight } from 'lucide-svelte';
 
   const PROGRESS_MODES = {
     APPROVED: 'APPROVED',
     ALL: 'ALL',
   };
 
-  // Debounce visibility changes to avoid rapid reloads
   let visibilityChangeTimeout = null;
   const VISIBILITY_RELOAD_DELAY = 200;
-  // Cooldown to avoid reloading immediately after every tab focus
   let lastLoadTime = 0;
-  const RELOAD_COOLDOWN = 5 * 60 * 1000; // 5 minutes
+  const RELOAD_COOLDOWN = 5 * 60 * 1000;
 
   let currentUser = getCurrentUser();
   let unsubscribeAuth = null;
@@ -29,7 +26,6 @@
 
   let progressMode = PROGRESS_MODES.APPROVED;
 
-  // Server data (raw)
   let profile = null;
   let timeLogs = [];
   let totalCompletedHours = 0;
@@ -37,7 +33,6 @@
   let tasks = [];
   let pendingRequests = [];
 
-  // Editable form state
   let formStartDate = '';
   let formTotalOjtHours = 0;
   let readonlyDepartment = '';
@@ -247,24 +242,16 @@
   $: effectiveCompletedHours = progressMode === PROGRESS_MODES.ALL ? totalCompletedHours + pendingOvertimeHours : totalCompletedHours;
   $: hoursCompleted = effectiveCompletedHours;
   $: hoursRemaining = Math.max(0, totalOjtHours - hoursCompleted);
-  $: daysAndHoursNeeded = (() => {
-    const fullDays = Math.floor(hoursRemaining / 8);
-    const remainingHoursOnly = Math.round((hoursRemaining % 8) * 10) / 10;
-    if (remainingHoursOnly === 0) {
-      return `${fullDays} day${fullDays !== 1 ? 's' : ''}`;
-    }
-    return `${fullDays} day${fullDays !== 1 ? 's' : ''} ${remainingHoursOnly}h`;
-  })();
-
   $: totalWorkingDays = Math.ceil(Math.max(0, totalOjtHours) / 8);
   $: remainingWorkingDays = Math.ceil(Math.max(0, hoursRemaining) / 8);
   $: computedEstimatedEndDateObj = formStartDate
     ? addWorkingDays(parseIsoDateOnly(formStartDate), Math.max(0, remainingWorkingDays - 1))
     : null;
   $: computedEstimatedEndDate = computedEstimatedEndDateObj ? toIsoDateOnly(computedEstimatedEndDateObj) : '';
-
   $: progressPercent = totalOjtHours > 0 ? Math.min(100, Math.round((hoursCompleted / totalOjtHours) * 100)) : 0;
   $: startDateDisplay = formStartDate ? formatDateLong(formStartDate) : 'Not set yet';
+  $: estimatedEndDateDisplay = computedEstimatedEndDate ? formatDateLong(computedEstimatedEndDate) : 'Not available yet';
+  $: progressFooterRemaining = `${hoursRemaining}h remaining`;
 
   function normalizeActivityDotKind(item) {
     const type = String(item?.type || item?.action || item?.status || '').toLowerCase();
@@ -291,11 +278,10 @@
   async function loadDashboard() {
     clearMessages();
 
-    // update last load timestamp to prevent immediate re-load on quick tab switches
     try {
       lastLoadTime = Date.now();
     } catch (e) {
-      // ignore (defensive)
+      // ignore
     }
 
     if (!currentUser?.user_id) {
@@ -333,7 +319,7 @@
           const logDate = normalizeDateOnly(log?.log_date);
           const timeOutLabel = formatTime12Hour(log?.time_out);
           const timeInLabel = formatTime12Hour(log?.time_in);
-          
+
           if (timeOutLabel) {
             timeLogActivities.push({
               id: `logout-${String(log?.timelog_id || '') || `${logDate}-${String(log?.time_out || '').trim()}`}`,
@@ -342,7 +328,7 @@
               created_at: buildActivityDateTime(logDate, log?.time_out),
             });
           }
-          
+
           if (timeInLabel) {
             timeLogActivities.push({
               id: `login-${String(log?.timelog_id || '') || `${logDate}-${String(log?.time_in || '').trim()}`}`,
@@ -378,7 +364,6 @@
   function onVisibilityChange() {
     if (document.visibilityState === 'visible') {
       const now = Date.now();
-      // skip reload if within cooldown window
       if (now - lastLoadTime <= RELOAD_COOLDOWN) {
         return;
       }
@@ -412,62 +397,72 @@
 </script>
 
 <div class="dashboard-root">
-  <div class="body">
+  <section class="dashboard-shell">
     {#if errorMessage}
       <div class="error-banner">{errorMessage}</div>
     {/if}
+
     {#if successMessage}
       <div class="success-banner">{successMessage}</div>
     {/if}
 
     {#if loading}
-      <!-- Skeleton Loading State -->
-      <!-- Welcome Banner Skeleton -->
-      <div class="welcome-card skeleton-welcome">
-        <div>
-          <div class="skeleton skeleton-text" style="width: 200px; height: 24px; margin-bottom: 8px;"></div>
-          <div class="skeleton skeleton-text" style="width: 300px; height: 16px;"></div>
+      <div class="dash-banner dash-banner-skeleton">
+        <div class="dash-banner-copy">
+          <div class="skeleton skeleton-text" style="width: 240px; height: 24px;"></div>
+          <div class="dash-banner-tags">
+            <div class="skeleton skeleton-text" style="width: 68px; height: 26px; border-radius: 999px;"></div>
+            <div class="skeleton skeleton-text" style="width: 260px; height: 14px;"></div>
+          </div>
         </div>
-        <div class="view-toggle">
-          <div class="skeleton skeleton-text" style="width: 60px; height: 32px; border-radius: 20px;"></div>
-          <div class="skeleton skeleton-text" style="width: 80px; height: 32px; border-radius: 20px;"></div>
+        <div class="dash-view-toggle">
+          <div class="skeleton skeleton-text" style="width: 90px; height: 30px; border-radius: 999px;"></div>
+          <div class="skeleton skeleton-text" style="width: 108px; height: 30px; border-radius: 999px;"></div>
         </div>
       </div>
 
-      <!-- Stat Cards Skeletons -->
-      <div class="stat-grid">
-        {#each [1,2,3,4] as _}
-          <div class="stat-card skeleton-stat">
-            <div class="skeleton skeleton-text" style="width: 60px; height: 12px; margin-bottom: 12px;"></div>
-            <div class="skeleton skeleton-text" style="width: 50px; height: 32px;"></div>
-            <div class="skeleton skeleton-text" style="width: 80px; height: 12px; margin-top: 8px;"></div>
+      <div class="dash-stat-grid">
+        {#each [1, 2, 3, 4] as _}
+          <div class="dash-stat-card skeleton-card">
+            <div class="dash-stat-top">
+              <div class="skeleton skeleton-text" style="width: 90px; height: 12px;"></div>
+              <div class="skeleton" style="width: 36px; height: 36px; border-radius: 10px;"></div>
+            </div>
+            <div class="skeleton skeleton-text" style="width: 92px; height: 30px;"></div>
+            <div class="skeleton skeleton-text" style="width: 110px; height: 12px;"></div>
           </div>
         {/each}
       </div>
 
-      <!-- Mid Card Skeleton -->
-      <div class="mid-card skeleton-mid">
-        <div class="mid-left">
-          <div class="skeleton skeleton-text" style="width: 100px; height: 11px; margin-bottom: 8px;"></div>
-          <div class="skeleton skeleton-text" style="width: 140px; height: 28px; margin-bottom: 6px;"></div>
+      <div class="dash-mid-grid">
+        <div class="dash-card">
+          <div class="skeleton skeleton-text" style="width: 120px; height: 11px;"></div>
+          <div class="skeleton skeleton-text" style="width: 190px; height: 34px;"></div>
           <div class="skeleton skeleton-text" style="width: 250px; height: 14px;"></div>
         </div>
-        <div class="mid-right mid-divider">
-          <div class="skeleton skeleton-text" style="width: 80px; height: 14px; margin-bottom: 8px;"></div>
-          <div class="skeleton skeleton-text" style="width: 100%; height: 6px; margin-bottom: 8px;"></div>
-          <div class="skeleton skeleton-text" style="width: 50px; height: 28px;"></div>
+        <div class="dash-card">
+          <div class="dash-progress-top">
+            <div class="skeleton skeleton-text" style="width: 80px; height: 14px;"></div>
+            <div class="skeleton skeleton-text" style="width: 95px; height: 14px;"></div>
+          </div>
+          <div class="skeleton skeleton-text" style="width: 100%; height: 8px; border-radius: 999px;"></div>
+          <div class="skeleton skeleton-text" style="width: 64px; height: 30px;"></div>
+          <div class="dash-progress-footer">
+            <div class="skeleton skeleton-text" style="width: 30px; height: 12px;"></div>
+            <div class="skeleton skeleton-text" style="width: 98px; height: 12px;"></div>
+            <div class="skeleton skeleton-text" style="width: 40px; height: 12px;"></div>
+          </div>
         </div>
       </div>
 
-      <!-- Bottom Grid Skeletons -->
-      <div class="bottom-grid">
-        <div class="bottom-card skeleton-bottom">
-          <div class="bottom-card-header">
+      <div class="dash-bottom-grid">
+        <div class="dash-panel skeleton-card">
+          <div class="dash-panel-header">
             <div class="skeleton skeleton-text" style="width: 100px; height: 16px;"></div>
-            <div class="skeleton skeleton-text" style="width: 60px; height: 14px;"></div>
+            <div class="skeleton skeleton-text" style="width: 80px; height: 14px;"></div>
           </div>
-          {#each [1,2,3] as _}
-            <div class="activity-item">
+          {#each [1, 2, 3] as _}
+            <div class="dash-activity-item">
               <div class="skeleton" style="width: 8px; height: 8px; border-radius: 50%; margin-top: 4px;"></div>
               <div style="flex: 1;">
                 <div class="skeleton skeleton-text" style="width: 120px; height: 16px; margin-bottom: 4px;"></div>
@@ -477,169 +472,198 @@
           {/each}
         </div>
 
-        <div class="bottom-card skeleton-bottom">
-          <div class="bottom-card-header">
+        <div class="dash-panel skeleton-card">
+          <div class="dash-panel-header">
             <div class="skeleton skeleton-text" style="width: 100px; height: 16px;"></div>
-            <div class="skeleton skeleton-text" style="width: 60px; height: 14px;"></div>
+            <div class="skeleton skeleton-text" style="width: 80px; height: 14px;"></div>
           </div>
-          {#each [1,2] as _}
-            <div class="task-item">
+          {#each [1, 2] as _}
+            <div class="dash-task-item">
               <div style="flex: 1;">
                 <div class="skeleton skeleton-text" style="width: 140px; height: 16px; margin-bottom: 4px;"></div>
                 <div class="skeleton skeleton-text" style="width: 90px; height: 12px;"></div>
               </div>
-              <div class="skeleton skeleton-text" style="width: 50px; height: 24px; border-radius: 6px;"></div>
+              <div class="skeleton skeleton-text" style="width: 70px; height: 24px; border-radius: 999px;"></div>
             </div>
           {/each}
         </div>
       </div>
-
     {:else}
-      <!-- Welcome banner -->
-      <div class="welcome-card">
-        <div>
-          <div class="welcome-name">Welcome back, {currentUser?.full_name || 'Intern'}!</div>
-          <div class="welcome-meta">
-            <span class="badge">Intern</span>
-            {#if readonlyDepartment}
-              <span class="welcome-info">• {normalizeDepartment(readonlyDepartment)}</span>
-            {/if}
-            {#if readonlyCourse}
-              <span class="welcome-info">• {readonlyCourse}</span>
-            {/if}
-            {#if readonlySchool}
-              <span class="welcome-info">• {readonlySchool}</span>
-            {/if}
+      <div class="dash-banner">
+        <div class="dash-banner-copy">
+          <div class="dash-banner-title">Welcome back, {currentUser?.full_name || 'Intern'}!</div>
+          <div class="dash-banner-tags">
+            <span class="dash-badge">Intern</span>
+            <div class="dash-banner-meta">
+              {#if readonlyDepartment}
+                <span>{normalizeDepartment(readonlyDepartment)}</span>
+              {/if}
+              {#if readonlyCourse}
+                <span>{readonlyCourse}</span>
+              {/if}
+              {#if readonlySchool}
+                <span>{readonlySchool}</span>
+              {/if}
+            </div>
           </div>
         </div>
-        <div class="view-toggle">
-          <span class="view-label">View:</span>
-          <div class="toggle-group">
-            <button
-              class="toggle-btn"
-              class:active={progressMode === PROGRESS_MODES.APPROVED}
-              on:click={() => progressMode = PROGRESS_MODES.APPROVED}
-            >Approved</button>
-            <button
-              class="toggle-btn"
-              class:active={progressMode === PROGRESS_MODES.ALL}
-              on:click={() => progressMode = PROGRESS_MODES.ALL}
-            >All Requests</button>
+
+        <div class="dash-view-toggle">
+          <button
+            type="button"
+            class="dash-view-btn"
+            class:active={progressMode === PROGRESS_MODES.APPROVED}
+            on:click={() => progressMode = PROGRESS_MODES.APPROVED}
+          >
+            Approved
+          </button>
+          <button
+            type="button"
+            class="dash-view-btn"
+            class:active={progressMode === PROGRESS_MODES.ALL}
+            on:click={() => progressMode = PROGRESS_MODES.ALL}
+          >
+            All Requests
+          </button>
+        </div>
+      </div>
+
+      <div class="dash-stat-grid">
+        <div class="dash-stat-card">
+          <div class="dash-stat-top">
+            <div class="dash-stat-label">Hours Needed</div>
+            <div class="dash-stat-icon tone-blue">
+              <Target size={16} />
+            </div>
+          </div>
+          <div class="dash-stat-value">{totalOjtHours || 0}</div>
+          <div class="dash-stat-sub">total OJT hours</div>
+        </div>
+
+        <div class="dash-stat-card">
+          <div class="dash-stat-top">
+            <div class="dash-stat-label">Hours Completed</div>
+            <div class="dash-stat-icon tone-green">
+              <CheckCircle size={16} />
+            </div>
+          </div>
+          <div class="dash-stat-value">{hoursCompleted}</div>
+          <div class="dash-stat-sub">all rendered hours</div>
+        </div>
+
+        <div class="dash-stat-card">
+          <div class="dash-stat-top">
+            <div class="dash-stat-label">Hours Remaining</div>
+            <div class="dash-stat-icon tone-amber">
+              <Hourglass size={16} />
+            </div>
+          </div>
+          <div class="dash-stat-value">{hoursRemaining}</div>
+          <div class="dash-stat-sub">left to finish</div>
+        </div>
+
+        <div class="dash-stat-card">
+          <div class="dash-stat-top">
+            <div class="dash-stat-label">Working Days Needed</div>
+            <div class="dash-stat-icon tone-purple">
+              <CalendarDays size={16} />
+            </div>
+          </div>
+          <div class="dash-stat-value">{remainingWorkingDays} <span class="dash-stat-unit">days</span></div>
+          <div class="dash-stat-sub">to complete OJT</div>
+        </div>
+      </div>
+
+      <div class="dash-mid-grid">
+        <div class="dash-card">
+          <div class="dash-section-label">Estimated End Date</div>
+          <div class="dash-end-value">{estimatedEndDateDisplay}</div>
+          <div class="dash-end-meta">Start: {startDateDisplay} · Weekdays only (Mon-Fri)</div>
+        </div>
+
+        <div class="dash-card dash-progress-card">
+          <div class="dash-progress-top">
+            <span class="dash-progress-label">Progress</span>
+            <span class="dash-progress-count">{hoursCompleted} / {totalOjtHours || 0} hrs</span>
+          </div>
+          <div class="dash-progress-track">
+            <div class="dash-progress-fill" style="width: {Math.max(progressPercent, 0.5)}%;"></div>
+          </div>
+          <div class="dash-progress-percent">{progressPercent}%</div>
+          <div class="dash-progress-footer">
+            <span>0h</span>
+            <span class="dash-progress-remaining">{progressFooterRemaining}</span>
+            <span>{totalOjtHours || 0}h</span>
           </div>
         </div>
       </div>
 
-      <!-- Stat cards with colored Lucide icons -->
-      <div class="stat-grid">
-        <div class="stat-card">
-          <div class="stat-label">Hours Needed</div>
-          <div class="stat-icon icon-blue">
-            <Target size={18} />
+      <div class="dash-bottom-grid">
+        <div class="dash-panel">
+          <div class="dash-panel-header">
+            <span class="dash-panel-title">Recent Activity</span>
+            <a href="/activity" class="dash-panel-link">View All <ArrowRight size={14} /></a>
           </div>
-          <div class="stat-value">{totalOjtHours || 0}</div>
-          <div class="stat-desc">total OJT hours</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Hours Completed</div>
-          <div class="stat-icon icon-green">
-            <CheckCircle size={18} />
-          </div>
-          <div class="stat-value">{hoursCompleted}</div>
-          <div class="stat-desc">all rendered hours</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Hours Remaining</div>
-          <div class="stat-icon icon-purple">
-            <Hourglass size={18} />
-          </div>
-          <div class="stat-value">{hoursRemaining}</div>
-          <div class="stat-desc">left to finish</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Working Days Needed</div>
-          <div class="stat-icon icon-amber">
-            <CalendarDays size={18} />
-          </div>
-          <div class="stat-value">{daysAndHoursNeeded}</div>
-          <div class="stat-desc">to complete OJT</div>
-        </div>
-      </div>
-
-      <!-- Mid card -->
-      <div class="mid-card">
-        <div class="mid-left">
-          <div class="mid-section-label">Estimated End Date</div>
-          <div class="mid-date">{computedEstimatedEndDate ? formatDateLong(computedEstimatedEndDate) : '—'}</div>
-          <div class="mid-meta">Start: {startDateDisplay} • Weekdays only (Mon–Fri)</div>
-        </div>
-        <div class="mid-right mid-divider">
-          <div class="progress-header">
-            <span class="progress-label">Progress</span>
-            <span class="progress-count">{hoursCompleted} / {totalOjtHours || 0} hrs</span>
-          </div>
-          <div class="progress-bar-bg">
-            <div class="progress-bar-fill" style="width: {progressPercent}%;"></div>
-          </div>
-          <div class="progress-pct">{progressPercent}%</div>
-        </div>
-      </div>
-
-      <!-- Bottom grid -->
-      <div class="bottom-grid">
-        <div class="bottom-card">
-          <div class="bottom-card-header">
-            <span class="bottom-card-title">Recent Activity</span>
-            <a href="/activity" class="view-all">View All →</a>
-          </div>
-          <div class="activity-list">
+          <div class="dash-panel-body">
             {#if Array.isArray(activityLogs) && activityLogs.length}
               {#each activityLogs as item (item.id || item.activity_id || item.created_at || activityTitle(item))}
-                <div class="activity-item">
-                  <div class="dot {item.type === 'logout' ? 'dot-green' : 'dot-blue'}"></div>
+                <div class="dash-activity-item">
+                  <div class="dash-activity-dot dash-activity-{normalizeActivityDotKind(item)}"></div>
                   <div>
-                    <div class="activity-text">{activityTitle(item)}</div>
-                    <div class="activity-date">{activityWhen(item)}</div>
+                    <div class="dash-activity-title">{activityTitle(item)}</div>
+                    <div class="dash-activity-date">{activityWhen(item)}</div>
                   </div>
                 </div>
               {/each}
             {:else}
-              <div class="empty-state">No recent activity yet.</div>
+              <div class="dash-empty-state">
+                <div class="dash-empty-icon">
+                  <ClipboardList size={20} />
+                </div>
+                <div class="dash-empty-text">No recent activity yet.</div>
+                <div class="dash-empty-sub">Your logged actions and updates will appear here.</div>
+              </div>
             {/if}
           </div>
         </div>
 
-        <div class="bottom-card">
-          <div class="bottom-card-header">
-            <span class="bottom-card-title">Upcoming Tasks</span>
-            <a href="/tasks" class="view-all">View All →</a>
+        <div class="dash-panel">
+          <div class="dash-panel-header">
+            <span class="dash-panel-title">Upcoming Tasks</span>
+            <a href="/activity" class="dash-panel-link">View All <ArrowRight size={14} /></a>
           </div>
-          <div class="tasks-list">
+          <div class="dash-panel-body">
             {#if Array.isArray(tasks) && tasks.length}
               {#each tasks as task (task.task_id || task.id || task.due_date || task.title)}
-                <div class="task-item">
-                  <div class="task-info">
-                    <div class="task-name">{String(task.title || task.name || 'Task')}</div>
-                    <div class="task-deadline">
+                <div class="dash-task-item">
+                  <div class="dash-task-info">
+                    <div class="dash-task-name">{String(task.title || task.name || 'Task')}</div>
+                    <div class="dash-task-deadline">
                       {task.due_date ? `Due: ${formatDateLong(String(task.due_date).slice(0, 10))}` : 'No due date'}
                     </div>
                   </div>
-                  <span class="priority-badge priority-{String(task.priority || 'medium').toLowerCase()}">
+                  <span class="dash-priority-badge dash-priority-{String(task.priority || 'medium').toLowerCase()}">
                     {String(task.priority || 'Medium')}
                   </span>
                 </div>
               {/each}
             {:else}
-              <div class="empty-state">No upcoming tasks yet.</div>
+              <div class="dash-empty-state">
+                <div class="dash-empty-icon">
+                  <ClipboardList size={20} />
+                </div>
+                <div class="dash-empty-text">No upcoming tasks yet.</div>
+                <div class="dash-empty-sub">Tasks assigned to you will appear here.</div>
+              </div>
             {/if}
           </div>
         </div>
       </div>
     {/if}
-  </div>
+  </section>
 </div>
 
 <style>
-  /* Reset and base */
   * {
     box-sizing: border-box;
     margin: 0;
@@ -647,469 +671,664 @@
   }
 
   .dashboard-root {
-    font-family: var(--font-sans, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif);
-    min-height: 100vh;
-    background: #f0f2f8;
-    transition: background 0.2s, color 0.2s;
+    min-height: 100%;
+    background: var(--color-app-bg);
+    color: #0f172a;
+    font-family: 'DM Sans', sans-serif;
   }
 
-  /* Dark mode styles - triggered by parent .dark class */
   :global(.dark) .dashboard-root {
-    background: #0f1929;
-    color: #e2e8f0;
+    color: #f1f5f9;
   }
 
-  .body {
-    padding: 20px;
-  }
-
-  /* Error / Success banners */
-  .error-banner, .success-banner {
-    padding: 10px 16px;
-    border-radius: 12px;
-    margin-bottom: 16px;
-    font-size: 14px;
-  }
-  .error-banner {
-    background: #fee2e2;
-    border: 0.5px solid #fecaca;
-    color: #991b1b;
-  }
-  .success-banner {
-    background: #e0f2e7;
-    border: 0.5px solid #bbf7d0;
-    color: #166534;
-  }
-  :global(.dark) .error-banner {
-    background: #2d1a1a;
-    border-color: #5c2a2a;
-    color: #fca5a5;
-  }
-  :global(.dark) .success-banner {
-    background: #1a2a1f;
-    border-color: #2a5c3a;
-    color: #86efac;
-  }
-
-  /* Welcome card */
-  .welcome-card {
-    border-radius: 12px;
-    padding: 18px 20px;
-    margin-bottom: 16px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 12px;
-    background: #2355e8;
-    color: #ffffff;
-  }
-  :global(.dark) .welcome-card {
-    background: #1a2a5e;
-    color: #e2e8f0;
-    border: 0.5px solid #2a3a6e;
-  }
-  .welcome-name {
-    font-size: 18px;
-    font-weight: 500;
-    margin-bottom: 6px;
-  }
-  .welcome-meta {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-  .badge {
-    padding: 3px 10px;
-    border-radius: 20px;
-    font-size: 12px;
-    font-weight: 500;
-    background: rgba(255,255,255,0.2);
-    color: #fff;
-  }
-  :global(.dark) .badge {
-    background: rgba(255,255,255,0.1);
-    color: #c9d3e0;
-  }
-  .welcome-info {
-    font-size: 13px;
-    color: rgba(255,255,255,0.85);
-  }
-  :global(.dark) .welcome-info {
-    color: #8892a4;
-  }
-  .view-toggle {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .view-label {
-    font-size: 13px;
-    color: rgba(255,255,255,0.75);
-  }
-  .toggle-group {
-    display: flex;
-    border-radius: 8px;
-    overflow: hidden;
-    border: 1px solid rgba(255,255,255,0.3);
-  }
-  :global(.dark) .toggle-group {
-    border-color: #2a3a6e;
-  }
-  .toggle-btn {
-    padding: 5px 14px;
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    border: none;
-    background: transparent;
-    transition: background 0.15s;
-    color: rgba(255,255,255,0.7);
-  }
-  .toggle-btn.active {
-    background: rgba(255,255,255,0.25);
-    color: #fff;
-  }
-  :global(.dark) .toggle-btn {
-    color: #8892a4;
-  }
-  :global(.dark) .toggle-btn.active {
-    background: #2a3a6e;
-    color: #e2e8f0;
-  }
-
-  /* Stat grid */
-  .stat-grid {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 12px;
-    margin-bottom: 16px;
-  }
-  .stat-card {
-    border-radius: 12px;
-    padding: 16px;
-    border: 0.5px solid #e2e6f0;
-    background: #ffffff;
-    position: relative;
-    overflow: hidden;
-  }
-  :global(.dark) .stat-card {
-    background: #161b2e;
-    border-color: #2a3050;
-  }
-  .stat-label {
-    font-size: 12px;
-    font-weight: 500;
-    margin-bottom: 10px;
-    margin-top: 4px;
-    color: #6b7280;
-  }
-  :global(.dark) .stat-label {
-    color: #8892a4;
-  }
-  .stat-icon {
-    position: absolute;
-    top: 14px;
-    right: 14px;
-    width: 32px;
-    height: 32px;
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(0,0,0,0.04);
-    transition: background 0.2s ease;
-  }
-  :global(.dark) .stat-icon {
-    background: rgba(255,255,255,0.06);
-  }
-  .stat-icon :global(svg) {
-    width: 18px;
-    height: 18px;
-  }
-  /* Colored icons */
-  .icon-blue :global(svg) {
-    color: #2355e8;
-  }
-  .icon-green :global(svg) {
-    color: #22c55e;
-  }
-  .icon-purple :global(svg) {
-    color: #8b5cf6;
-  }
-  .icon-amber :global(svg) {
-    color: #f59e0b;
-  }
-  :global(.dark) .icon-blue :global(svg) {
-    color: #5bb1ff;
-  }
-  :global(.dark) .icon-green :global(svg) {
-    color: #86efac;
-  }
-  :global(.dark) .icon-purple :global(svg) {
-    color: #c4b5fd;
-  }
-  :global(.dark) .icon-amber :global(svg) {
-    color: #fcd34d;
-  }
-  .stat-value {
-    font-size: 26px;
-    font-weight: 500;
-    margin-bottom: 4px;
-  }
-  .stat-desc {
-    font-size: 12px;
-    color: #9ca3af;
-  }
-  :global(.dark) .stat-desc {
-    color: #4a5568;
-  }
-
-  /* Mid card */
-  .mid-card {
-    border-radius: 12px;
-    padding: 18px 20px;
-    margin-bottom: 16px;
-    border: 0.5px solid #e2e6f0;
-    background: #ffffff;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-  }
-  :global(.dark) .mid-card {
-    background: #161b2e;
-    border-color: #2a3050;
-  }
-  .mid-divider {
-    border-left: 0.5px solid #e2e6f0;
-  }
-  :global(.dark) .mid-divider {
-    border-color: #2a3050;
-  }
-  .mid-left {
-    padding-right: 24px;
-  }
-  .mid-right {
-    padding-left: 24px;
-  }
-  .mid-section-label {
-    font-size: 11px;
-    font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-bottom: 6px;
-    color: #9ca3af;
-  }
-  :global(.dark) .mid-section-label {
-    color: #4a5568;
-  }
-  .mid-date {
-    font-size: 22px;
-    font-weight: 500;
-    margin-bottom: 4px;
-  }
-  .mid-meta {
-    font-size: 13px;
-    color: #6b7280;
-  }
-  :global(.dark) .mid-meta {
-    color: #8892a4;
-  }
-  .progress-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 8px;
-  }
-  .progress-label {
-    font-size: 13px;
-    font-weight: 500;
-  }
-  .progress-count {
-    font-size: 13px;
-    color: #6b7280;
-  }
-  :global(.dark) .progress-count {
-    color: #8892a4;
-  }
-  .progress-bar-bg {
-    height: 6px;
-    border-radius: 4px;
-    overflow: hidden;
-    margin-bottom: 8px;
-    background: #e2e6f0;
-  }
-  :global(.dark) .progress-bar-bg {
-    background: #2a3050;
-  }
-  .progress-bar-fill {
-    height: 100%;
-    border-radius: 4px;
-    background: #2355e8;
-    width: 0%;
-    transition: width 0.2s ease;
-  }
-  .progress-pct {
-    font-size: 22px;
-    font-weight: 500;
-  }
-
-  /* Bottom grid */
-  .bottom-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-  }
-  .bottom-card {
-    border-radius: 12px;
-    padding: 18px 20px;
-    border: 0.5px solid #e2e6f0;
-    background: #ffffff;
-  }
-  :global(.dark) .bottom-card {
-    background: #161b2e;
-    border-color: #2a3050;
-  }
-  .bottom-card-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 16px;
-  }
-  .bottom-card-title {
-    font-size: 14px;
-    font-weight: 500;
-  }
-  .view-all {
-    font-size: 13px;
-    color: #2355e8;
-    cursor: pointer;
-    text-decoration: none;
-  }
-  .activity-list, .tasks-list {
+  .dashboard-shell {
     display: flex;
     flex-direction: column;
-    gap: 0;
+    gap: 20px;
+    padding: 12px 12px 20px;
   }
-  .activity-item {
+
+  .error-banner,
+  .success-banner {
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .error-banner {
+    background: rgba(220, 38, 38, 0.12);
+    border: 1px solid rgba(220, 38, 38, 0.25);
+    color: #dc2626;
+  }
+
+  .success-banner {
+    background: rgba(22, 163, 74, 0.12);
+    border: 1px solid rgba(22, 163, 74, 0.22);
+    color: #15803d;
+  }
+
+  :global(.dark) .error-banner {
+    color: #f87171;
+  }
+
+  :global(.dark) .success-banner {
+    color: #4ade80;
+  }
+
+  .dash-banner {
+    position: relative;
+    overflow: hidden;
     display: flex;
     align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 24px 28px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 60%, #3b82f6 100%);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
+    color: #ffffff;
+  }
+
+  .dash-banner::before {
+    content: '';
+    position: absolute;
+    top: -40px;
+    right: -40px;
+    width: 200px;
+    height: 200px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .dash-banner::after {
+    content: '';
+    position: absolute;
+    bottom: -60px;
+    right: 80px;
+    width: 160px;
+    height: 160px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  :global(.dark) .dash-banner {
+    background: linear-gradient(135deg, #0f1b35 0%, #1a2d5a 60%, #1e3a8a 100%);
+  }
+
+  .dash-banner-copy,
+  .dash-view-toggle {
+    position: relative;
+    z-index: 1;
+  }
+
+  .dash-banner-copy {
+    display: flex;
+    flex-direction: column;
     gap: 10px;
-    padding: 10px 0;
-    border-bottom: 0.5px solid #f3f4f6;
+    min-width: 0;
   }
-  :global(.dark) .activity-item {
-    border-color: #1e2438;
+
+  .dash-banner-title {
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
   }
-  .activity-item:last-child {
+
+  .dash-banner-tags {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .dash-badge {
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+  }
+
+  .dash-banner-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 12.5px;
+    color: rgba(255, 255, 255, 0.72);
+  }
+
+  .dash-banner-meta span::before {
+    content: '•';
+    margin-right: 8px;
+    opacity: 0.55;
+  }
+
+  .dash-banner-meta span:first-child::before {
+    display: none;
+  }
+
+  .dash-view-toggle {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 3px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+  }
+
+  .dash-view-btn {
+    border: none;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.66);
+    padding: 5px 14px;
+    border-radius: 999px;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .dash-view-btn.active {
+    background: rgba(255, 255, 255, 0.95);
+    color: #1e3a8a;
+  }
+
+  .dash-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+  }
+
+  .dash-stat-card,
+  .dash-card,
+  .dash-panel {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
+  }
+
+  :global(.dark) .dash-stat-card,
+  :global(.dark) .dash-card,
+  :global(.dark) .dash-panel {
+    background: #161c27;
+    border-color: rgba(255, 255, 255, 0.06);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+  }
+
+  .dash-stat-card {
+    position: relative;
+    overflow: hidden;
+    padding: 20px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    transition: box-shadow 0.2s, transform 0.2s;
+  }
+
+  .dash-stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  }
+
+  :global(.dark) .dash-stat-card:hover {
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+  }
+
+  .dash-stat-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+
+  .dash-stat-label,
+  .dash-section-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: #64748b;
+  }
+
+  :global(.dark) .dash-stat-label,
+  :global(.dark) .dash-section-label {
+    color: #94a3b8;
+  }
+
+  .dash-stat-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+  }
+
+  .tone-blue {
+    background: rgba(37, 99, 235, 0.12);
+    color: #2563eb;
+  }
+
+  .tone-green {
+    background: rgba(22, 163, 74, 0.12);
+    color: #16a34a;
+  }
+
+  .tone-amber {
+    background: rgba(217, 119, 6, 0.12);
+    color: #d97706;
+  }
+
+  .tone-purple {
+    background: rgba(124, 58, 237, 0.12);
+    color: #7c3aed;
+  }
+
+  :global(.dark) .tone-blue {
+    background: rgba(59, 130, 246, 0.18);
+    color: #60a5fa;
+  }
+
+  :global(.dark) .tone-green {
+    background: rgba(34, 197, 94, 0.14);
+    color: #22c55e;
+  }
+
+  :global(.dark) .tone-amber {
+    background: rgba(245, 158, 11, 0.12);
+    color: #f59e0b;
+  }
+
+  :global(.dark) .tone-purple {
+    background: rgba(167, 139, 250, 0.14);
+    color: #a78bfa;
+  }
+
+  .dash-stat-value {
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.8px;
+    line-height: 1;
+    color: #0f172a;
+  }
+
+  :global(.dark) .dash-stat-value {
+    color: #f1f5f9;
+  }
+
+  .dash-stat-unit {
+    font-size: 16px;
+    font-weight: 500;
+    color: #64748b;
+  }
+
+  .dash-stat-sub {
+    margin-top: 4px;
+    font-size: 11.5px;
+    color: #64748b;
+  }
+
+  :global(.dark) .dash-stat-sub,
+  :global(.dark) .dash-stat-unit {
+    color: #94a3b8;
+  }
+
+  .dash-mid-grid {
+    display: grid;
+    grid-template-columns: 1fr 1.6fr;
+    gap: 14px;
+  }
+
+  .dash-card {
+    padding: 22px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .dash-end-value {
+    font-size: 30px;
+    font-weight: 700;
+    letter-spacing: -0.8px;
+    color: #0f172a;
+  }
+
+  :global(.dark) .dash-end-value {
+    color: #f1f5f9;
+  }
+
+  .dash-end-meta {
+    font-size: 12.5px;
+    color: #64748b;
+  }
+
+  :global(.dark) .dash-end-meta {
+    color: #94a3b8;
+  }
+
+  .dash-progress-card {
+    gap: 10px;
+  }
+
+  .dash-progress-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .dash-progress-label {
+    font-size: 14px;
+    font-weight: 600;
+    color: #0f172a;
+  }
+
+  .dash-progress-count {
+    font-size: 12px;
+    font-family: 'DM Mono', monospace;
+    color: #64748b;
+  }
+
+  .dash-progress-track {
+    height: 8px;
+    background: #f0f4f8;
+    border: 1px solid #e2e8f0;
+    border-radius: 999px;
+    overflow: hidden;
+  }
+
+  :global(.dark) .dash-progress-track {
+    background: #0d1117;
+    border-color: rgba(255, 255, 255, 0.06);
+  }
+
+  .dash-progress-fill {
+    height: 100%;
+    min-width: 2px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #2563eb, #3b82f6);
+    box-shadow: 0 0 8px rgba(37, 99, 235, 0.12);
+  }
+
+  :global(.dark) .dash-progress-fill {
+    background: linear-gradient(90deg, #3b82f6, #60a5fa);
+    box-shadow: 0 0 8px rgba(59, 130, 246, 0.18);
+  }
+
+  .dash-progress-percent {
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: -0.6px;
+    color: #0f172a;
+  }
+
+  :global(.dark) .dash-progress-percent,
+  :global(.dark) .dash-progress-label {
+    color: #f1f5f9;
+  }
+
+  .dash-progress-footer {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11.5px;
+    font-family: 'DM Mono', monospace;
+    color: #94a3b8;
+  }
+
+  .dash-progress-remaining {
+    color: #2563eb;
+  }
+
+  :global(.dark) .dash-progress-count,
+  :global(.dark) .dash-progress-footer {
+    color: #94a3b8;
+  }
+
+  :global(.dark) .dash-progress-remaining {
+    color: #60a5fa;
+  }
+
+  .dash-bottom-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+
+  .dash-panel {
+    min-height: 220px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .dash-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 22px;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  :global(.dark) .dash-panel-header {
+    border-color: rgba(255, 255, 255, 0.06);
+  }
+
+  .dash-panel-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #0f172a;
+  }
+
+  :global(.dark) .dash-panel-title {
+    color: #f1f5f9;
+  }
+
+  .dash-panel-link {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    color: #3b82f6;
+    font-size: 12px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: opacity 0.15s ease;
+  }
+
+  .dash-panel-link:hover {
+    opacity: 0.78;
+  }
+
+  .dash-panel-body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+  }
+
+  .dash-activity-item,
+  .dash-task-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 22px;
+    border-bottom: 1px solid #e2e8f0;
+    transition: background 0.15s ease;
+  }
+
+  .dash-task-item {
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .dash-activity-item:hover,
+  .dash-task-item:hover {
+    background: rgba(37, 99, 235, 0.08);
+  }
+
+  :global(.dark) .dash-activity-item,
+  :global(.dark) .dash-task-item {
+    border-color: rgba(255, 255, 255, 0.06);
+  }
+
+  :global(.dark) .dash-activity-item:hover,
+  :global(.dark) .dash-task-item:hover {
+    background: rgba(59, 130, 246, 0.12);
+  }
+
+  .dash-activity-item:last-child,
+  .dash-task-item:last-child {
     border-bottom: none;
   }
-  .dot {
+
+  .dash-activity-dot {
     width: 8px;
     height: 8px;
     border-radius: 50%;
     margin-top: 4px;
     flex-shrink: 0;
   }
-  .dot-green { background: #22c55e; }
-  .dot-blue { background: #3b82f6; }
-  .activity-text {
-    font-size: 14px;
-    font-weight: 500;
+
+  .dash-activity-submitted {
+    background: #3b82f6;
   }
-  .activity-date {
-    font-size: 12px;
+
+  .dash-activity-completed {
+    background: #22c55e;
+  }
+
+  .dash-activity-reviewed {
+    background: #f59e0b;
+  }
+
+  .dash-activity-assigned {
+    background: #a78bfa;
+  }
+
+  .dash-activity-title,
+  .dash-task-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: #0f172a;
+  }
+
+  :global(.dark) .dash-activity-title,
+  :global(.dark) .dash-task-name {
+    color: #f1f5f9;
+  }
+
+  .dash-activity-date,
+  .dash-task-deadline {
     margin-top: 2px;
-    color: #9ca3af;
+    font-size: 11.5px;
+    color: #64748b;
   }
-  :global(.dark) .activity-date {
-    color: #4a5568;
+
+  :global(.dark) .dash-activity-date,
+  :global(.dark) .dash-task-deadline {
+    color: #94a3b8;
   }
-  .task-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px 0;
-    border-bottom: 0.5px solid #f3f4f6;
-  }
-  :global(.dark) .task-item {
-    border-color: #1e2438;
-  }
-  .task-item:last-child {
-    border-bottom: none;
-  }
-  .task-info {
+
+  .dash-task-info {
     flex: 1;
   }
-  .task-name {
-    font-weight: 500;
-    font-size: 14px;
-    margin-bottom: 2px;
-  }
-  .task-deadline {
-    font-size: 12px;
-    color: #9ca3af;
-  }
-  :global(.dark) .task-deadline {
-    color: #4a5568;
-  }
-  .priority-badge {
+
+  .dash-priority-badge {
     display: inline-block;
     padding: 4px 8px;
-    border-radius: 6px;
-    font-size: 12px;
-    font-weight: 500;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
     text-transform: capitalize;
   }
-  .priority-high {
+
+  .dash-priority-high {
     background: #ffe4e6;
     color: #be123c;
     border: 1px solid #fecdd3;
   }
-  .priority-medium {
+
+  .dash-priority-medium {
     background: #fff7d6;
     color: #92400e;
     border: 1px solid #fde68a;
   }
-  .priority-low {
+
+  .dash-priority-low {
     background: #dcfce7;
     color: #166534;
     border: 1px solid #86efac;
   }
-  :global(.dark) .priority-high {
+
+  :global(.dark) .dash-priority-high {
     background: rgba(251, 113, 133, 0.18);
     color: #fda4af;
     border-color: rgba(251, 113, 133, 0.4);
   }
-  :global(.dark) .priority-medium {
+
+  :global(.dark) .dash-priority-medium {
     background: rgba(250, 204, 21, 0.18);
     color: #fde047;
     border-color: rgba(250, 204, 21, 0.4);
   }
-  :global(.dark) .priority-low {
+
+  :global(.dark) .dash-priority-low {
     background: rgba(34, 197, 94, 0.18);
     color: #86efac;
     border-color: rgba(34, 197, 94, 0.4);
   }
-  .empty-state {
+
+  .dash-empty-state {
     display: flex;
+    flex: 1;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
-    height: 80px;
-    font-size: 14px;
-    color: #9ca3af;
-  }
-  :global(.dark) .empty-state {
-    color: #4a5568;
+    gap: 10px;
+    padding: 32px;
+    color: #94a3b8;
   }
 
-  /* ===== Skeleton Loading Styles ===== */
+  .dash-empty-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    display: grid;
+    place-items: center;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+  }
+
+  .dash-empty-text {
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .dash-empty-sub {
+    font-size: 11.5px;
+    text-align: center;
+  }
+
+  :global(.dark) .dash-empty-state {
+    color: #4b5563;
+  }
+
+  :global(.dark) .dash-empty-icon {
+    background: #1e2736;
+    border-color: rgba(255, 255, 255, 0.06);
+  }
+
   .skeleton {
     position: relative;
     overflow: hidden;
     background: rgba(0, 0, 0, 0.08);
-    border-radius: 4px;
+    border-radius: 6px;
   }
+
   :global(.dark) .skeleton {
     background: rgba(255, 255, 255, 0.06);
   }
@@ -1117,28 +1336,44 @@
   .skeleton::after {
     content: "";
     position: absolute;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    left: 0;
+    inset: 0;
     transform: translateX(-100%);
     background-image: linear-gradient(
       90deg,
       rgba(255, 255, 255, 0) 0,
       rgba(255, 255, 255, 0.3) 20%,
       rgba(255, 255, 255, 0.6) 60%,
-      rgba(255, 255, 255, 0)
+      rgba(255, 255, 255, 0) 100%
     );
     animation: shimmer 1.5s infinite;
   }
+
   :global(.dark) .skeleton::after {
     background-image: linear-gradient(
       90deg,
       rgba(255, 255, 255, 0) 0,
       rgba(255, 255, 255, 0.05) 20%,
       rgba(255, 255, 255, 0.1) 60%,
-      rgba(255, 255, 255, 0)
+      rgba(255, 255, 255, 0) 100%
     );
+  }
+
+  .skeleton-text {
+    background: rgba(0, 0, 0, 0.08);
+    border-radius: 6px;
+    height: 1em;
+  }
+
+  :global(.dark) .skeleton-text {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .dash-banner-skeleton {
+    background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 60%, #3b82f6 100%);
+  }
+
+  :global(.dark) .dash-banner-skeleton {
+    background: linear-gradient(135deg, #0f1b35 0%, #1a2d5a 60%, #1e3a8a 100%);
   }
 
   @keyframes shimmer {
@@ -1147,67 +1382,43 @@
     }
   }
 
-  .skeleton-text {
-    background: rgba(0, 0, 0, 0.08);
-    border-radius: 6px;
-    height: 1em;
-  }
-  :global(.dark) .skeleton-text {
-    background: rgba(255, 255, 255, 0.06);
-  }
-
-  .skeleton-welcome {
-    background: #2355e8;
-  }
-  :global(.dark) .skeleton-welcome {
-    background: #1a2a5e;
-    border: 0.5px solid #2a3a6e;
-  }
-
-  .skeleton-stat {
-    background: #ffffff;
-  }
-  :global(.dark) .skeleton-stat {
-    background: #161b2e;
-    border-color: #2a3050;
-  }
-
-  .skeleton-mid {
-    background: #ffffff;
-  }
-  :global(.dark) .skeleton-mid {
-    background: #161b2e;
-    border-color: #2a3050;
-  }
-
-  .skeleton-bottom {
-    background: #ffffff;
-  }
-  :global(.dark) .skeleton-bottom {
-    background: #161b2e;
-    border-color: #2a3050;
-  }
-
-  /* Responsive */
-  @media (max-width: 600px) {
-    .stat-grid {
-      grid-template-columns: repeat(2, 1fr);
+  @media (max-width: 1024px) {
+    .dash-stat-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
-    .mid-card {
+
+    .dash-mid-grid,
+    .dash-bottom-grid {
       grid-template-columns: 1fr;
     }
-    .bottom-grid {
+  }
+
+  @media (max-width: 720px) {
+    .dashboard-shell {
+      padding: 8px 8px 16px;
+      gap: 16px;
+    }
+
+    .dash-banner {
+      padding: 20px;
+      flex-direction: column;
+      align-items: stretch;
+    }
+  }
+
+  @media (max-width: 560px) {
+    .dash-stat-grid {
       grid-template-columns: 1fr;
     }
-    .mid-divider {
-      border-left: none;
-      border-top: 0.5px solid #e2e6f0;
-      padding-top: 16px;
-      padding-left: 0;
-      margin-top: 12px;
+
+    .dash-banner-title {
+      font-size: 18px;
     }
-    :global(.dark) .mid-divider {
-      border-color: #2a3050;
+
+    .dash-end-value,
+    .dash-progress-percent,
+    .dash-stat-value {
+      font-size: 24px;
     }
   }
 </style>

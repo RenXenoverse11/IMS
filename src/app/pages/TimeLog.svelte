@@ -18,6 +18,9 @@
   const AVERAGE_DAILY_HOURS = 8;
   const INITIAL_COMPLETED_HOURS = 0;
 
+  // ---- Skeleton loading flag ----
+  let isLoading = true;
+
   let requiredHours = DEFAULT_REQUIRED_HOURS;
   let ojtStartDate = '';
 
@@ -36,7 +39,7 @@
   let logSyncError = '';
   let isLoggingIn = false;
   let isLoggingOut = false;
-  let isLoggedIn = false; // Simple boolean: true = logged in, false = logged out
+  let isLoggedIn = false;
   let includeLunch = (() => {
     if (typeof window !== 'undefined') {
       return window.localStorage.getItem('ojt_include_lunch') === 'true';
@@ -44,41 +47,29 @@
     return false;
   })();
 
-  // Delete confirmation state
   let showDeleteConfirm = false;
   let deleteConfirmEntry = null;
 
   function addWorkingDays(startDate, days) {
     const result = new Date(startDate);
     let added = 0;
-
     while (added < days) {
       result.setDate(result.getDate() + 1);
       const day = result.getDay();
-
-      if (day !== 0 && day !== 6) {
-        added += 1;
-      }
+      if (day !== 0 && day !== 6) added += 1;
     }
-
     return result;
   }
 
   function calculateHours(currentTimeIn, currentTimeOut, withLunch = includeLunch) {
-    if (!currentTimeIn || !currentTimeOut) {
-      return 0;
-    }
-
+    if (!currentTimeIn || !currentTimeOut) return 0;
     const [inHours, inMinutes] = currentTimeIn.split(':').map(Number);
     const [outHours, outMinutes] = currentTimeOut.split(':').map(Number);
     const diffMinutes = outHours * 60 + outMinutes - (inHours * 60 + inMinutes);
     const rawHours = Math.max(0, Math.round((diffMinutes / 60) * 10) / 10);
-
-    // If lunch is NOT included, deduct 1 hour for lunch break (only if shift is long enough)
     if (!withLunch && rawHours > 1) {
       return Math.max(0, Math.round((rawHours - 1) * 10) / 10);
     }
-
     return rawHours;
   }
 
@@ -121,43 +112,26 @@
       const day = String(dateObj.getDate()).padStart(2, '0');
       return `${year}-${month}-${day}`;
     }
-
     const text = String(value || '').trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
-      return text;
-    }
-
+    if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
     const isoWithTimeMatch = text.match(/^(\d{4}-\d{2}-\d{2})T/);
-    if (isoWithTimeMatch) {
-      return isoWithTimeMatch[1];
-    }
-
+    if (isoWithTimeMatch) return isoWithTimeMatch[1];
     const serial = Number(value);
     if (Number.isFinite(serial) && serial > 1) {
       const millis = Math.round((serial - 25569) * 86400000);
       const serialDate = new Date(millis);
-      if (!Number.isNaN(serialDate.getTime())) {
-        return toLocalIsoDate(serialDate);
-      }
+      if (!Number.isNaN(serialDate.getTime())) return toLocalIsoDate(serialDate);
     }
-
     const dateObj = new Date(text);
-    if (Number.isNaN(dateObj.getTime())) {
-      return toLocalIsoDate(new Date());
-    }
-
+    if (Number.isNaN(dateObj.getTime())) return toLocalIsoDate(new Date());
     return toLocalIsoDate(dateObj);
   }
 
   function normalizeTimeValue(value, fallback) {
-    const to24HourString = (hours, minutes) => {
-      return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-    };
-
+    const to24HourString = (hours, minutes) => `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
     if (value instanceof Date && !Number.isNaN(value.getTime())) {
       return to24HourString(value.getHours(), value.getMinutes());
     }
-
     const numeric = Number(value);
     if (Number.isFinite(numeric) && numeric >= 0) {
       const fraction = ((numeric % 1) + 1) % 1;
@@ -166,43 +140,27 @@
       const minutes = totalMinutes % 60;
       return to24HourString(hours, minutes);
     }
-
     const text = String(value || '').trim();
-    if (!text) {
-      return fallback;
-    }
-
+    if (!text) return fallback;
     const isoTime = text.match(/T(\d{2}):(\d{2})/);
-    if (isoTime) {
-      return `${isoTime[1]}:${isoTime[2]}`;
-    }
-
+    if (isoTime) return `${isoTime[1]}:${isoTime[2]}`;
     const amPmTime = text.match(/(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)/i);
     if (amPmTime) {
       let hours = Number(amPmTime[1]);
       const minutes = Number(amPmTime[2]);
       const marker = String(amPmTime[3] || '').toUpperCase();
-
-      if (marker === 'PM' && hours < 12) {
-        hours += 12;
-      }
-      if (marker === 'AM' && hours === 12) {
-        hours = 0;
-      }
-
+      if (marker === 'PM' && hours < 12) hours += 12;
+      if (marker === 'AM' && hours === 12) hours = 0;
       return to24HourString(hours, minutes);
     }
-
     const h24Time = text.match(/\b(\d{1,2}):(\d{2})(?::\d{2})?\b/);
     if (h24Time) {
       const hours = Number(h24Time[1]);
       const minutes = Number(h24Time[2]);
-
       if (Number.isFinite(hours) && Number.isFinite(minutes) && hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
         return to24HourString(hours, minutes);
       }
     }
-
     return fallback;
   }
 
@@ -214,9 +172,9 @@
       timeOut: normalizeTimeValue(row?.time_out, '17:00'),
       hours: Number(row?.hours_rendered || 0),
       status: 'recorded',
-      type: String(row?.entry_type || 'login').toLowerCase(), // 'login' or 'logout'
+      type: String(row?.entry_type || 'login').toLowerCase(),
       notes: String(row?.notes || ''),
-      createdAt: String(row?.created_at || ''), // timestamp when entry was created
+      createdAt: String(row?.created_at || ''),
     };
   }
 
@@ -226,7 +184,6 @@
       entries = [];
       return;
     }
-
     try {
       const logs = await authApi.listTimeLogsByUser(user.user_id);
       entries = logs
@@ -243,13 +200,11 @@
     const studentHours = Number(user?.ojt?.total_ojt_hours || 0);
     const rawStartDate = user?.ojt?.start_date || user?.first_login_date || '';
     ojtStartDate = normalizeDateOnly(rawStartDate);
-
     if (user?.role === 'Student' && Number.isFinite(studentHours) && studentHours > 0) {
       requiredHours = studentHours;
-      return;
+    } else {
+      requiredHours = DEFAULT_REQUIRED_HOURS;
     }
-
-    requiredHours = DEFAULT_REQUIRED_HOURS;
   }
 
   async function handleLogin() {
@@ -257,46 +212,29 @@
       logSyncError = 'Please select a date and enter your login time.';
       return;
     }
-
     isLoggingIn = true;
     logSyncError = '';
-
     const user = authApi.getCurrentUser();
     if (!user?.user_id) {
       logSyncError = 'Please log in to your account first.';
       isLoggingIn = false;
       return;
     }
-
     try {
-      console.log('Ã°Å¸â€Âµ Starting session:', {
-        user_id: user.user_id,
-        log_date: date,
-        time_in: timeIn,
-      });
-
-      // Save login to active_sessions table via start_session action
       const response = await authApi.callApiAction('start_session', {
         user_id: user.user_id,
         log_date: date,
         time_in: timeIn,
       });
-
-      console.log('Ã°Å¸â€Âµ Response from start_session:', response);
-      
       if (response && response.ok === true) {
-        console.log('Ã¢Å“â€¦ Session started successfully');
-        isLoggedIn = true; // Enable logout button
+        isLoggedIn = true;
         logSyncError = '';
       } else {
-        console.log('Ã¢ÂÅ’ Session failed:', response);
         logSyncError = response?.error || 'Failed to start session';
         isLoggedIn = false;
       }
-      
       isLoggingIn = false;
     } catch (err) {
-      console.error('Ã¢ÂÅ’ Login error:', err);
       logSyncError = err?.message || 'Unable to process login.';
       isLoggedIn = false;
       isLoggingIn = false;
@@ -308,80 +246,50 @@
       logSyncError = 'Please enter your logout time.';
       return;
     }
-
     if (!timeIn) {
       logSyncError = 'Please enter your login time first.';
       return;
     }
-
     isLoggingOut = true;
     logSyncError = '';
-
     const user = authApi.getCurrentUser();
     if (!user?.user_id) {
       logSyncError = 'Please log in again before logging out.';
       isLoggingOut = false;
       return;
     }
-
     const hours = calculateHours(timeIn, timeOut, includeLunch);
-
     try {
-      console.log('Ã°Å¸â€Â´ Ending session:', {
-        user_id: user.user_id,
-        log_date: date,
-        time_in: timeIn,
-        time_out: timeOut,
-        hours_rendered: hours,
-      });
-
-      // End session and create complete time log entry
       const response = await authApi.callApiAction('end_session', {
         user_id: user.user_id,
         log_date: date,
         time_out: timeOut,
         hours_rendered: hours,
       });
-
-      console.log('Ã°Å¸â€Â´ Response from end_session:', response);
-
       if (response && response.ok === true) {
-        console.log('Ã¢Å“â€¦ Session ended successfully');
         logSyncError = '';
-        
-        // Clear session state
         isLoggedIn = false;
-        
-        // Reset form fields
         timeOut = '';
-        
-        // Reload all entries to ensure they display correctly in the history
         await loadEntriesFromApi();
       } else {
         logSyncError = response?.error || 'Unable to complete session.';
-        console.log('Ã¢ÂÅ’ Logout failed:', response);
       }
-
       isLoggingOut = false;
     } catch (err) {
-      console.error('Ã¢ÂÅ’ Logout error:', err);
       logSyncError = err?.message || 'Unable to log out right now.';
       isLoggingOut = false;
-      return;
     }
   }
 
   async function handleDelete(id) {
     const entry = entries.find((e) => String(e.id) === String(id));
     if (!entry) return;
-
     deleteConfirmEntry = entry;
     showDeleteConfirm = true;
   }
 
   async function confirmDelete() {
     if (!deleteConfirmEntry) return;
-
     const user = authApi.getCurrentUser();
     if (!user?.user_id) {
       logSyncError = 'Please log in again before deleting a time log.';
@@ -389,7 +297,6 @@
       deleteConfirmEntry = null;
       return;
     }
-
     try {
       await authApi.deleteTimeLog(user.user_id, deleteConfirmEntry.id);
       entries = entries.filter((entry) => String(entry.id) !== String(deleteConfirmEntry.id));
@@ -413,125 +320,24 @@
       isLoggedIn = false;
       return;
     }
-
     try {
-      console.log('Ã°Å¸â€Â Checking for active session for user:', user.user_id);
-      
-      // Call backend to check if user has active session for today
       const response = await authApi.callApiAction('get_active_session', {
         user_id: user.user_id,
         log_date: date,
       });
-
-      console.log('Ã°Å¸â€Â Active session check response:', response);
-      
       if (response && response.ok === true && response.session) {
-        console.log('Ã¢Å“â€¦ Found active session! Restoring state...');
-        // Restore login time from active session
         timeIn = response.session.time_in || timeIn;
         isLoggedIn = true;
       } else {
-        console.log('Ã¢â€žÂ¹Ã¯Â¸Â No active session found for today');
         isLoggedIn = false;
       }
     } catch (err) {
-      console.error('Ã¢ÂÅ’ Error checking active session:', err);
+      console.error('Error checking active session:', err);
       isLoggedIn = false;
     }
   }
 
-  async function showDebugInfo() {
-    try {
-      const response = await authApi.callApiAction('debug_sessions_sheet', {});
-      console.log('Ã°Å¸â€Â§ DEBUG_SESSIONS_SHEET Response:', response);
-      
-      if (response && response.ok === true) {
-        console.log('Ã¢Å“â€¦ Active Sessions:', JSON.stringify(response.active_sessions, null, 2));
-        console.log('Ã¢Å“â€¦ Time Logs:', JSON.stringify(response.time_logs, null, 2));
-        alert('Check browser console (Cmd+Option+I) for detailed debug information!');
-      } else {
-        alert('Debug Error: ' + (response?.error || 'Unknown error'));
-      }
-    } catch (err) {
-      console.error('Ã¢ÂÅ’ Debug error:', err);
-      alert('Error: ' + err.message);
-    }
-  }
-
-  onMount(() => {
-    // Set date to today by default
-    const today = new Date();
-    const year = today.getFullYear();
-    const month = String(today.getMonth() + 1).padStart(2, '0');
-    const day = String(today.getDate()).padStart(2, '0');
-    date = `${year}-${month}-${day}`;
-    
-    syncRequiredHoursFromAccount();
-    loadEntriesFromApi();
-    checkForActiveSession(); // Check if user has an active session for today
-
-    return () => {
-      // no-op cleanup for now
-    };
-  });
-
-  $: formHours = calculateHours(timeIn, timeOut, includeLunch);
-  $: canLogin = Boolean(date && timeIn && !isLoggedIn);
-  $: canLogout = Boolean(isLoggedIn && date && timeIn && timeOut);
-  $: currentUserId = String(authApi.getCurrentUser()?.user_id || '').trim();
-  $: completedHoursStorageKey = currentUserId ? `ojt_completed_hours_${currentUserId}` : '';
-  $: completedHours = INITIAL_COMPLETED_HOURS + entries.reduce((sum, entry) => sum + entry.hours, 0);
-  $: remainingHours = Math.max(0, requiredHours - completedHours);
-  $: progressPercent = Math.min(100, Math.round((completedHours / requiredHours) * 100));
-
-  // Filter for completed entries (all entries with time_out recorded and hours > 0)
-  $: completedEntries = entries.filter(
-    (entry) => entry.timeOut && Number(entry.hours) > 0
-  );
-  // Save completed hours to user-scoped local cache for dashboard fallback.
-  $: if (typeof window !== 'undefined' && completedHours >= 0 && completedHoursStorageKey) {
-    localStorage.setItem(completedHoursStorageKey, String(completedHours));
-  }
-  $: effectiveRemaining = Math.max(0, remainingHours);
-  $: totalAbsenceHours = 0; // Removed: Math.max(0, absenceDays) * AVERAGE_DAILY_HOURS
-  $: adjustedRequiredHours = Math.max(0, requiredHours - Math.max(0, 0)); // Removed overtime calculation
-  $: projectedWorkingDays = Math.ceil(adjustedRequiredHours / AVERAGE_DAILY_HOURS);
-  $: estimatedDate = (() => {
-    const start = parseIsoDateOnly(ojtStartDate) || new Date();
-    return addWorkingDays(start, Math.max(0, projectedWorkingDays - 1));
-  })();
-  $: statCards = [
-    {
-      label: 'Total Hours Required',
-      value: `${requiredHours}h`,
-      sub: 'Per internship agreement',
-      icon: Target,
-      tone: 'primary',
-    },
-    {
-      label: 'Hours Completed',
-      value: `${completedHours}h`,
-      sub: `${remainingHours}h remaining`,
-      icon: CheckCircle2,
-      tone: 'success',
-    },
-    {
-      label: 'Avg. Daily Hours',
-      value: `${AVERAGE_DAILY_HOURS}h`,
-      sub: 'Based on schedule',
-      icon: Clock,
-      tone: 'info',
-    },
-    {
-      label: 'Est. Completion',
-      value: formatShortDate(estimatedDate),
-      sub: String(estimatedDate.getFullYear()),
-      icon: Calendar,
-      tone: 'forecast',
-    },
-  ];
-
-  // ---- Weekly Chart (Chart.js via CDN) ----
+  // ---- Chart logic (unchanged) ----
   let _chartJsPromise = null;
   function _loadChartJs() {
     if (_chartJsPromise) return _chartJsPromise;
@@ -547,6 +353,28 @@
   }
 
   let tlChart = null;
+  let _chartInitRaf = null;
+  let _chartRetryTimer = null;
+  let _chartResizeObserver = null;
+
+  function requestTlChartInit() {
+    if (typeof window === 'undefined') return;
+    if (_chartInitRaf) cancelAnimationFrame(_chartInitRaf);
+    _chartInitRaf = requestAnimationFrame(() => {
+      _chartInitRaf = null;
+      initTlChart();
+    });
+  }
+
+  function ensureChartResizeObserver() {
+    if (typeof window === 'undefined') return;
+    if (_chartResizeObserver) return;
+    if (typeof ResizeObserver === 'undefined') return;
+    const wrap = document.querySelector('.tl-chart-wrap');
+    if (!wrap) return;
+    _chartResizeObserver = new ResizeObserver(() => requestTlChartInit());
+    _chartResizeObserver.observe(wrap);
+  }
 
   function getTlColors() {
     const isDark = document.documentElement.classList.contains('dark') || document.body.classList.contains('dark');
@@ -572,6 +400,7 @@
     const monday = new Date(now);
     monday.setDate(now.getDate() + diffToMon);
     monday.setHours(0, 0, 0, 0);
+    const completedEntries = entries.filter(e => e.timeOut && Number(e.hours) > 0);
     for (const entry of completedEntries) {
       const d = new Date(entry.date + 'T00:00:00');
       const idx = Math.round((d - monday) / 86400000);
@@ -580,12 +409,32 @@
     return { days, totals };
   }
 
-  async function initTlChart() {
+  async function initTlChart(retry = 0) {
     if (typeof window === 'undefined') return;
     const canvas = document.getElementById('tlWeekChart');
     if (!canvas) return;
-    const Chart = await _loadChartJs();
+
+    // If the canvas is mounted but the layout hasn't measured yet, Chart.js will render a 0px chart.
+    const wrap = canvas.parentElement;
+    const rect = wrap?.getBoundingClientRect?.();
+    if (rect && (rect.width < 10 || rect.height < 10)) {
+      if (retry >= 12) return;
+      if (_chartRetryTimer) clearTimeout(_chartRetryTimer);
+      _chartRetryTimer = setTimeout(() => initTlChart(retry + 1), 50);
+      return;
+    }
+
+    let Chart;
+    try {
+      Chart = await _loadChartJs();
+    } catch (err) {
+      // Allow retry if the CDN script load failed once.
+      console.error('Failed to load Chart.js:', err);
+      _chartJsPromise = null;
+      return;
+    }
     const ctx = canvas.getContext('2d');
+    if (!ctx) return;
     const c = getTlColors();
     const { days, totals } = buildWeeklyData();
     if (tlChart) { tlChart.destroy(); tlChart = null; }
@@ -647,42 +496,91 @@
           },
         },
         scales: {
-          x: {
-            grid: { color: c.grid },
-            ticks: { color: c.text2, font: { family: 'DM Sans', size: 11 } },
-            border: { color: 'transparent' },
-          },
-          y: {
-            min: 0, max: 12,
-            grid: { color: c.grid },
-            ticks: { color: c.text2, font: { family: 'DM Mono', size: 10 }, stepSize: 4, callback: (v) => v + 'h' },
-            border: { color: 'transparent' },
-          },
+          x: { grid: { color: c.grid }, ticks: { color: c.text2, font: { family: 'DM Sans', size: 11 } }, border: { color: 'transparent' } },
+          y: { min: 0, max: 12, grid: { color: c.grid }, ticks: { color: c.text2, font: { family: 'DM Mono', size: 10 }, stepSize: 4, callback: (v) => v + 'h' }, border: { color: 'transparent' } },
         },
       },
     });
+
+    // One extra resize after paint helps when this page is reached via client-side navigation.
+    requestAnimationFrame(() => {
+      try { tlChart?.resize?.(); } catch (_) {}
+    });
+  }
+
+  // ---- Initial load with skeleton ----
+  async function loadAllData() {
+    isLoading = true;
+    try {
+      syncRequiredHoursFromAccount();
+      await loadEntriesFromApi();
+      // Set default date after ensuring user is loaded
+      const today = new Date();
+      const year = today.getFullYear();
+      const month = String(today.getMonth() + 1).padStart(2, '0');
+      const day = String(today.getDate()).padStart(2, '0');
+      date = `${year}-${month}-${day}`;
+      await checkForActiveSession();
+      requestTlChartInit();
+    } catch (err) {
+      console.error('Error loading time log data:', err);
+      logSyncError = err?.message || 'Failed to load time log data.';
+    } finally {
+      isLoading = false;
+    }
   }
 
   let _themeObserver = null;
 
-  // Augment the existing onMount to also init the chart
   onMount(() => {
-    // chart init (deferred so DOM is ready)
-    setTimeout(initTlChart, 50);
-    _themeObserver = new MutationObserver(() => initTlChart());
+    loadAllData();
+    // Watch for theme changes to redraw chart
+    _themeObserver = new MutationObserver(() => requestTlChartInit());
     _themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
     _themeObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
   });
 
   onDestroy(() => {
     if (_themeObserver) _themeObserver.disconnect();
+    if (_chartInitRaf) cancelAnimationFrame(_chartInitRaf);
+    if (_chartRetryTimer) clearTimeout(_chartRetryTimer);
+    if (_chartResizeObserver) _chartResizeObserver.disconnect();
     if (tlChart) { tlChart.destroy(); tlChart = null; }
   });
 
-  // Rebuild chart when entries change
-  $: if (typeof window !== 'undefined' && completedEntries) {
-    initTlChart();
+  // Rebuild chart when entries change (but only if not loading)
+  $: if (!isLoading && entries) {
+    ensureChartResizeObserver();
+    requestTlChartInit();
   }
+
+  // Computed values
+  $: formHours = calculateHours(timeIn, timeOut, includeLunch);
+  $: canLogin = Boolean(date && timeIn && !isLoggedIn);
+  $: canLogout = Boolean(isLoggedIn && date && timeIn && timeOut);
+  $: currentUserId = String(authApi.getCurrentUser()?.user_id || '').trim();
+  $: completedHoursStorageKey = currentUserId ? `ojt_completed_hours_${currentUserId}` : '';
+  $: completedHours = INITIAL_COMPLETED_HOURS + entries.reduce((sum, entry) => sum + entry.hours, 0);
+  $: remainingHours = Math.max(0, requiredHours - completedHours);
+  $: progressPercent = Math.min(100, Math.round((completedHours / requiredHours) * 100));
+  $: completedEntries = entries.filter((entry) => entry.timeOut && Number(entry.hours) > 0);
+  $: if (typeof window !== 'undefined' && completedHours >= 0 && completedHoursStorageKey) {
+    localStorage.setItem(completedHoursStorageKey, String(completedHours));
+  }
+  $: effectiveRemaining = Math.max(0, remainingHours);
+  $: totalAbsenceHours = 0;
+  $: adjustedRequiredHours = Math.max(0, requiredHours);
+  $: projectedWorkingDays = Math.ceil(adjustedRequiredHours / AVERAGE_DAILY_HOURS);
+  $: estimatedDate = (() => {
+    const start = parseIsoDateOnly(ojtStartDate) || new Date();
+    return addWorkingDays(start, Math.max(0, projectedWorkingDays - 1));
+  })();
+  $: statCards = [
+    { label: 'Total Hours Required', value: `${requiredHours}h`, sub: 'Per internship agreement', icon: Target, tone: 'primary' },
+    { label: 'Hours Completed', value: `${completedHours}h`, sub: `${remainingHours}h remaining`, icon: CheckCircle2, tone: 'success' },
+    { label: 'Avg. Daily Hours', value: `${AVERAGE_DAILY_HOURS}h`, sub: 'Based on schedule', icon: Clock, tone: 'info' },
+    { label: 'Est. Completion', value: formatShortDate(estimatedDate), sub: String(estimatedDate.getFullYear()), icon: Calendar, tone: 'forecast' },
+  ];
 </script>
 
 <svelte:head>
@@ -690,241 +588,303 @@
 </svelte:head>
 
 <section class="tl-page">
-  <!-- Error banner -->
-  {#if logSyncError}
-    <div class="tl-error-banner">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-      {logSyncError}
+  {#if isLoading}
+    <!-- ===== SKELETON LOADING STATE ===== -->
+    <div class="tl-error-banner skeleton">
+      <div class="skeleton-text" style="width: 200px;"></div>
+    </div>
+
+    <!-- Stat Cards Skeleton -->
+    <div class="tl-stat-grid">
+      {#each [1,2,3,4] as _}
+        <div class="tl-stat-card skeleton-stat">
+          <div class="skeleton-icon"></div>
+          <div class="tl-stat-body">
+            <div class="skeleton-text" style="width: 80px; height: 11px;"></div>
+            <div class="skeleton-text" style="width: 60px; height: 24px; margin: 8px 0 4px;"></div>
+            <div class="skeleton-text" style="width: 100px; height: 12px;"></div>
+          </div>
+        </div>
+      {/each}
+    </div>
+
+    <!-- Progress Section Skeleton -->
+    <div class="tl-progress-section skeleton-progress">
+      <div class="tl-progress-header">
+        <div>
+          <div class="skeleton-text" style="width: 120px; height: 14px;"></div>
+          <div class="skeleton-text" style="width: 180px; height: 12px; margin-top: 6px;"></div>
+        </div>
+        <div class="skeleton-text" style="width: 40px; height: 20px; border-radius: 20px;"></div>
+      </div>
+      <div class="skeleton-progress-track"></div>
+      <div class="tl-progress-labels">
+        <div class="skeleton-text" style="width: 30px;"></div>
+        <div class="skeleton-text" style="width: 80px;"></div>
+        <div class="skeleton-text" style="width: 40px;"></div>
+      </div>
+    </div>
+
+    <!-- Three Column Skeleton -->
+    <div class="tl-three-col">
+      <div class="tl-card skeleton-card">
+        <div class="skeleton-text" style="width: 100px; height: 14px;"></div>
+        <div class="skeleton-field"></div>
+        <div class="skeleton-field"></div>
+        <div class="skeleton-btn"></div>
+      </div>
+      <div class="tl-card skeleton-card">
+        <div class="skeleton-text" style="width: 100px; height: 14px;"></div>
+        <div class="skeleton-field"></div>
+        <div class="skeleton-btn"></div>
+      </div>
+      <div class="tl-card skeleton-card">
+        <div class="skeleton-text" style="width: 120px; height: 14px;"></div>
+        <div class="skeleton-chart"></div>
+      </div>
+    </div>
+
+    <!-- Table Skeleton -->
+    <div class="tl-table-section skeleton-table">
+      <div class="tl-table-header">
+        <div class="skeleton-text" style="width: 120px;"></div>
+        <div class="skeleton-text" style="width: 80px;"></div>
+      </div>
+      <div class="tl-table-scroll">
+        <table>
+          <thead><tr><th>Date</th><th>Type</th><th>Time In</th><th>Time Out</th><th>Hours</th><th>Created</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+            {#each [1,2,3] as _}
+              <tr>
+                <td><div class="skeleton-text" style="width: 80px;"></div></td>
+                <td><div class="skeleton-text" style="width: 60px;"></div></td>
+                <td><div class="skeleton-text" style="width: 50px;"></div></td>
+                <td><div class="skeleton-text" style="width: 50px;"></div></td>
+                <td><div class="skeleton-text" style="width: 40px;"></div></td>
+                <td><div class="skeleton-text" style="width: 70px;"></div></td>
+                <td><div class="skeleton-text" style="width: 50px;"></div></td>
+                <td><div class="skeleton-icon-sm"></div></td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  {:else}
+    <!-- ===== ACTUAL CONTENT ===== -->
+    {#if logSyncError}
+      <div class="tl-error-banner">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        {logSyncError}
+      </div>
+    {/if}
+
+    <!-- Stat Cards -->
+    <div class="tl-stat-grid">
+      {#each statCards as card (card.label)}
+        <div class="tl-stat-card tl-stat-{card.tone}">
+          <div class="tl-stat-icon">
+            <svelte:component this={card.icon} size={17} strokeWidth={2.2} />
+          </div>
+          <div class="tl-stat-body">
+            <div class="tl-stat-label">{card.label}</div>
+            <div class="tl-stat-value">{card.value}</div>
+            <div class="tl-stat-sub">{card.sub}</div>
+          </div>
+        </div>
+      {/each}
+    </div>
+
+    <!-- Progress Section -->
+    <div class="tl-progress-section">
+      <div class="tl-progress-header">
+        <div>
+          <div class="tl-progress-title">Hours Progress</div>
+          <div class="tl-progress-meta">{completedHours} of {requiredHours} required hours completed</div>
+          <div class="tl-progress-detail">All logged entries are counted immediately toward your OJT hours.</div>
+        </div>
+        <span class="tl-progress-badge">{progressPercent}%</span>
+      </div>
+      <div class="tl-progress-track">
+        <div class="tl-progress-fill" style="width: {Math.max(progressPercent, 0.5)}%"></div>
+      </div>
+      <div class="tl-progress-labels">
+        <span>0h</span>
+        <span class="tl-progress-remaining">{remainingHours}h remaining</span>
+        <span>{requiredHours}h</span>
+      </div>
+    </div>
+
+    <!-- Three-column Card Row -->
+    <div class="tl-three-col">
+
+      <!-- Time In Card -->
+      <div class="tl-card">
+        <div class="tl-card-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          Time In
+        </div>
+        <div class="tl-field">
+          <label>Date</label>
+          <input type="date" bind:value={date} />
+        </div>
+        <div class="tl-field">
+          <label>Login Time <span class="tl-req">*</span></label>
+          <input type="time" bind:value={timeIn} />
+        </div>
+        <button class="tl-btn-primary" type="button" on:click={handleLogin} disabled={!canLogin || isLoggingIn}>
+          {#if isLoggingIn}
+            <span class="tl-spin"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg></span>
+            Logging In...
+          {:else}
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            Log In
+          {/if}
+        </button>
+        {#if isLoggedIn}
+          <div class="tl-status-pill tl-status-success">
+            <span class="tl-status-dot"></span> Logged in — proceed to Log Out
+          </div>
+        {/if}
+      </div>
+
+      <!-- Log Out Card -->
+      <div class="tl-card">
+        <div class="tl-card-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          Log Out
+        </div>
+        <div class="tl-field">
+          <label>Logout Time <span class="tl-req">*</span></label>
+          <input type="time" bind:value={timeOut} disabled={!isLoggedIn} />
+        </div>
+
+        {#if isLoggedIn && timeIn && timeOut && formHours > 0}
+          <div class="tl-lunch-row">
+            <div class="tl-lunch-left">
+              <div class="tl-lunch-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>
+              </div>
+              <div>
+                <div class="tl-lunch-label">Include Lunch</div>
+                <div class="tl-lunch-sub">{includeLunch ? 'Counted' : 'Not counted'}</div>
+              </div>
+            </div>
+            <button type="button" class="tl-toggle-switch" class:tl-toggle-on={includeLunch} on:click={handleLunchToggle} aria-label="Toggle include lunch">
+              <span class="tl-toggle-knob" class:tl-knob-on={includeLunch}></span>
+            </button>
+          </div>
+          <div class="tl-duration-chip">
+            <strong>{formHours}h</strong>
+            {#if !includeLunch && formHours > 0}
+              <span class="tl-duration-note">(1h lunch deducted)</span>
+            {/if}
+          </div>
+        {/if}
+
+        <button class="tl-btn-danger" class:tl-btn-disabled={!canLogout || isLoggingOut} type="button" on:click={handleLogout} disabled={!canLogout || isLoggingOut}>
+          {#if isLoggingOut}
+            <span class="tl-spin"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg></span>
+            Logging Out...
+          {:else}
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            Log Out
+          {/if}
+        </button>
+
+        {#if !isLoggedIn}
+          <div class="tl-status-pill tl-status-amber">
+            <span class="tl-status-dot"></span> Not logged in — use Time In first
+          </div>
+        {/if}
+      </div>
+
+      <!-- Weekly Overview -->
+      <div class="tl-card tl-card-chart">
+        <div class="tl-chart-header">
+          <div>
+            <div class="tl-card-title">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+              Weekly Overview
+            </div>
+            <div class="tl-chart-sub">Hours logged this week</div>
+          </div>
+          <button class="tl-week-btn">This Week</button>
+        </div>
+        <div class="tl-chart-wrap">
+          <canvas id="tlWeekChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Time Log History Table -->
+    <div class="tl-table-section">
+      <div class="tl-table-header">
+        <span class="tl-table-title">Time Log History</span>
+        <span class="tl-entry-count">{completedEntries.length} completed {completedEntries.length === 1 ? 'entry' : 'entries'}</span>
+      </div>
+      <div class="tl-table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Type</th>
+              <th>Time In</th>
+              <th>Time Out</th>
+              <th>Hours</th>
+              <th>Created</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each completedEntries as entry (entry.id)}
+              <tr>
+                <td class="tl-td-primary">{formatTableDate(entry.date)}</td>
+                <td><span class="tl-tag tl-tag-blue">TIME ENTRY</span></td>
+                <td class="tl-mono">{entry.timeIn}</td>
+                <td class="tl-mono">{entry.timeOut || '—'}</td>
+                <td class="tl-mono tl-hours-val">{entry.hours}h</td>
+                <td class="tl-mono tl-created-val">{entry.createdAt || '—'}</td>
+                <td>
+                  <span class="tl-tag tl-tag-green">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                    Recorded
+                  </span>
+                </td>
+                <td>
+                  <button class="tl-del-btn" type="button" on:click={() => handleDelete(entry.id)} aria-label="Delete time entry" title="Delete this entry">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+                  </button>
+                </td>
+              </tr>
+            {/each}
+            {#if completedEntries.length === 0}
+              <tr>
+                <td colspan="8" class="tl-empty-row">No time entries yet. Log in to start tracking your hours.</td>
+              </tr>
+            {/if}
+          </tbody>
+        </table>
+      </div>
     </div>
   {/if}
 
-  <!-- Stat Cards -->
-  <div class="tl-stat-grid">
-    {#each statCards as card (card.label)}
-      <div class="tl-stat-card tl-stat-{card.tone}">
-        <div class="tl-stat-icon">
-          <svelte:component this={card.icon} size={17} strokeWidth={2.2} />
-        </div>
-        <div class="tl-stat-body">
-          <div class="tl-stat-label">{card.label}</div>
-          <div class="tl-stat-value">{card.value}</div>
-          <div class="tl-stat-sub">{card.sub}</div>
-        </div>
-      </div>
-    {/each}
-  </div>
-
-  <!-- Progress Section -->
-  <div class="tl-progress-section">
-    <div class="tl-progress-header">
-      <div>
-        <div class="tl-progress-title">Hours Progress</div>
-        <div class="tl-progress-meta">{completedHours} of {requiredHours} required hours completed</div>
-        <div class="tl-progress-detail">All logged entries are counted immediately toward your OJT hours.</div>
-      </div>
-      <span class="tl-progress-badge">{progressPercent}%</span>
-    </div>
-    <div class="tl-progress-track">
-      <div class="tl-progress-fill" style="width: {Math.max(progressPercent, 0.5)}%"></div>
-    </div>
-    <div class="tl-progress-labels">
-      <span>0h</span>
-      <span class="tl-progress-remaining">{remainingHours}h remaining</span>
-      <span>{requiredHours}h</span>
-    </div>
-  </div>
-
-  <!-- Three-column Card Row -->
-  <div class="tl-three-col">
-
-    <!-- Time In Card -->
-    <div class="tl-card">
-      <div class="tl-card-title">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-        Time In
-      </div>
-      <div class="tl-field">
-        <label>Date</label>
-        <input type="date" bind:value={date} />
-      </div>
-      <div class="tl-field">
-        <label>Login Time <span class="tl-req">*</span></label>
-        <input type="time" bind:value={timeIn} />
-      </div>
-      <button
-        class="tl-btn-primary"
-        type="button"
-        on:click={handleLogin}
-        disabled={!canLogin || isLoggingIn}
-      >
-        {#if isLoggingIn}
-          <span class="tl-spin"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg></span>
-          Logging In...
-        {:else}
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-          Log In
-        {/if}
-      </button>
-      {#if isLoggedIn}
-        <div class="tl-status-pill tl-status-success">
-          <span class="tl-status-dot"></span> Logged in Ã¢â‚¬â€ proceed to Log Out
-        </div>
-      {/if}
-    </div>
-
-    <!-- Log Out Card -->
-    <div class="tl-card">
-      <div class="tl-card-title">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-        Log Out
-      </div>
-      <div class="tl-field">
-        <label>Logout Time <span class="tl-req">*</span></label>
-        <input type="time" bind:value={timeOut} disabled={!isLoggedIn} />
-      </div>
-
-      {#if isLoggedIn && timeIn && timeOut && formHours > 0}
-        <div class="tl-lunch-row">
-          <div class="tl-lunch-left">
-            <div class="tl-lunch-icon">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>
-            </div>
-            <div>
-              <div class="tl-lunch-label">Include Lunch</div>
-              <div class="tl-lunch-sub">{includeLunch ? 'Counted' : 'Not counted'}</div>
-            </div>
-          </div>
-          <button
-            type="button"
-            class="tl-toggle-switch"
-            class:tl-toggle-on={includeLunch}
-            on:click={handleLunchToggle}
-            aria-label="Toggle include lunch"
-          >
-            <span class="tl-toggle-knob" class:tl-knob-on={includeLunch}></span>
-          </button>
-        </div>
-        <div class="tl-duration-chip">
-          <strong>{formHours}h</strong>
-          {#if !includeLunch && formHours > 0}
-            <span class="tl-duration-note">(1h lunch deducted)</span>
-          {/if}
-        </div>
-      {/if}
-
-      <button
-        class="tl-btn-danger"
-        class:tl-btn-disabled={!canLogout || isLoggingOut}
-        type="button"
-        on:click={handleLogout}
-        disabled={!canLogout || isLoggingOut}
-      >
-        {#if isLoggingOut}
-          <span class="tl-spin"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg></span>
-          Logging Out...
-        {:else}
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-          Log Out
-        {/if}
-      </button>
-
-      {#if !isLoggedIn}
-        <div class="tl-status-pill tl-status-amber">
-          <span class="tl-status-dot"></span> Not logged in Ã¢â‚¬â€ use Time In first
-        </div>
-      {/if}
-    </div>
-
-    <!-- Weekly Overview -->
-    <div class="tl-card tl-card-chart">
-      <div class="tl-chart-header">
-        <div>
-          <div class="tl-card-title">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-            Weekly Overview
-          </div>
-          <div class="tl-chart-sub">Hours logged this week</div>
-        </div>
-        <button class="tl-week-btn">This Week</button>
-      </div>
-      <div class="tl-chart-wrap">
-        <canvas id="tlWeekChart"></canvas>
-      </div>
-    </div>
-  </div>
-
-  <!-- Time Log History Table -->
-  <div class="tl-table-section">
-    <div class="tl-table-header">
-      <span class="tl-table-title">Time Log History</span>
-      <span class="tl-entry-count">{completedEntries.length} completed {completedEntries.length === 1 ? 'entry' : 'entries'}</span>
-    </div>
-    <div class="tl-table-scroll">
-      <table>
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Type</th>
-            <th>Time In</th>
-            <th>Time Out</th>
-            <th>Hours</th>
-            <th>Created</th>
-            <th>Status</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each completedEntries as entry (entry.id)}
-            <tr>
-              <td class="tl-td-primary">{formatTableDate(entry.date)}</td>
-              <td><span class="tl-tag tl-tag-blue">TIME ENTRY</span></td>
-              <td class="tl-mono">{entry.timeIn}</td>
-              <td class="tl-mono">{entry.timeOut || 'Ã¢â‚¬â€'}</td>
-              <td class="tl-mono tl-hours-val">{entry.hours}h</td>
-              <td class="tl-mono tl-created-val">{entry.createdAt || 'Ã¢â‚¬â€'}</td>
-              <td>
-                <span class="tl-tag tl-tag-green">
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                  Recorded
-                </span>
-              </td>
-              <td>
-                <button
-                  class="tl-del-btn"
-                  type="button"
-                  on:click={() => handleDelete(entry.id)}
-                  aria-label="Delete time entry"
-                  title="Delete this entry"
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
-                </button>
-              </td>
-            </tr>
-          {/each}
-          {#if completedEntries.length === 0}
-            <tr>
-              <td colspan="8" class="tl-empty-row">No time entries yet. Log in to start tracking your hours.</td>
-            </tr>
-          {/if}
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- Delete Confirmation Modal -->
+  <!-- Delete Confirmation Modal (unchanged) -->
   {#if showDeleteConfirm && deleteConfirmEntry}
     <div class="tl-modal-overlay" on:click|self={cancelDelete}>
       <div class="tl-modal" role="dialog" aria-modal="true" aria-labelledby="tl-modal-title">
         <div class="tl-modal-header">
           <h2 id="tl-modal-title" class="tl-modal-title">Confirm Delete</h2>
-          <button class="tl-modal-close" on:click={cancelDelete} aria-label="Close">Ã¢Å“â€¢</button>
+          <button class="tl-modal-close" on:click={cancelDelete} aria-label="Close">✖</button>
         </div>
         <div class="tl-modal-body">
           <p class="tl-modal-msg">Are you sure you want to delete this time entry?</p>
           <div class="tl-modal-preview">
             <div class="tl-preview-row"><span class="tl-preview-label">Date</span><span class="tl-preview-val">{formatTableDate(deleteConfirmEntry.date)}</span></div>
             <div class="tl-preview-row"><span class="tl-preview-label">Time In</span><span class="tl-preview-val">{deleteConfirmEntry.timeIn}</span></div>
-            <div class="tl-preview-row"><span class="tl-preview-label">Time Out</span><span class="tl-preview-val">{deleteConfirmEntry.timeOut || 'Ã¢â‚¬â€'}</span></div>
+            <div class="tl-preview-row"><span class="tl-preview-label">Time Out</span><span class="tl-preview-val">{deleteConfirmEntry.timeOut || '—'}</span></div>
             <div class="tl-preview-row"><span class="tl-preview-label">Hours</span><span class="tl-preview-val tl-preview-bold">{deleteConfirmEntry.hours}h</span></div>
           </div>
           <p class="tl-modal-warning">This action cannot be undone.</p>
@@ -936,11 +896,10 @@
       </div>
     </div>
   {/if}
-
 </section>
 
 <style>
-  /* ---- Design tokens (light) ---- */
+  /* ---- Original styles (unchanged) ---- */
   .tl-page {
     --tl-bg:          #f0f4f8;
     --tl-surface:     #ffffff;
@@ -965,7 +924,6 @@
     --tl-radius-sm:   8px;
     --tl-shadow-sm:   0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.03);
     --tl-shadow:      0 4px 16px rgba(0,0,0,0.1);
-
     font-family: 'DM Sans', sans-serif;
     display: flex;
     flex-direction: column;
@@ -974,7 +932,6 @@
     min-height: 0;
   }
 
-  /* ---- Dark mode overrides ---- */
   :global(.dark) .tl-page {
     --tl-bg:          #0d1117;
     --tl-surface:     #161c27;
@@ -999,7 +956,7 @@
     --tl-shadow:      0 8px 20px rgba(0,0,0,0.35);
   }
 
-  /* ---------- ERROR BANNER ---------- */
+  /* Error banner (used in skeleton as well) */
   .tl-error-banner {
     display: flex;
     align-items: center;
@@ -1013,7 +970,7 @@
     font-weight: 500;
   }
 
-  /* ---------- STAT CARDS ---------- */
+  /* Stat cards */
   .tl-stat-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -1038,12 +995,10 @@
     place-items: center;
     flex-shrink: 0;
   }
-  /* tone colours */
   .tl-stat-primary .tl-stat-icon { background: var(--tl-accent-glow); color: var(--tl-accent); }
   .tl-stat-success .tl-stat-icon { background: var(--tl-green-dim);   color: var(--tl-green); }
   .tl-stat-info    .tl-stat-icon { background: var(--tl-amber-dim);   color: var(--tl-amber); }
   .tl-stat-forecast .tl-stat-icon { background: var(--tl-purple-dim); color: var(--tl-purple); }
-
   .tl-stat-label {
     font-size: 11px;
     font-weight: 600;
@@ -1064,7 +1019,7 @@
   }
   .tl-stat-success .tl-stat-sub { color: var(--tl-accent); }
 
-  /* ---------- PROGRESS SECTION ---------- */
+  /* Progress section */
   .tl-progress-section {
     background: var(--tl-surface);
     border: 1px solid var(--tl-border);
@@ -1116,7 +1071,7 @@
   }
   .tl-progress-remaining { color: var(--tl-accent); }
 
-  /* ---------- THREE COLUMN ---------- */
+  /* Three column row */
   .tl-three-col {
     display: grid;
     grid-template-columns: 1fr 1fr 1.4fr;
@@ -1142,8 +1097,6 @@
     gap: 8px;
   }
   .tl-card-title svg { color: var(--tl-text2); }
-
-  /* Fields */
   .tl-field { display: flex; flex-direction: column; gap: 6px; }
   .tl-field label {
     font-size: 11.5px;
@@ -1171,8 +1124,6 @@
     opacity: 0.5;
     cursor: not-allowed;
   }
-
-  /* Buttons */
   .tl-btn-primary {
     width: 100%;
     padding: 11px;
@@ -1197,7 +1148,6 @@
     cursor: not-allowed;
     transform: none !important;
   }
-
   .tl-btn-danger {
     width: 100%;
     padding: 11px;
@@ -1226,8 +1176,6 @@
     border: 1px solid var(--tl-border);
     transform: none !important;
   }
-
-  /* Status pills */
   .tl-status-pill {
     display: flex;
     align-items: center;
@@ -1253,8 +1201,6 @@
     border: 1px solid rgba(22,163,74,0.2);
     color: var(--tl-green);
   }
-
-  /* Lunch toggle */
   .tl-lunch-row {
     display: flex;
     align-items: center;
@@ -1277,7 +1223,6 @@
   :global(.dark) .tl-lunch-icon { background: rgba(245,158,11,0.15); }
   .tl-lunch-label { font-size: 13px; font-weight: 500; color: var(--tl-text); }
   .tl-lunch-sub   { font-size: 11px; color: var(--tl-text2); }
-
   .tl-toggle-switch {
     width: 44px; height: 24px;
     background: var(--tl-border2);
@@ -1299,7 +1244,6 @@
     transition: transform 0.2s;
   }
   .tl-knob-on { transform: translateX(20px); }
-
   .tl-duration-chip {
     padding: 9px 12px;
     border-radius: var(--tl-radius-sm);
@@ -1309,15 +1253,11 @@
     font-size: 13px;
   }
   .tl-duration-note { font-size: 11px; color: var(--tl-text2); margin-left: 6px; }
-
-  /* Spin animation */
   .tl-spin {
     display: inline-flex; align-items: center; justify-content: center;
     animation: tlSpin 1s linear infinite;
   }
   @keyframes tlSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-
-  /* Chart card */
   .tl-card-chart { gap: 12px; }
   .tl-chart-header { display: flex; align-items: flex-start; justify-content: space-between; }
   .tl-chart-sub { font-size: 11.5px; color: var(--tl-text2); margin-top: 3px; }
@@ -1333,9 +1273,9 @@
     cursor: default;
   }
   .tl-chart-wrap { position: relative; height: 160px; }
-  .tl-chart-wrap canvas { display: block; }
+  .tl-chart-wrap canvas { display: block; width: 100% !important; height: 100% !important; }
 
-  /* ---------- TABLE ---------- */
+  /* Table */
   .tl-table-section {
     background: var(--tl-surface);
     border: 1px solid var(--tl-border);
@@ -1383,7 +1323,6 @@
   .tl-mono { font-family: 'DM Mono', monospace; font-size: 12px; }
   .tl-hours-val { color: var(--tl-green) !important; font-weight: 700; }
   .tl-created-val { font-size: 11.5px !important; }
-
   .tl-empty-row {
     text-align: center;
     color: var(--tl-text3) !important;
@@ -1391,7 +1330,6 @@
     font-size: 13px !important;
     font-style: italic;
   }
-
   .tl-tag {
     display: inline-flex;
     align-items: center;
@@ -1404,7 +1342,6 @@
   }
   .tl-tag-blue  { background: var(--tl-accent-glow); color: var(--tl-accent2); }
   .tl-tag-green { background: var(--tl-green-dim);  color: var(--tl-green); }
-
   .tl-del-btn {
     width: 28px; height: 28px;
     border-radius: 6px;
@@ -1422,7 +1359,7 @@
     border-color: rgba(220,38,38,0.3);
   }
 
-  /* ---------- SCROLLBAR ---------- */
+  /* Scrollbar */
   .tl-table-scroll {
     scrollbar-width: thin;
     scrollbar-color: rgba(96,165,250,0.4) transparent;
@@ -1433,7 +1370,7 @@
     border-radius: 999px;
   }
 
-  /* ---------- DELETE MODAL ---------- */
+  /* Modal (unchanged) */
   .tl-modal-overlay {
     position: fixed; inset: 0;
     background: rgba(0,0,0,0.5);
@@ -1444,7 +1381,6 @@
     animation: tlFadeIn 0.15s ease;
   }
   @keyframes tlFadeIn { from { opacity: 0; } to { opacity: 1; } }
-
   .tl-modal {
     background: var(--tl-surface);
     border: 1px solid var(--tl-border);
@@ -1456,7 +1392,6 @@
     animation: tlSlideIn 0.2s ease;
   }
   @keyframes tlSlideIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
-
   .tl-modal-header {
     display: flex; align-items: center; justify-content: space-between;
     padding: 20px 24px 16px;
@@ -1471,10 +1406,8 @@
     border-radius: 6px; transition: all 0.15s;
   }
   .tl-modal-close:hover { background: var(--tl-surface2); color: var(--tl-text); }
-
   .tl-modal-body { padding: 20px 24px; }
   .tl-modal-msg { font-size: 14px; color: var(--tl-text); font-weight: 500; margin: 0 0 16px; }
-
   .tl-modal-preview {
     background: var(--tl-surface2);
     border: 1px solid var(--tl-border);
@@ -1492,14 +1425,12 @@
   .tl-preview-label { color: var(--tl-text2); }
   .tl-preview-val   { color: var(--tl-text); font-weight: 500; }
   .tl-preview-bold  { font-weight: 700; }
-
   .tl-modal-warning {
     font-size: 12px; color: var(--tl-red);
     padding-top: 12px;
     border-top: 1px solid var(--tl-border);
     margin: 0;
   }
-
   .tl-modal-footer {
     display: flex; gap: 10px;
     padding: 16px 24px;
@@ -1526,7 +1457,60 @@
   }
   .tl-modal-delete:hover { opacity: 0.9; transform: translateY(-1px); }
 
-  /* ---------- RESPONSIVE ---------- */
+  /* ---- NEW SKELETON STYLES ---- */
+  .skeleton, .skeleton-text, .skeleton-icon, .skeleton-field, .skeleton-btn, .skeleton-chart, .skeleton-progress-track, .skeleton-icon-sm {
+    position: relative;
+    overflow: hidden;
+    background: rgba(0, 0, 0, 0.08);
+    border-radius: 4px;
+  }
+  :global(.dark) .skeleton,
+  :global(.dark) .skeleton-text,
+  :global(.dark) .skeleton-icon,
+  :global(.dark) .skeleton-field,
+  :global(.dark) .skeleton-btn,
+  :global(.dark) .skeleton-chart,
+  :global(.dark) .skeleton-progress-track,
+  :global(.dark) .skeleton-icon-sm {
+    background: rgba(255, 255, 255, 0.06);
+  }
+  .skeleton::after, .skeleton-text::after, .skeleton-icon::after, .skeleton-field::after, .skeleton-btn::after, .skeleton-chart::after, .skeleton-progress-track::after, .skeleton-icon-sm::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    transform: translateX(-100%);
+    background-image: linear-gradient(90deg, rgba(255,255,255,0) 0, rgba(255,255,255,0.3) 20%, rgba(255,255,255,0.6) 60%, rgba(255,255,255,0));
+    animation: shimmer 1.5s infinite;
+  }
+  :global(.dark) .skeleton::after,
+  :global(.dark) .skeleton-text::after,
+  :global(.dark) .skeleton-icon::after,
+  :global(.dark) .skeleton-field::after,
+  :global(.dark) .skeleton-btn::after,
+  :global(.dark) .skeleton-chart::after,
+  :global(.dark) .skeleton-progress-track::after,
+  :global(.dark) .skeleton-icon-sm::after {
+    background-image: linear-gradient(90deg, rgba(255,255,255,0) 0, rgba(255,255,255,0.05) 20%, rgba(255,255,255,0.1) 60%, rgba(255,255,255,0));
+  }
+  @keyframes shimmer {
+    100% { transform: translateX(100%); }
+  }
+  .skeleton-text { height: 1em; border-radius: 6px; }
+  .skeleton-icon { width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0; }
+  .skeleton-icon-sm { width: 28px; height: 28px; border-radius: 6px; }
+  .skeleton-field { height: 44px; border-radius: var(--tl-radius-sm); margin: 4px 0; }
+  .skeleton-btn { height: 44px; border-radius: var(--tl-radius-sm); margin-top: 8px; }
+  .skeleton-chart { height: 160px; border-radius: var(--tl-radius-sm); margin-top: 8px; }
+  .skeleton-progress-track { height: 8px; border-radius: 999px; margin: 12px 0 8px; }
+  .skeleton-stat .tl-stat-body { flex: 1; }
+  .skeleton-stat { display: flex; align-items: flex-start; gap: 14px; }
+  .skeleton-progress { background: var(--tl-surface); }
+  .skeleton-card { background: var(--tl-surface); }
+  .skeleton-table { background: var(--tl-surface); }
+
   @media (max-width: 1100px) {
     .tl-three-col { grid-template-columns: 1fr 1fr; }
     .tl-card-chart { grid-column: 1 / -1; }

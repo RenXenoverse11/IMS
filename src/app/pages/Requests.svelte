@@ -1158,17 +1158,11 @@
     inset: 0;
     z-index: -2;
     border-radius: 1.25rem;
-    background: radial-gradient(130% 130% at 0% 0%, #e4f1ff 0%, #f7fbff 58%, #eef4fb 100%);
+    background: var(--color-app-bg);
   }
 
   .requests-shell::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    z-index: -1;
-    border-radius: 1.25rem;
-    background-image: linear-gradient(112deg, rgba(15, 108, 189, 0.08), transparent 52%);
-    pointer-events: none;
+    display: none;
   }
 
   .requests-header-card,
@@ -1640,11 +1634,11 @@
   }
 
   :global(.dark) .requests-shell::before {
-    background: radial-gradient(130% 130% at 0% 0%, #173459 0%, #101a2b 48%, #0b1422 100%);
+    background: var(--color-app-bg);
   }
 
   :global(.dark) .requests-shell::after {
-    background-image: linear-gradient(112deg, rgba(91, 177, 255, 0.12), transparent 55%);
+    display: none;
   }
 
   :global(.dark) .requests-header-card,

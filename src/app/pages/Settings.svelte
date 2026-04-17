@@ -694,7 +694,7 @@
     inset: 0;
     z-index: -2;
     border-radius: 1.25rem;
-    background: #f6f9fd;
+    background: var(--color-app-bg);
   }
 
   .settings-shell::after {
@@ -799,7 +799,7 @@
   }
 
   :global(.dark) .settings-shell::before {
-    background: #0b111e;
+    background: var(--color-app-bg);
   }
 
   :global(.dark) .settings-shell::after {

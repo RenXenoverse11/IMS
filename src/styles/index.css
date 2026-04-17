@@ -176,7 +176,7 @@ button {
 }
 
 .sidebar-brand {
-  height: 4.25rem;
+  height: 4rem;
   display: flex;
   align-items: center;
   gap: 0.625rem;
@@ -187,7 +187,7 @@ button {
 
 .sidebar-collapse-btn {
   position: absolute;
-  top: 4.9rem;
+  top: calc(4rem - 0.76rem);
   right: -0.82rem;
   width: 1.52rem;
   height: 1.52rem;
