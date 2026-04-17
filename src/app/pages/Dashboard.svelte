@@ -573,12 +573,6 @@
       </div>
 
       <div class="dash-mid-grid">
-        <div class="dash-card">
-          <div class="dash-section-label">Estimated End Date</div>
-          <div class="dash-end-value">{estimatedEndDateDisplay}</div>
-          <div class="dash-end-meta">Start: {startDateDisplay} · Weekdays only (Mon-Fri)</div>
-        </div>
-
         <div class="dash-card dash-progress-card">
           <div class="dash-progress-top">
             <span class="dash-progress-label">Progress</span>
@@ -593,6 +587,12 @@
             <span class="dash-progress-remaining">{progressFooterRemaining}</span>
             <span>{totalOjtHours || 0}h</span>
           </div>
+        </div>
+
+        <div class="dash-card">
+          <div class="dash-section-label">Estimated End Date</div>
+          <div class="dash-end-value">{estimatedEndDateDisplay}</div>
+          <div class="dash-end-meta">Start: {startDateDisplay} · Weekdays only (Mon-Fri)</div>
         </div>
       </div>
 
@@ -986,7 +986,7 @@
 
   .dash-mid-grid {
     display: grid;
-    grid-template-columns: 1fr 1.6fr;
+    grid-template-columns: 1.6fr 1fr;
     gap: 14px;
   }
 
