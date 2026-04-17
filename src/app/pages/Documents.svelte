@@ -793,8 +793,6 @@
 
   <!-- Upload Modal -->
   {#if showUploadModal}
-    <!-- svelte-ignore a11y-click-events-have-key-events -->
-    <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div class="modal-overlay" on:click={() => (showUploadModal = false)}>
       <div class="modal" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
@@ -805,7 +803,7 @@
         <div class="modal-body">
           <!-- Folder Selection Tabs -->
           <div class="form-group">
-            <span class="label-heading">Select Folder</span>
+            <label>Select Folder</label>
             <div class="folder-tabs">
               <button
                 class="folder-tab"
@@ -830,7 +828,7 @@
           </div>
 
           <!-- Upload Area -->
-            <div class="upload-area">
+          <div class="upload-area">
             <input
               type="file"
               id="fileInput"
@@ -856,9 +854,7 @@
 
   <!-- Upload Preview Modal -->
   {#if showUploadPreview && pendingFilePreview}
-    <!-- svelte-ignore a11y-click-events-have-key-events -->
-    <!-- svelte-ignore a11y-no-static-element-interactions -->
-    <div class="modal-overlay" on:click={() => !isUploading && cancelUpload()}>
+    <div class="modal-overlay" on:click={() => cancelUpload()}>
       <div class="modal" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
           <h2>Review Document</h2>
@@ -877,17 +873,17 @@
 
             <div class="preview-details">
               <div class="preview-section">
-                <div class="form-label">File Name</div>
+                <label for="preview-name">File Name</label>
                 <p class="preview-value" id="preview-name">{pendingFilePreview.name}</p>
               </div>
 
               <div class="preview-section">
-                <div class="form-label">File Size</div>
+                <label for="preview-size">File Size</label>
                 <p class="preview-value" id="preview-size">{pendingFilePreview.size}</p>
               </div>
 
               <div class="preview-section">
-                <div class="form-label">Upload Folder</div>
+                <label for="preview-folder">Upload Folder</label>
                 <p class="preview-value" id="preview-folder">
                   {#if pendingFilePreview.folder === '/'}
                     All Documents
@@ -924,8 +920,6 @@
 
   <!-- Link Modal -->
   {#if showLinkModal}
-    <!-- svelte-ignore a11y-click-events-have-key-events -->
-    <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div class="modal-overlay" on:click={() => (showLinkModal = false)}>
       <div class="modal" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
@@ -936,7 +930,7 @@
         <div class="modal-body">
           <!-- Folder Selection Tabs -->
           <div class="form-group">
-            <span class="label-heading">Select Folder</span>
+            <label>Select Folder</label>
             <div class="folder-tabs">
               <button
                 class="folder-tab"
@@ -994,9 +988,7 @@
 
   <!-- Create Folder Modal -->
   {#if showCreateFolderModal}
-    <!-- svelte-ignore a11y-click-events-have-key-events -->
-    <!-- svelte-ignore a11y-no-static-element-interactions -->
-    <div class="modal-overlay" on:click={() => !isCreatingFolder && (showCreateFolderModal = false)}>
+    <div class="modal-overlay" on:click={() => (showCreateFolderModal = false)}>
       <div class="modal" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
           <h2>Create Folder</h2>
@@ -1034,8 +1026,6 @@
 
   <!-- Rename Folder Modal -->
   {#if showRenameFolderModal && folderToRename}
-    <!-- svelte-ignore a11y-click-events-have-key-events -->
-    <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div class="modal-overlay" on:click={() => (showRenameFolderModal = false)}>
       <div class="modal" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
@@ -1069,8 +1059,6 @@
 
   <!-- Delete Folder Confirmation Modal -->
   {#if showDeleteFolderConfirm && folderToDelete}
-    <!-- svelte-ignore a11y-click-events-have-key-events -->
-    <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div class="modal-overlay" on:click={() => (showDeleteFolderConfirm = false)}>
       <div class="modal" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
@@ -1097,8 +1085,6 @@
 
   <!-- Share Modal -->
   {#if showShareModal && selectedDocForShare}
-    <!-- svelte-ignore a11y-click-events-have-key-events -->
-    <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div class="modal-overlay" on:click={() => (showShareModal = false)}>
       <div class="modal" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
@@ -1109,7 +1095,7 @@
         <div class="modal-body">
           <!-- Shareable Link -->
           <div class="form-group">
-            <label for="shareLinkInput">Shareable Link</label>
+            <label>Shareable Link</label>
             <div class="share-link-box">
               <input
                 type="text"
