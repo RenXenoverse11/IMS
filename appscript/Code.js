@@ -3029,6 +3029,9 @@ function createId_(prefix) {
     'REQ': { sheet: 'requests', col: 'request_id', digits: 4, label: 'REQ' }
   };
 
+  // Add supervisor task ID sequence generator (SUP_0001...)
+  config['SUP'] = { sheet: 'supervisor_task', col: 'sup_taskid', digits: 4, label: 'SUP' };
+
   var settings = config[prefix];
   if (settings) {
     // If the user specifically wanted "user_" prefix, we use it for USR

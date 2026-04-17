@@ -2008,7 +2008,7 @@ let assignedTasksError = '';
             <p class="empty-state">No tasks found for current filter.</p>
           {:else}
             {#each filteredTasks as task}
-              <div class="task-accordion-item" class:expanded={expandedListTaskTitle === task.title}>
+                <div class="task-accordion-item" class:expanded={expandedListTaskTitle === task.title}>
                 <button
                   class="task-accordion-trigger"
                   type="button"
@@ -2018,11 +2018,13 @@ let assignedTasksError = '';
                     <span class="task-dot"></span>
                     <span class="task-trigger-title">{task.title}</span>
                   </span>
-                  <svelte:component
-                    this={ChevronDown}
-                    size={15}
-                    class={expandedListTaskTitle === task.title ? 'chevron-open' : ''}
-                  />
+                  <span class="chevron-corner">
+                    <svelte:component
+                      this={ChevronDown}
+                      size={15}
+                      class={expandedListTaskTitle === task.title ? 'chevron-open' : ''}
+                    />
+                  </span>
                 </button>
 
                 {#if expandedListTaskTitle === task.title}
@@ -2137,7 +2139,11 @@ let assignedTasksError = '';
                       <span class="worklog-task-title">{log.task}</span>
                       <span class="worklog-date">{formatWorklogDate(log.date)}</span>
                     </span>
-                    <svelte:component this={ChevronDown} size={15} class={expandedWorkLog === idx ? 'chevron-open' : ''} />
+                    <span class="chevron-corner">
+                      <span class="chevron-corner">
+                        <svelte:component this={ChevronDown} size={16} class={expandedWorkLog === idx ? 'chevron-open' : ''} />
+                      </span>
+                    </span>
                   </button>
                   {#if expandedWorkLog === idx}
                     <div class="worklog-accordion-body">
@@ -2187,6 +2193,7 @@ let assignedTasksError = '';
           overflow: hidden;
           border: 1px solid var(--color-border);
           background: var(--color-surface);
+          position: relative;
         }
         :global(html.dark) .worklog-accordion-item {
           border: 1px solid #1e3352 !important;
@@ -2221,6 +2228,7 @@ let assignedTasksError = '';
           font-weight: 600;
           color: var(--color-heading);
           transition: background 0.12s;
+          position: relative; /* allow absolutely-positioned chevron inside */
         }
         :global(html.dark) .worklog-accordion-trigger {
           color: #e5edf8 !important;
@@ -2230,6 +2238,38 @@ let assignedTasksError = '';
           flex-direction: column;
           align-items: flex-start;
           gap: 0.13rem;
+        }
+        /* Corner chevron common style used for both task and worklog items */
+        .chevron-corner {
+          position: absolute;
+          top: 12px;
+          right: 14px;
+          width: 28px;
+          height: 28px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 6px;
+          color: var(--color-muted);
+          background: transparent;
+          transition: background 0.12s, color 0.12s, transform 0.12s;
+          pointer-events: none; /* let the button handle clicks */
+        }
+
+        .worklog-accordion-item:hover .chevron-corner,
+        .worklog-accordion-item.expanded .chevron-corner {
+          color: var(--color-accent);
+        }
+
+        /* Ensure content doesn't overlap the chevron */
+        .worklog-accordion-trigger {
+          padding: 1.05rem 1.4rem;
+          padding-right: 3.4rem;
+        }
+
+        /* also ensure task accordion trigger supports corner chevron */
+        .task-accordion-trigger {
+          position: relative;
         }
         .worklog-task-title {
           font-size: 1rem;
@@ -3518,7 +3558,8 @@ let assignedTasksError = '';
     gap: 0.7rem;
     text-align: left;
     background: var(--color-surface);
-    padding: 0.9rem 1rem;
+    padding: 1rem 1.4rem;
+    padding-right: 3.4rem;
     cursor: pointer;
     transition: background-color 140ms ease;
   }

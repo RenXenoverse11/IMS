@@ -445,6 +445,45 @@ function getSupervisorActivityOverview(payload) {
 			tasks = [];
 		}
 
+		// Supervisor-created tasks (persisted in supervisor_task)
+		var supervisorTasks = [];
+		try {
+			var supervisorRecord = null;
+			var supervisorEmail = '';
+			try {
+				supervisorRecord = findUserRecordByUserId_(supervisorUserId);
+				supervisorEmail = supervisorRecord && supervisorRecord.user ? String(supervisorRecord.user.email || '').trim() : '';
+			} catch (e) {
+				supervisorRecord = null;
+				supervisorEmail = '';
+			}
+			var supervisorSheet = getOrCreateSheetWithHeaders_('supervisor_task', ['sup_taskid','task','description','due_date','assigned_to','created_at','created_by','updated_by']);
+			var supRows = readSheetObjects_(supervisorSheet);
+			supervisorTasks = supRows.filter(function (row) {
+				var createdBy = String(row.created_by || '').trim();
+				if (createdBy && createdBy !== supervisorUserId && (!supervisorEmail || createdBy !== supervisorEmail)) {
+					return false;
+				}
+				return true;
+			}).map(function (row) {
+				var assignedIds = [];
+				try {
+					assignedIds = JSON.parse(String(row.assigned_to || '[]')) || [];
+				} catch (parseErr) {
+					assignedIds = [];
+				}
+				return {
+					id: String(row.sup_taskid || '').trim(),
+					title: String(row.task || '').trim(),
+					description: String(row.description || '').trim(),
+					due_date: String(row.due_date || '').trim(),
+					assigned_student_ids: Array.isArray(assignedIds) ? assignedIds : []
+				};
+			});
+		} catch (supErr) {
+			supervisorTasks = [];
+		}
+
 		var overdueTasks = tasks.filter(function (task) {
 			var taskUserId = String(task.user_id || '').trim();
 			if (!studentLookup[taskUserId]) {
@@ -499,7 +538,8 @@ function getSupervisorActivityOverview(payload) {
 				no_attachments: noAttachments,
 				overdue_tasks: overdueTasks
 			},
-			students: students
+			students: students,
+			supervisor_tasks: supervisorTasks
 		};
 	} catch (err) {
 		return { ok: false, error: err.message || String(err) };
