@@ -21,6 +21,7 @@ var STUDENT_OJT_PROFILE_SHEET_ = 'student_ojt_profile';
 var STUDENT_OJT_PROFILE_HEADERS_ = ['user_id', 'total_ojt_hours', 'start_date', 'estimated_end_date', 'course', 'school'];
 var REQUESTS_SHEET_ = 'requests';
 var REQUESTS_HEADERS_ = ['request_id', 'user_id', 'requester_name', 'request_type', 'request_date', 'request_time', 'start_time', 'end_time', 'total_hours', 'reason', 'status', 'created_at'];
+var NOTIFICATIONS_SHEET_ = 'notifications';
 var NOTIFICATIONS_HEADERS_ = ['notification_id', 'user_id', 'title', 'description', 'type', 'related_id', 'is_read', 'created_at'];
 var USER_SETTINGS_SHEET_ = 'user_settings';
 var USER_SETTINGS_HEADERS_ = ['user_id', 'settings_json', 'updated_at'];
@@ -122,14 +123,6 @@ function dispatchAction_(payload) {
 
   if (action === 'list_supervisor_assigned_students') {
     return handleListSupervisorAssignedStudents_(payload);
-  }
-
-  if (action === 'archive_supervisor_assignment') {
-    return handleArchiveSupervisorAssignment_(payload);
-  }
-
-  if (action === 'restore_supervisor_assignment') {
-    return handleRestoreSupervisorAssignment_(payload);
   }
 
   if (action === 'list_supervisor_time_logs') {
@@ -1028,7 +1021,7 @@ function handleCreateTimeLog_(payload) {
     var hasUnpairedLogin = false;
     for (var i = 1; i < values.length; i++) {
       var rowUserId = String(values[i][userIdCol - 1] || '');
-      var rowLogDate = String(values[i][logDateCol - 1] || '');
+      var rowLogDate = formatCellDate_(values[i][logDateCol - 1]);
       var rowEntryType = String(values[i][entryTypeCol - 1] || 'login').toLowerCase();
 
       if (rowUserId === userId && rowLogDate === logDate && rowEntryType === 'login') {
@@ -1083,25 +1076,35 @@ function handleCreateTimeLog_(payload) {
 function handleListTimeLogsByUser_(payload) {
   var userId = String(payload.user_id || '').trim();
   var limit = Number(payload.limit || 0); // 0 means no limit
-  
+
   if (!userId) {
     return { ok: false, error: 'user_id is required.' };
   }
 
   try {
-    var sheet = getTimeLogsSheet_();
+    // Read from active_sessions — completed sessions have time_out filled
+    var sheet = getActiveSessionsSheet_();
     var rows = readSheetObjects_(sheet).filter(function (row) {
-      return String(serializeCellValue_(row.user_id) || '').trim() === userId;
+      var rowUserId = String(serializeCellValue_(row.user_id) || '').trim();
+      var timeOut = String(serializeCellValue_(row.time_out) || '').trim();
+      return rowUserId === userId && timeOut !== '';
     }).map(function (row) {
-      return sanitizeObjectForClient_(row);
+      var obj = sanitizeObjectForClient_(row);
+      // Normalize log_date so it's always yyyy-MM-dd
+      if (obj.log_date instanceof Date) {
+        obj.log_date = Utilities.formatDate(obj.log_date, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+      }
+      // Add synthetic fields the frontend expects
+      obj.timelog_id = obj.session_id || '';
+      obj.entry_type = 'regular';
+      obj.status = 'approved';
+      return obj;
     }).sort(function (a, b) {
-      // Sort by created_at descending (most recent first)
       var dateA = new Date(String(a.created_at || ''));
       var dateB = new Date(String(b.created_at || ''));
       return dateB.getTime() - dateA.getTime();
     });
 
-    // Apply limit if specified
     if (limit > 0) {
       rows = rows.slice(0, limit);
     }
@@ -1186,7 +1189,7 @@ function handleStartSession_(payload) {
 
     for (var i = 1; i < values.length; i++) {
       var rowUserId = String(values[i][userIdCol - 1] || '').trim();
-      var rowLogDate = String(values[i][logDateCol - 1] || '').trim();
+      var rowLogDate = formatCellDate_(values[i][logDateCol - 1]);
       if (rowUserId === userId && rowLogDate === logDate) {
         // Session already exists for this date
         return { ok: false, error: 'You already have an active session for today. Please log out first.' };
@@ -1228,7 +1231,6 @@ function handleEndSession_(payload) {
     var logDate = String(payload.log_date || '').trim();
     var timeOut = String(payload.time_out || '').trim();
     var hours = Number(payload.hours_rendered || 0);
-    var notes = String(payload.notes || '').trim();
 
     Logger.log('DEBUG handleEndSession_ - Input: user_id=' + userId + ', log_date=' + logDate + ', time_out=' + timeOut);
 
@@ -1257,6 +1259,8 @@ function handleEndSession_(payload) {
     var logDateCol = findColumnIndex_(sessHeaders, 'log_date');
     var sessionIdCol = findColumnIndex_(sessHeaders, 'session_id');
     var timeInCol = findColumnIndex_(sessHeaders, 'time_in');
+    var timeOutCol = findColumnIndex_(sessHeaders, 'time_out');
+    var hoursCol = findColumnIndex_(sessHeaders, 'hours_rendered');
 
     var sessionRow = -1;
     var sessionId = '';
@@ -1266,11 +1270,11 @@ function handleEndSession_(payload) {
     
     for (var i = 1; i < sessValues.length; i++) {
       var rowUserId = String(sessValues[i][userIdCol - 1] || '').trim();
-      var rowLogDate = String(sessValues[i][logDateCol - 1] || '').trim();
+      var rowLogDate = formatCellDate_(sessValues[i][logDateCol - 1]);
       Logger.log('DEBUG handleEndSession_ - Row ' + i + ': user_id=' + rowUserId + ', log_date=' + rowLogDate);
       
       if (rowUserId === userId && rowLogDate === logDate) {
-        sessionRow = i + 1;
+        sessionRow = i + 1; // +1 because sheet rows are 1-indexed (row 1 is header)
         sessionId = String(sessValues[i][sessionIdCol - 1] || '').trim();
         timeIn = String(sessValues[i][timeInCol - 1] || '').trim();
         Logger.log('DEBUG handleEndSession_ - Found session! Row=' + sessionRow + ', session_id=' + sessionId + ', time_in=' + timeIn);
@@ -1283,38 +1287,28 @@ function handleEndSession_(payload) {
       return { ok: false, error: 'No active session found. Please log in first.' };
     }
 
-    // Create time log entry with both times
-    var timelogId = createId_('TL');
-    var createdAt = isoNow_();
+    // Update the SAME row in active_sessions with time_out, hours, and notes
+    Logger.log('DEBUG handleEndSession_ - Updating session row ' + sessionRow + ' with time_out=' + timeOut + ', hours=' + hours);
+    
+    sessionsSheet.getRange(sessionRow, timeOutCol).setValue(timeOut);
+    sessionsSheet.getRange(sessionRow, hoursCol).setValue(hours);
+    
+    Logger.log('DEBUG handleEndSession_ - Session updated successfully');
 
-    var timelogRow = {
-      timelog_id: timelogId,
+    var updatedSession = {
+      session_id: sessionId,
       user_id: userId,
       log_date: logDate,
       time_in: timeIn,
       time_out: timeOut,
       hours_rendered: hours,
-      entry_type: 'entry',
-      status: 'recorded',
-      notes: notes,
-      created_at: createdAt
+      created_at: String(sessValues[sessionRow - 1][findColumnIndex_(sessHeaders, 'created_at') - 1] || '')
     };
-
-    // Add to time_logs
-    var logsSheet = getTimeLogsSheet_();
-    Logger.log('DEBUG handleEndSession_ - About to save timelog: ' + JSON.stringify(timelogRow));
-    appendObjectRow_(logsSheet, timelogRow);
-    Logger.log('DEBUG handleEndSession_ - Timelog saved');
-
-    // Delete from active_sessions
-    Logger.log('DEBUG handleEndSession_ - Deleting session row ' + sessionRow);
-    sessionsSheet.deleteRow(sessionRow);
-    Logger.log('DEBUG handleEndSession_ - Session deleted');
 
     return {
       ok: true,
       message: 'Session ended successfully.',
-      timelog: timelogRow
+      session: updatedSession
     };
   } catch (e) {
     Logger.log('ERROR in handleEndSession_: ' + e.toString() + ' | Stack: ' + e.stack);
@@ -1342,7 +1336,7 @@ function handleGetActiveSession_(payload) {
 
     for (var i = 1; i < values.length; i++) {
       var rowUserId = String(values[i][userIdCol - 1] || '').trim();
-      var rowLogDate = String(values[i][logDateCol - 1] || '').trim();
+      var rowLogDate = formatCellDate_(values[i][logDateCol - 1]);
       
       if (rowUserId === userId && rowLogDate === logDate) {
         // Found active session for this user on this date
@@ -2531,10 +2525,12 @@ function getCompletedHoursLookupByUserIds_(userIds) {
     }
   }
 
-  var rows = readSheetObjects_(getTimeLogsSheet_());
+  // Read completed sessions (time_out filled) from active_sessions
+  var rows = readSheetObjects_(getActiveSessionsSheet_());
   for (var j = 0; j < rows.length; j++) {
     var rowUserId = String(rows[j].user_id || '').trim();
-    if (!allowed[rowUserId]) {
+    var timeOut = String(serializeCellValue_(rows[j].time_out) || '').trim();
+    if (!allowed[rowUserId] || timeOut === '') {
       continue;
     }
     lookup[rowUserId] += Number(rows[j].hours_rendered || 0);
@@ -2549,11 +2545,13 @@ function getTotalCompletedHoursByUserId_(userId) {
     return 0;
   }
 
-  var rows = readSheetObjects_(getTimeLogsSheet_());
+  // Read completed sessions (time_out filled) from active_sessions
+  var rows = readSheetObjects_(getActiveSessionsSheet_());
   var total = 0;
   for (var i = 0; i < rows.length; i++) {
     var rowUserId = String(rows[i].user_id || '').trim();
-    if (rowUserId === targetUserId) {
+    var timeOut = String(serializeCellValue_(rows[i].time_out) || '').trim();
+    if (rowUserId === targetUserId && timeOut !== '') {
       total += Number(rows[i].hours_rendered || 0);
     }
   }
@@ -2572,79 +2570,6 @@ function getActiveSupervisorAssignments_(supervisorUserId) {
     var status = String(row.status || 'active').trim().toLowerCase();
     return String(row.supervisor_user_id || '').trim() === targetSupervisorId && status !== 'inactive';
   });
-}
-
-function handleArchiveSupervisorAssignment_(payload) {
-  var supervisorUserId = String(payload.supervisor_user_id || '').trim();
-  var studentUserId = String(payload.student_user_id || '').trim();
-  if (!supervisorUserId || !studentUserId) {
-    return { ok: false, error: 'supervisor_user_id and student_user_id are required.' };
-  }
-
-  var supervisorRecord = findUserRecordByUserId_(supervisorUserId);
-  if (!supervisorRecord) return { ok: false, error: 'Supervisor not found.' };
-  if (String(supervisorRecord.user.role || '').trim() !== 'Supervisor') return { ok: false, error: 'Only supervisors can archive assignments.' };
-
-  var sheet = getSupervisorAssignmentsSheet_();
-  var headers = getHeaders_(sheet);
-  var values = getSheetValues_(sheet);
-  var supCol = findColumnIndex_(headers, 'supervisor_user_id');
-  var stuCol = findColumnIndex_(headers, 'student_user_id');
-  var statusCol = findColumnIndex_(headers, 'status');
-  if (supCol === 0 || stuCol === 0) return { ok: false, error: 'supervisor_assignments sheet missing required columns.' };
-
-  for (var i = 1; i < values.length; i++) {
-    if (String(values[i][supCol - 1] || '').trim() === supervisorUserId && String(values[i][stuCol - 1] || '').trim() === studentUserId) {
-      var rowIndex = i + 1;
-      var update = {};
-      if (statusCol !== 0) update.status = 'inactive';
-      updateObjectRow_(sheet, rowIndex, update);
-      return { ok: true };
-    }
-  }
-
-  return { ok: false, error: 'Assignment not found.' };
-}
-
-function handleRestoreSupervisorAssignment_(payload) {
-  var supervisorUserId = String(payload.supervisor_user_id || '').trim();
-  var studentUserId = String(payload.student_user_id || '').trim();
-  if (!supervisorUserId || !studentUserId) {
-    return { ok: false, error: 'supervisor_user_id and student_user_id are required.' };
-  }
-
-  var supervisorRecord = findUserRecordByUserId_(supervisorUserId);
-  if (!supervisorRecord) return { ok: false, error: 'Supervisor not found.' };
-  if (String(supervisorRecord.user.role || '').trim() !== 'Supervisor') return { ok: false, error: 'Only supervisors can restore assignments.' };
-
-  var sheet = getSupervisorAssignmentsSheet_();
-  var headers = getHeaders_(sheet);
-  var values = getSheetValues_(sheet);
-  var supCol = findColumnIndex_(headers, 'supervisor_user_id');
-  var stuCol = findColumnIndex_(headers, 'student_user_id');
-  var statusCol = findColumnIndex_(headers, 'status');
-  if (supCol === 0 || stuCol === 0) return { ok: false, error: 'supervisor_assignments sheet missing required columns.' };
-
-  for (var i = 1; i < values.length; i++) {
-    if (String(values[i][supCol - 1] || '').trim() === supervisorUserId && String(values[i][stuCol - 1] || '').trim() === studentUserId) {
-      var rowIndex = i + 1;
-      var update = {};
-      if (statusCol !== 0) update.status = 'active';
-      updateObjectRow_(sheet, rowIndex, update);
-      return { ok: true };
-    }
-  }
-
-  return { ok: false, error: 'Assignment not found.' };
-}
-
-// Expose simple wrappers callable via google.script.run
-function archiveSupervisorAssignment(payload) {
-  return handleArchiveSupervisorAssignment_(payload);
-}
-
-function restoreSupervisorAssignment(payload) {
-  return handleRestoreSupervisorAssignment_(payload);
 }
 
 function isStudentAssignedToSupervisor_(supervisorUserId, studentUserId) {
@@ -3377,6 +3302,18 @@ function escapeHtml_(value) {
 
 function isoNow_() {
   return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss");
+}
+
+/**
+ * Safely converts a Google Sheets cell value (which may be a Date object)
+ * to a "yyyy-MM-dd" string for reliable comparisons.
+ */
+function formatCellDate_(cellValue) {
+  if (!cellValue) return '';
+  if (cellValue instanceof Date) {
+    return Utilities.formatDate(cellValue, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  }
+  return String(cellValue).trim();
 }
 
 function jsonResponse_(obj) {

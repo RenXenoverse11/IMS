@@ -33,7 +33,6 @@
   let date = '';
   let timeIn = '08:00';
   let timeOut = '';
-  let todayNotes = '';
   let logSyncError = '';
   let isLoggingIn = false;
   let isLoggingOut = false;
@@ -310,11 +309,6 @@
       return;
     }
 
-    if (!trimmedNotes) {
-      logSyncError = 'Please add notes about your activities before logging out.';
-      return;
-    }
-
     if (!timeIn) {
       logSyncError = 'Please enter your login time first.';
       return;
@@ -339,7 +333,6 @@
         time_in: timeIn,
         time_out: timeOut,
         hours_rendered: hours,
-        notes: trimmedNotes,
       });
 
       // End session and create complete time log entry
@@ -348,7 +341,6 @@
         log_date: date,
         time_out: timeOut,
         hours_rendered: hours,
-        notes: trimmedNotes,
       });
 
       console.log('🔴 Response from end_session:', response);
@@ -362,7 +354,6 @@
         
         // Reset form fields
         timeOut = '';
-        todayNotes = '';
         
         // Reload all entries to ensure they display correctly in the history
         await loadEntriesFromApi();
@@ -485,9 +476,8 @@
   });
 
   $: formHours = calculateHours(timeIn, timeOut, includeLunch);
-  $: trimmedNotes = todayNotes.trim();
   $: canLogin = Boolean(date && timeIn && !isLoggedIn);
-  $: canLogout = Boolean(isLoggedIn && date && timeIn && timeOut && trimmedNotes);
+  $: canLogout = Boolean(isLoggedIn && date && timeIn && timeOut);
   $: currentUserId = String(authApi.getCurrentUser()?.user_id || '').trim();
   $: completedHoursStorageKey = currentUserId ? `ojt_completed_hours_${currentUserId}` : '';
   $: completedHours = INITIAL_COMPLETED_HOURS + entries.reduce((sum, entry) => sum + entry.hours, 0);
@@ -586,7 +576,7 @@
     </div>
   </section>
 
-  <div class="grid grid-cols-1 gap-6 md:grid-cols-3">
+  <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
     <!-- Panel 1: Time In -->
     <section class="theme-panel entry-panel rounded-xl border p-6 shadow-md">
       <h3 class="theme-heading text-base font-semibold">Time In</h3>
@@ -708,24 +698,6 @@
         {/if}
       </div>
     </section>
-
-    <!-- Panel 3: Notes -->
-    <section class="theme-panel entry-panel rounded-xl border p-6 shadow-md">
-      <h3 class="theme-heading text-base font-semibold">Notes</h3>
-
-      <div class="mt-5 flex flex-col gap-4">
-        <textarea
-          bind:value={todayNotes}
-          placeholder="Describe your tasks and activities..."
-          class="theme-input entry-input w-full rounded-xl border px-4 py-3 outline-none transition flex-1"
-          rows="6"
-        ></textarea>
-
-        <p class="theme-text text-xs">
-          <strong>Required:</strong> Describe what you did today before logging out.
-        </p>
-      </div>
-    </section>
   </div>
   <section class="theme-panel history-panel overflow-hidden rounded-2xl border shadow-md">
     <div class="theme-divider flex items-center justify-between border-b px-6 py-4">
@@ -742,11 +714,10 @@
             <th class="theme-muted px-6 py-3 text-left text-xs font-semibold uppercase tracking-[0.08em]">Time In</th>
             <th class="theme-muted px-6 py-3 text-left text-xs font-semibold uppercase tracking-[0.08em]">Time Out</th>
             <th class="theme-muted px-6 py-3 text-left text-xs font-semibold uppercase tracking-[0.08em]">Hours</th>
-            <th class="theme-muted px-6 py-3 text-left text-xs font-semibold uppercase tracking-[0.08em]">Notes</th>
             <th class="theme-muted px-6 py-3 text-left text-xs font-semibold uppercase tracking-[0.08em]">Created</th>
             <th class="theme-muted px-6 py-3 text-left text-xs font-semibold uppercase tracking-[0.08em]">Status</th>
             <th class="theme-muted px-6 py-3 text-left text-xs font-semibold uppercase tracking-[0.08em]"></th>
-          </tr>
+           </tr>
         </thead>
 
         <tbody>
@@ -763,7 +734,6 @@
               <td class="theme-text px-6 py-4 text-sm">{entry.timeIn}</td>
               <td class="theme-text px-6 py-4 text-sm">{entry.timeOut || '—'}</td>
               <td class="theme-heading px-6 py-4 text-sm font-semibold">{entry.hours}h</td>
-              <td class="theme-text min-w-56 px-6 py-4 text-sm">{entry.notes || '—'}</td>
               <td class="theme-text px-6 py-4 text-sm">{entry.createdAt || '—'}</td>
               <td class="px-6 py-4">
                 <span class={meta.badgeClass}>
@@ -782,10 +752,10 @@
                   <Trash2 size={13} />
                 </button>
               </td>
-            </tr>
+             </tr>
           {/each}
         </tbody>
-      </table>
+       </table>
     </div>
   </section>
 
