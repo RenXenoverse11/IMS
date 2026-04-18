@@ -600,7 +600,6 @@
         <div class="dash-panel">
           <div class="dash-panel-header">
             <span class="dash-panel-title">Recent Activity</span>
-            <a href="/activity" class="dash-panel-link">View All <ArrowRight size={14} /></a>
           </div>
           <div class="dash-panel-body">
             {#if Array.isArray(activityLogs) && activityLogs.length}
@@ -628,7 +627,6 @@
         <div class="dash-panel">
           <div class="dash-panel-header">
             <span class="dash-panel-title">Upcoming Tasks</span>
-            <a href="/activity" class="dash-panel-link">View All <ArrowRight size={14} /></a>
           </div>
           <div class="dash-panel-body">
             {#if Array.isArray(tasks) && tasks.length}
@@ -1102,11 +1100,13 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 14px;
-    align-items: start; /* Added this para hindi mag-stretch */
+    align-items: stretch;
   }
 
   .dash-panel {
-    min-height: 160px;
+    min-height: 340px;
+    max-height: 340px;
+    height: 340px;
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -1153,6 +1153,8 @@
     display: flex;
     flex: 1;
     flex-direction: column;
+    overflow-y: auto;
+    min-height: 0;
   }
 
   .dash-activity-item,
@@ -1163,6 +1165,7 @@
     padding: 12px 22px;
     border-bottom: 1px solid #e2e8f0;
     transition: background 0.15s ease;
+    min-height: 48px;
   }
 
   .dash-task-item {
@@ -1289,13 +1292,14 @@
 
   .dash-empty-state {
     display: flex;
-    flex: 1;
+    flex: 1 1 0%;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 10px;
-    padding: 32px;
+    padding: 32px 10px;
     color: #94a3b8;
+    min-height: 0;
   }
 
   .dash-empty-icon {
