@@ -117,9 +117,9 @@
         <circle cx="19" cy="5"  r="2.5" fill="#7c73c8"/>
         <text x="19" y="23" text-anchor="middle" font-family="'DM Sans',sans-serif" font-weight="700" font-size="9" fill="#e0dcff" letter-spacing="0.5">IMS</text>
       </svg>
-      <div style="overflow:hidden;">
-        <div style="font-size:13px;font-weight:700;color:var(--t);line-height:1.3;white-space:nowrap;">Internship</div>
-        <div style="font-size:10.5px;font-weight:500;color:var(--t2);white-space:nowrap;">Management System</div>
+      <div class="ims-logo-text" style="overflow:hidden;">
+        <div style="font-size:16px;font-weight:700;color:var(--t);line-height:1.3;white-space:nowrap;">Internship</div>
+        <div style="font-size:13px;font-weight:500;color:var(--t2);white-space:nowrap;">Management System</div>
       </div>
     </div>
 
@@ -194,7 +194,7 @@
 <style>
   /* ══ LIGHT ══ */
   .ims-sw {
-    --s:  #ffffff;
+    --s:  #fff;
     --s2: #f8fafc;
     --b:  #e2e8f0;
     --a:  #2563eb;
