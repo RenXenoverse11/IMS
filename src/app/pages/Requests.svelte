@@ -16,7 +16,6 @@
     XCircle,
     X,
     Archive,
-    Trash2,
   } from "lucide-svelte";
   import {
     callApiAction,
