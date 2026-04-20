@@ -106,6 +106,28 @@ function formatRelativeTime(timestamp) {
   return activityDate.toLocaleDateString();
 }
 
+// Format recent activity message consistently: append relative time only when message doesn't already include it
+function formatActivityLine(activity) {
+  const msg = String(activity?.message || '').trim();
+  if (!msg) {
+    return formatRelativeTime(activity?.timestamp || '') || '';
+  }
+
+  const lower = msg.toLowerCase();
+  // if message already contains a relative-time phrase or a date, don't append
+  if (lower.includes('ago') || /\b\d{4}-\d{2}-\d{2}\b/.test(msg) || /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/.test(msg)) {
+    return msg.replace(/\s+,\s*/, ', '); // normalize any stray commas
+  }
+
+  const rel = formatRelativeTime(activity?.timestamp || '');
+  if (!rel) return msg;
+
+  // ensure punctuation spacing
+  const endsPunct = /[.!?]$/.test(msg);
+  if (endsPunct) return `${msg} ${rel}.`;
+  return `${msg}, ${rel}.`;
+}
+
 onMount(() => {
   fetchRecentActivities();
   recentActivitiesIntervalId = setInterval(() => {
@@ -184,7 +206,9 @@ import {
   LayoutGrid,
   FileEdit,
   BookOpen,
-  Loader2
+  Loader2,
+  Download,
+  ExternalLink
 } from 'lucide-svelte';
 
 // --- Work Log Form State and Handlers ---
@@ -246,9 +270,20 @@ function mapWorklogToUi(row) {
       attachment_id: String(a.attachment_id || '').trim(),
       file_type: String(a.file_type || '').trim(),
       file_size: String(a.file_size || '').trim(),
+      file_name: String(a.file_name || '').trim(),
+      link: String(a.link || '').trim(),
       uploaded_at: String(a.uploaded_at || '').trim()
     }))
   };
+}
+
+function getDriveDownloadUrl(link) {
+  const url = String(link || '').trim();
+  if (!url) return '';
+  if (url.includes('uc?export=download')) return url;
+  const idMatch = url.match(/\/d\/([a-zA-Z0-9_-]+)/) || url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  const fileId = idMatch ? idMatch[1] : '';
+  return fileId ? `https://drive.google.com/uc?export=download&id=${fileId}` : url;
 }
 
 async function fetchWorkLogs() {
@@ -430,6 +465,7 @@ async function handleAddWorkLog() {
           const ext = getFileExtension_(file.name);
           const mimeSuffix = String(file.type || '').includes('/') ? String(file.type).split('/').pop() : '';
           const sizeMb = `${(file.size / 1024 / 1024).toFixed(2)} MB`;
+          const fileDataBase64 = await fileToBase64_(file);
           const uploadResult = await callAddWorklogAttachment({
             attachment_id: '',
             task_id: taskId,
@@ -437,6 +473,8 @@ async function handleAddWorkLog() {
             file_type: ext || mimeSuffix || String(file.type || '').trim(),
             file_size: sizeMb,
             file_name: file.name,
+            file_data_base64: fileDataBase64,
+            mime_type: file.type || 'application/octet-stream',
             uploaded_at: now.toISOString(),
             uploaded_by: user?.user_id || ''
           });
@@ -1008,9 +1046,11 @@ let assignedTasksError = '';
               const ext = attachment.name.split('.').pop()?.toLowerCase() || '';
               const sizeMB = `${(attachment.size / 1024 / 1024).toFixed(2)}MB`;
               await callAddActivityTaskAttachment({
+                task_id: taskId,
                 user_id: user?.user_id || '',
                 file_type: ext || '',
                 file_size: sizeMB,
+                file_name: attachment.name,
                 link: '',
                 uploaded_at: nowDate.toISOString(),
                 uploaded_by: user?.user_id || ''
@@ -1594,6 +1634,13 @@ let assignedTasksError = '';
 </script>
 
 <section class="activity-shell documents-page">
+
+  <style>
+    /* Use Segoe UI for this page for a professional look */
+    .activity-shell {
+      font-family: 'Segoe UI', system-ui, -apple-system, 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+    }
+  </style>
   <div class="stats-grid">
     {#each summaryCards as card}
       <article class={`stat-card tone-card-${card.tone}`}>
@@ -1891,8 +1938,8 @@ let assignedTasksError = '';
                       <li style="margin-bottom: 0.8rem; display: flex; align-items: flex-start; gap: 0.5rem;">
                         <span style="font-size: 1.1rem; color: var(--color-primary, #0f6cbd); margin-top: 0.1rem;">•</span>
                         <div style="flex: 1;">
-                          <div style="font-size: 0.9rem; font-style: italic; color: var(--color-text); font-family: 'Inter', 'Roboto', 'Segoe UI', Arial, sans-serif;">{activity.message}, {formatRelativeTime(activity.timestamp)}.</div>
-                        </div>
+                                <div style="font-size: 0.9rem; font-style: italic; color: var(--color-text);">{formatActivityLine(activity)}</div>
+                              </div>
                       </li>
                     {/each}
                   </ul>
@@ -2194,7 +2241,40 @@ let assignedTasksError = '';
                           <div class="worklog-attachments">
                             {#each log.attachments as file}
                               <div class="worklog-attachment-item">
-                                <span class="worklog-attachment-chip">{file.file_type || 'file'} - {file.file_size || ''}</span>
+                                <div class="worklog-attachment-main">
+                                  <span class="worklog-attachment-name">
+                                    {file.file_name || `${file.file_type || 'file'}`}
+                                  </span>
+                                  <span class="worklog-attachment-meta">
+                                    {file.file_type || 'file'} • {file.file_size || ''}
+                                  </span>
+                                </div>
+                                <div class="worklog-attachment-actions">
+                                  {#if file.link}
+                                    <a
+                                      class="worklog-attachment-action"
+                                      href={file.link}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      aria-label="View attachment"
+                                      title="View"
+                                    >
+                                      <ExternalLink size={14} />
+                                    </a>
+                                    <a
+                                      class="worklog-attachment-action"
+                                      href={getDriveDownloadUrl(file.link)}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      aria-label="Download attachment"
+                                      title="Download"
+                                    >
+                                      <Download size={14} />
+                                    </a>
+                                  {:else}
+                                    <span class="worklog-attachment-chip">No link</span>
+                                  {/if}
+                                </div>
                               </div>
                             {/each}
                           </div>
@@ -2389,10 +2469,77 @@ let assignedTasksError = '';
           color: #38bdf8 !important;
         }
         .worklog-attachments {
+          display: grid;
+          gap: 0.6rem;
+          margin-top: 0.2rem;
+        }
+
+        .worklog-attachment-item {
           display: flex;
-          flex-wrap: wrap;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.8rem;
+          padding: 0.5rem 0.7rem;
+          border-radius: 0.7rem;
+          background: color-mix(in srgb, var(--color-border) 35%, var(--color-surface));
+          border: 1px solid var(--color-border);
+        }
+
+        :global(html.dark) .worklog-attachment-item {
+          background: #1a2f4a !important;
+          border: 1px solid #2a4a6e !important;
+        }
+
+        .worklog-attachment-main {
+          display: flex;
+          flex-direction: column;
+          gap: 0.1rem;
+          min-width: 0;
+        }
+
+        .worklog-attachment-name {
+          font-size: 0.9rem;
+          font-weight: 700;
+          color: var(--color-heading);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        :global(html.dark) .worklog-attachment-name {
+          color: #e5edf8 !important;
+        }
+
+        .worklog-attachment-meta {
+          font-size: 0.78rem;
+          color: var(--color-muted);
+          font-weight: 600;
+        }
+
+        .worklog-attachment-actions {
+          display: inline-flex;
+          align-items: center;
           gap: 0.4rem;
-          margin-top: 0.1rem;
+          flex-shrink: 0;
+        }
+
+        .worklog-attachment-action {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 30px;
+          height: 30px;
+          border-radius: 0.55rem;
+          border: 1px solid var(--color-border);
+          background: var(--color-surface);
+          color: var(--color-accent);
+          transition: transform 0.12s, background 0.12s, border-color 0.12s;
+        }
+
+        .worklog-attachment-action:hover {
+          background: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface));
+          border-color: var(--color-accent);
+          transform: translateY(-1px);
         }
         @keyframes fadeIn {
           from { opacity: 0; transform: translateY(10px); }
@@ -2624,13 +2771,13 @@ let assignedTasksError = '';
     min-height: 90px;
     resize: vertical;
     outline: none;
-    font-family: 'Inter', 'Roboto', 'Segoe UI', Arial, sans-serif;
+    font-family: 'Segoe UI', system-ui, -apple-system, 'Roboto', 'Helvetica Neue', Arial, sans-serif;
     font-weight: 500;
   }
   .notes-textarea::placeholder {
     color: var(--color-muted);
     font-size: 0.9rem;
-    font-family: 'Inter', 'Roboto', 'Segoe UI', Arial, sans-serif;
+    font-family: 'Segoe UI', system-ui, -apple-system, 'Roboto', 'Helvetica Neue', Arial, sans-serif;
     font-weight: 500;
     opacity: 1;
   }
