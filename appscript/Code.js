@@ -3439,7 +3439,83 @@ function escapeHtml_(value) {
 }
 
 function isoNow_() {
-  return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss");
+  // Use space-separated timestamp (no 'T') to match UI expectation: "YYYY-MM-DD HH:MM:SS"
+  return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
+}
+
+// Normalize created_at/updated_at values in `activity_logs` to 'YYYY-MM-DD HH:MM:SS'
+function standardizeActivityLogTimestamps() {
+  try {
+    var sheet = getSheet_('activity_logs');
+    var vals = getSheetValues_(sheet);
+    if (!vals || vals.length < 2) return { ok: true, message: 'No rows to process.' };
+
+    var headers = vals[0].map(function(h){ return String(h||'').trim(); });
+    var idxCreated = findColumnIndex_(headers, 'created_at');
+    var idxUpdated = findColumnIndex_(headers, 'updated_at');
+
+    if (!idxCreated && !idxUpdated) {
+      return { ok: false, error: 'No timestamp columns found.' };
+    }
+
+    var updatedCount = 0;
+    for (var r = 1; r < vals.length; r++) {
+      var row = vals[r];
+      var changed = false;
+
+      var fixCell = function(colIdx) {
+        if (!colIdx) return false;
+        var raw = row[colIdx - 1];
+        if (!raw) return false;
+        // If it's already a Date object, format directly
+        if (raw instanceof Date) {
+          row[colIdx - 1] = Utilities.formatDate(raw, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+          return true;
+        }
+        var s = String(raw).trim();
+        // If already in desired format, skip
+        if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) return false;
+
+        // Try ISO-like parse
+        var parsed = new Date(s);
+        if (!isNaN(parsed.getTime())) {
+          row[colIdx - 1] = Utilities.formatDate(parsed, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+          return true;
+        }
+
+        // Try to extract a datetime substring like '2026-04-17 15:33:53' from larger strings
+        var m = s.match(/(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2})/);
+        if (m) {
+          var p = new Date(m[1].replace(' ', 'T'));
+          if (!isNaN(p.getTime())) {
+            row[colIdx - 1] = Utilities.formatDate(p, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+            return true;
+          }
+        }
+
+        // As a last resort, try parsing common localized formats by Date constructor
+        var alt = new Date(s.replace(/\(.*\)/, '').trim());
+        if (!isNaN(alt.getTime())) {
+          row[colIdx - 1] = Utilities.formatDate(alt, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+          return true;
+        }
+
+        return false;
+      };
+
+      if (fixCell(idxCreated)) changed = true;
+      if (fixCell(idxUpdated)) changed = true;
+
+      if (changed) {
+        sheet.getRange(r + 1, 1, 1, row.length).setValues([row]);
+        updatedCount++;
+      }
+    }
+
+    return { ok: true, updated: updatedCount };
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) };
+  }
 }
 
 /**
@@ -3464,10 +3540,12 @@ function jsonResponse_(obj) {
 var DOCUMENTS_SHEET_ = 'documents';
 var DOCUMENTS_HEADERS_ = ['id', 'user_id', 'name', 'folder', 'type', 'size', 'url', 'is_link', 'uploaded_date', 'access_level', 'shared_with', 'created_by', 'created_date'];
 var ACT_ATTACHMENTS_SHEET_ = 'act_attachments';
-var ACT_ATTACHMENTS_HEADERS_ = ['id', 'user_id', 'file_type', 'file_size', 'link', 'uploaded_at', 'uploaded_by'];
+// include task_id and file_name so attachments can be associated with a task
+var ACT_ATTACHMENTS_HEADERS_ = ['id', 'task_id', 'user_id', 'file_type', 'file_size', 'file_name', 'link', 'uploaded_at', 'uploaded_by'];
 var DOCUMENT_FOLDERS_SHEET_ = 'document_folders';
 var DOCUMENT_FOLDERS_HEADERS_ = ['id', 'user_id', 'folder_name', 'path', 'created_date', 'is_default'];
 var DOCUMENT_UPLOADS_FOLDER_ = 'IMS Documents Uploads';
+var WORKLOG_ATTACHMENTS_FOLDER_ = 'IMS Worklog Attachments';
 
 // Add a new attachment to act_attachments with sequential ATT_0001 IDs
 function addActivityTaskAttachment(payload) {
@@ -3476,8 +3554,10 @@ function addActivityTaskAttachment(payload) {
     var userId = String(payload.user_id || '').trim();
     var fileType = String(payload.file_type || '').trim();
     var fileSize = String(payload.file_size || '').trim();
+    var fileName = String(payload.file_name || '').trim();
     var link = String(payload.link || '').trim();
-    var uploadedAt = String(payload.uploaded_at || new Date().toISOString()).trim();
+    // normalize uploaded_at to 'YYYY-MM-DD HH:MM:SS'
+    var uploadedAt = Utilities.formatDate(new Date(payload.uploaded_at || new Date()), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
     var uploadedBy = String(payload.uploaded_by || '').trim();
 
     if (!userId) {
@@ -3497,23 +3577,61 @@ function addActivityTaskAttachment(payload) {
     }
     var attId = 'ATT_' + String(lastId + 1).padStart(4, '0');
 
+    // Append with new columns: id, task_id, user_id, file_type, file_size, file_name, link, uploaded_at, uploaded_by
+    // write formatted timestamp string to sheet so it appears as 'YYYY-MM-DD HH:MM:SS'
     sheet.appendRow([
       attId,
+      taskId,
       userId,
       fileType,
       fileSize,
+      fileName,
       link,
       uploadedAt,
       uploadedBy,
     ]);
 
+    // If a task_id and file_name were provided, also update the corresponding activity_logs row
+    // to include the new file name inside the attachments JSON so the UI can read it.
+    try {
+      if (taskId && fileName) {
+        var activitySheet = getSheet_('activity_logs');
+        if (activitySheet) {
+          var vals = getSheetValues_(activitySheet);
+          if (vals && vals.length > 0) {
+            var headers = vals[0].map(function(h){ return String(h||'').trim(); });
+            var idIdx = headers.indexOf('id');
+            var attachmentsIdx = headers.indexOf('attachments');
+            if (idIdx !== -1 && attachmentsIdx !== -1) {
+              for (var r = 1; r < vals.length; r++) {
+                if (String(vals[r][idIdx] || '').trim() === taskId) {
+                  var existingRaw = String(vals[r][attachmentsIdx] || '').trim();
+                  var existing = parseActivityJsonArray_(existingRaw);
+                  if (!Array.isArray(existing)) existing = [];
+                  if (existing.indexOf(fileName) === -1) {
+                    existing.push(fileName);
+                    updateObjectRow_(activitySheet, r + 1, { attachments: JSON.stringify(existing) });
+                  }
+                  break;
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      // non-fatal - we still return success for the attachment write
+    }
+
     return {
       ok: true,
       attachment: {
         id: attId,
+        task_id: taskId,
         user_id: userId,
         file_type: fileType,
         file_size: fileSize,
+        file_name: fileName,
         link: link,
         uploaded_at: uploadedAt,
         uploaded_by: uploadedBy
@@ -3524,6 +3642,97 @@ function addActivityTaskAttachment(payload) {
   }
 }
 
+
+// Migration helper: fix rows in act_attachments where columns got shifted.
+// Heuristics: detects ISO timestamps, user_id patterns (e.g., user_0001 or emails), and task id patterns (ACT_, WL_, ATT_, WLA_)
+function migrateActAttachmentsColumns() {
+  try {
+    var sheet = getSheet_(ACT_ATTACHMENTS_SHEET_);
+    var values = getSheetValues_(sheet);
+    if (!values || values.length < 2) return { ok: true, message: 'No rows to migrate.' };
+
+    var headers = values[0].map(function(h){ return String(h||'').trim(); });
+    var idx = {};
+    headers.forEach(function(h, i){ idx[normalizeHeader_(h)] = i; });
+
+    var uploadedAtIdx = (idx['uploaded_at'] !== undefined) ? idx['uploaded_at'] : -1;
+    var uploadedByIdx = (idx['uploaded_by'] !== undefined) ? idx['uploaded_by'] : -1;
+    var taskIdIdx = (idx['task_id'] !== undefined) ? idx['task_id'] : -1;
+    var fileNameIdx = (idx['file_name'] !== undefined) ? idx['file_name'] : -1;
+
+    if (uploadedAtIdx === -1 || uploadedByIdx === -1 || taskIdIdx === -1) {
+      return { ok: false, error: 'Sheet missing required columns for migration.' };
+    }
+
+    var updates = 0;
+    for (var r = 1; r < values.length; r++) {
+      var row = values[r];
+      // normalize values
+      var uploadedAtVal = String(row[uploadedAtIdx] || '').trim();
+      var uploadedByVal = String(row[uploadedByIdx] || '').trim();
+      var taskIdVal = String(row[taskIdIdx] || '').trim();
+      var fileNameVal = fileNameIdx !== -1 ? String(row[fileNameIdx] || '').trim() : '';
+
+      var changed = false;
+
+      var isIso = function(v) { return /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(v); };
+      var isUser = function(v) { return /^user_\w+/i.test(v) || /@/.test(v); };
+      var isTaskId = function(v) { return /^(ACT_|WL_|ATT_|WLA_|TASK_|TL_)/i.test(v); };
+
+      // If uploadedBy contains an ISO timestamp and uploadedAt contains a user id, swap them
+      if (!uploadedAtVal && isIso(uploadedByVal)) {
+        // uploaded_at empty but uploaded_by has timestamp -> move it
+        row[uploadedAtIdx] = uploadedByVal;
+        row[uploadedByIdx] = '';
+        changed = true;
+      } else if (isIso(uploadedByVal) && isUser(uploadedAtVal)) {
+        // swapped: uploadedAt has user, uploadedBy has timestamp -> swap
+        row[uploadedAtIdx] = uploadedByVal;
+        row[uploadedByIdx] = uploadedAtVal;
+        changed = true;
+      }
+
+      // If taskId column contains a timestamp or user id, try to move values to correct columns
+      if (taskIdVal && isIso(taskIdVal)) {
+        // task_id contains timestamp, move to uploaded_at if empty
+        if (!row[uploadedAtIdx]) {
+          row[uploadedAtIdx] = taskIdVal;
+          row[taskIdIdx] = '';
+          changed = true;
+        }
+      } else if (taskIdVal && isUser(taskIdVal) && !row[uploadedByIdx]) {
+        row[uploadedByIdx] = taskIdVal;
+        row[taskIdIdx] = '';
+        changed = true;
+      } else if (taskIdVal && isTaskId(taskIdVal)) {
+        // looks fine
+      }
+
+      // If file_name is empty but another column contains a filename-like string (has a dot), move it
+      if (fileNameIdx !== -1 && !fileNameVal) {
+        for (var c = 0; c < row.length; c++) {
+          var v = String(row[c] || '').trim();
+          if (v && /\.[a-z0-9]{1,6}$/i.test(v) && c !== fileNameIdx) {
+            row[fileNameIdx] = v;
+            row[c] = '';
+            changed = true;
+            break;
+          }
+        }
+      }
+
+      if (changed) {
+        // write back the corrected row (r+1 because sheet is 1-indexed)
+        sheet.getRange(r + 1, 1, 1, row.length).setValues([row]);
+        updates++;
+      }
+    }
+
+    return { ok: true, updated: updates };
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) };
+  }
+}
 function getOrCreateDocumentUploadsFolder_() {
   var folders = DriveApp.getFoldersByName(DOCUMENT_UPLOADS_FOLDER_);
   if (folders.hasNext()) {
@@ -3531,6 +3740,15 @@ function getOrCreateDocumentUploadsFolder_() {
   }
 
   return DriveApp.createFolder(DOCUMENT_UPLOADS_FOLDER_);
+}
+
+function getOrCreateWorklogAttachmentsFolder_() {
+  var folders = DriveApp.getFoldersByName(WORKLOG_ATTACHMENTS_FOLDER_);
+  if (folders.hasNext()) {
+    return folders.next();
+  }
+
+  return DriveApp.createFolder(WORKLOG_ATTACHMENTS_FOLDER_);
 }
 
 function handleGetAllDocuments_(payload) {
@@ -4299,4 +4517,61 @@ function migrateAllToSequentialIDs() {
   });
   
   return "Migration Complete. Sync your Svelte app to see changes.";
+}
+
+// Ensure the act_attachments sheet has the exact desired headers and reorder rows to match.
+function standardizeActAttachmentsSheet() {
+  try {
+    var desired = ACT_ATTACHMENTS_HEADERS_.slice(); // e.g. ['id','task_id','user_id',...]
+    var sheet = getSheet_(ACT_ATTACHMENTS_SHEET_);
+    var vals = getSheetValues_(sheet);
+    if (!vals || vals.length === 0) {
+      // create header if missing
+      sheet.getRange(1, 1, 1, desired.length).setValues([desired]);
+      return { ok: true, message: 'Header created.' };
+    }
+
+    var existingHeaders = vals[0].map(function(h){ return String(h||'').trim(); });
+
+    // Build map of normalized existing header -> first column index
+    var existingMap = {};
+    for (var i = 0; i < existingHeaders.length; i++) {
+      var key = normalizeHeader_(existingHeaders[i]);
+      if (!existingMap.hasOwnProperty(key)) existingMap[key] = i;
+    }
+
+    // Prepare new data rows mapped to desired headers
+    var newRows = [];
+    for (var r = 1; r < vals.length; r++) {
+      var row = vals[r];
+      var newRow = new Array(desired.length).fill('');
+      for (var c = 0; c < desired.length; c++) {
+        var header = desired[c];
+        var norm = normalizeHeader_(header);
+        if (existingMap.hasOwnProperty(norm)) {
+          var srcIdx = existingMap[norm];
+          newRow[c] = row[srcIdx] !== undefined ? row[srcIdx] : '';
+        } else {
+          // Try to find likely candidates: for file_name, look for any column with dot
+          if (norm === 'file_name') {
+            for (var cc = 0; cc < row.length; cc++) {
+              var v = String(row[cc] || '').trim();
+              if (v && /\.[a-z0-9]{1,6}$/i.test(v)) { newRow[c] = v; break; }
+            }
+          }
+        }
+      }
+      newRows.push(newRow);
+    }
+
+    // Write header + newRows back to sheet (resize sheet columns to desired length)
+    // Clear sheet and rewrite to avoid leftover columns
+    sheet.clearContents();
+    var out = [desired].concat(newRows);
+    sheet.getRange(1, 1, out.length, desired.length).setValues(out);
+
+    return { ok: true, rows: newRows.length };
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) };
+  }
 }

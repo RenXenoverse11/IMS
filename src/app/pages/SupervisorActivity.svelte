@@ -21,6 +21,9 @@
   };
   let students = [];
   let selectedStudentId = 'all';
+  // Overview dropdowns should be independent: separate selections for the worklogs and tasks panels
+  let overviewSelectedStudentId = 'all';
+  let tasksSelectedStudentId = 'all';
   let selectedInternId = '';
   let activeView = 'Overview';
   let selectedStatus = 'all';
@@ -343,19 +346,76 @@
     return matchesStudent && matchesStatus && matchesSearch;
   });
 
+  // Overview-specific worklogs: do not apply status/search filters (only student selection)
+  $: overviewWorkLogs = workLogs.filter((log) => {
+    const isApproved = String(log.status || '').toLowerCase() === 'approved';
+    if (isApproved) return false;
+    const matchesStudent = overviewSelectedStudentId === 'all' || String(log.user_id || '') === overviewSelectedStudentId;
+    return matchesStudent;
+  });
+
   $: selectedIntern = students.find((student) => String(student.user_id || '') === String(selectedInternId || ''));
   $: selectedInternLogs = workLogs.filter((log) => String(log.user_id || '') === String(selectedInternId || ''));
 
-  // tasks assigned to the currently selected intern (or all)
+  // tasks assigned to the currently selected intern in the Overview tasks panel (independent selection)
   $: internTasks = supervisorTasks.filter(t => {
     if (!t) return false;
     if (!t.assigned_student_ids || !Array.isArray(t.assigned_student_ids)) return false;
-    // only include tasks assigned to the selected intern (or all)
-    const assignedMatch = selectedStudentId === 'all' || t.assigned_student_ids.includes(selectedStudentId);
+    // only include tasks assigned to the tasksSelectedStudentId (or all)
+    const assignedMatch = tasksSelectedStudentId === 'all' || t.assigned_student_ids.includes(tasksSelectedStudentId);
     // if the task includes created_by, ensure it matches current supervisor; otherwise allow (server already scopes tasks)
     const createdByMatch = t.created_by ? String(t.created_by) === String(currentUser?.user_id || '') : true;
     return assignedMatch && createdByMatch;
   });
+
+  // Helper to match task status filter (select uses lowercase 'all', 'completed', 'in progress', ...)
+  function matchesTaskStatus(task, filter) {
+    if (!filter || String(filter).toLowerCase() === 'all') return true;
+    if (!task) return false;
+    return String(task.status || '').toLowerCase() === String(filter || '').toLowerCase();
+  }
+
+  // Filtered lists used by UI when a status filter or search is active
+  $: filteredInternTasks = internTasks.filter((t) => {
+    if (!t) return false;
+    const matchesStatus = matchesTaskStatus(t, selectedStatus);
+    const q = (searchTerm || '').trim().toLowerCase();
+    const matchesSearch = !q || String(t.title || '').toLowerCase().includes(q) || String(t.description || '').toLowerCase().includes(q);
+    return matchesStatus && matchesSearch;
+  });
+
+  $: filteredSupervisorTasks = supervisorTasks.filter((t) => {
+    if (!t) return false;
+    const matchesStatus = matchesTaskStatus(t, selectedStatus);
+    const q = (searchTerm || '').trim().toLowerCase();
+    const matchesSearch = !q || String(t.title || '').toLowerCase().includes(q) || String(t.description || '').toLowerCase().includes(q);
+    return matchesStatus && matchesSearch;
+  });
+
+  // Update supervisor task status (persist to server and update UI)
+  async function updateSupervisorTaskStatus(taskId, newStatus) {
+    if (!taskId) return;
+    try {
+      await maybeDelay();
+      const payload = {
+        sup_taskid: taskId,
+        status: newStatus,
+        updated_by: currentUser?.user_id || ''
+      };
+      const res = await callUpdateSupervisorTask(payload);
+      if (!res || !res.ok) throw new Error(res && res.error ? res.error : 'Unable to update task status.');
+
+      // reflect change locally
+      supervisorTasks = supervisorTasks.map((t) => (String(t.id) === String(taskId) ? { ...t, status: newStatus } : t));
+
+      // update viewTask if open
+      if (viewTask && String(viewTask.id) === String(taskId)) {
+        viewTask = supervisorTasks.find(x => String(x.id) === String(taskId)) || viewTask;
+      }
+    } catch (err) {
+      loadError = err?.message || 'Unable to update task status.';
+    }
+  }
 
   function previewText(txt, max = 80) {
     if (!txt) return '';
@@ -900,7 +960,7 @@ function toggleEditAssigneeDropdown() {
           <h3>Intern work logs</h3>
         </div>
         <div class="filters" style="display:flex; align-items:center; gap:0.6rem;">
-          <select class="small-select" bind:value={selectedStudentId} aria-label="Filter interns">
+          <select class="small-select" bind:value={overviewSelectedStudentId} aria-label="Filter interns">
             <option value="all">All interns</option>
             {#each students as student}
               <option value={student.user_id}>{student.full_name}</option>
@@ -912,10 +972,10 @@ function toggleEditAssigneeDropdown() {
         </div>
       
       <div class="log-list">
-        {#if filteredWorkLogs.length === 0}
+        {#if overviewWorkLogs.length === 0}
           <p class="empty">No work logs found.</p>
         {:else}
-          {#each filteredWorkLogs as log}
+          {#each overviewWorkLogs as log}
             <div class="log-card {expandedLogIds.indexOf(log.task_id) !== -1 ? 'expanded' : 'collapsed'}" on:click={() => toggleExpand(log.task_id)} role="button" tabindex="0">
               <div class="log-meta">
                 <div>
@@ -950,7 +1010,7 @@ function toggleEditAssigneeDropdown() {
           <h3>Intern Tasks</h3>
         </div>
         <div class="filters" style="display:flex; align-items:center; gap:0.6rem;">
-          <select class="small-select" bind:value={selectedStudentId} aria-label="Filter interns">
+          <select class="small-select" bind:value={tasksSelectedStudentId} aria-label="Filter interns">
             <option value="all">All interns</option>
             {#each students as student}
               <option value={student.user_id}>{student.full_name}</option>
@@ -1073,13 +1133,13 @@ function toggleEditAssigneeDropdown() {
 
       <!-- Tasks list (supervisor-created tasks) -->
       <div class="tasks-list-panel">
-        {#if supervisorTasks.length === 0}
+        {#if filteredSupervisorTasks.length === 0}
           <p class="empty">No tasks yet. Add a task to see it here.</p>
         {:else}
           <div class="tasks-table">
             <!-- header labels moved to panel head for cleaner top alignment -->
             <ul class="intern-list">
-              {#each supervisorTasks as t}
+              {#each filteredSupervisorTasks as t}
                 <li class="intern-list-item task-row">
                   <div class="col col-title" style="text-align:left;">
                     <div style="font-weight:700">{t.title}</div>
