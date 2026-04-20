@@ -6,6 +6,7 @@ function doGet() {
 var OTP_EXPIRY_MINUTES_ = 10;
 var OTP_RESEND_COOLDOWN_SECONDS_ = 60;
 var OTP_MAX_ATTEMPTS_ = 5;
+var TIME_LOGS_BACKEND_ENABLED_ = false;
 var PENDING_REG_PREFIX_ = 'PENDING_REG_';
 var PENDING_REG_TTL_HOURS_ = 24;
 var PROFILE_PHOTO_MAX_BYTES_ = 5 * 1024 * 1024;
@@ -32,6 +33,10 @@ var INTERN_SCHEDULES_HEADERS_ = ['schedule_id', 'intern_id', 'supervisor_id', 'd
 var DEFAULT_WORK_DAYS_ = [1, 2, 3, 4, 5]; // 0=Sunday, 1=Monday, ..., 5=Friday, 6=Saturday
 var DEFAULT_WORK_START_TIME_ = '09:00'; // 24-hour format
 var DEFAULT_WORK_END_TIME_ = '17:00';   // 24-hour format
+
+function isTimeLogsBackendDisabled_() {
+  return TIME_LOGS_BACKEND_ENABLED_ !== true;
+}
 
 function doPost(e) {
   try {
@@ -539,8 +544,6 @@ function handleLoginAccount_(payload) {
       email: String(found.email || ''),
       phone: String(found.phone || ''),
       department: String(found.department || ''),
-      location: String(found.location || ''),
-      bio: String(found.bio || ''),
       role: String(found.role || ''),
       status: String(found.status || ''),
       created_at: String(found.created_at || ''),
@@ -573,8 +576,6 @@ function handleGetUserById_(payload) {
       email: String(record.user.email || ''),
       phone: String(record.user.phone || ''),
       department: String(record.user.department || ''),
-      location: String(record.user.location || ''),
-      bio: String(record.user.bio || ''),
       role: String(record.user.role || ''),
       status: String(record.user.status || ''),
       created_at: String(record.user.created_at || ''),
@@ -635,8 +636,6 @@ function handleVerifyEmailOtp_(payload) {
       password_hash: String(pending.password_hash || ''),
       phone: '',
       department: String(pending.department || ''),
-      location: '',
-      bio: '',
       status: String(pending.status || 'active'),
       role: String(pending.role || 'Student'),
       created_at: String(pending.created_at || isoNow_()),
@@ -674,8 +673,6 @@ function handleVerifyEmailOtp_(payload) {
         email: String(userRow.email || ''),
         phone: String(userRow.phone || ''),
         department: String(userRow.department || ''),
-        location: String(userRow.location || ''),
-        bio: String(userRow.bio || ''),
         role: String(userRow.role || ''),
         status: String(userRow.status || ''),
         created_at: String(userRow.created_at || ''),
@@ -807,8 +804,6 @@ function handleUpdateUserProfile_(payload) {
   var fullName = String(payload.full_name || '').trim().replace(/\s+/g, ' ');
   var phone = String(payload.phone || '').trim();
   var department = String(payload.department || '').trim();
-  var location = String(payload.location || '').trim();
-  var bio = String(payload.bio || '').trim();
 
   if (!userId || !fullName) {
     return { ok: false, error: 'user_id and full_name are required.' };
@@ -824,13 +819,11 @@ function handleUpdateUserProfile_(payload) {
   }
 
   var usersSheet = record.sheet;
-  ensureSheetColumns_(usersSheet, ['phone', 'location', 'bio', 'updated_at']);
+  ensureSheetColumns_(usersSheet, ['phone', 'updated_at']);
 
   record.user.full_name = fullName;
   record.user.phone = phone;
   record.user.department = department;
-  record.user.location = location;
-  record.user.bio = bio;
   record.user.updated_at = isoNow_();
   updateUserRecord_(record);
 
@@ -843,8 +836,6 @@ function handleUpdateUserProfile_(payload) {
       email: String(record.user.email || ''),
       phone: String(record.user.phone || ''),
       department: String(record.user.department || ''),
-      location: String(record.user.location || ''),
-      bio: String(record.user.bio || ''),
       role: String(record.user.role || ''),
       status: String(record.user.status || ''),
       created_at: String(record.user.created_at || ''),
@@ -975,6 +966,10 @@ function handleUpsertStudentOjtProfile_(payload) {
 }
 
 function handleCreateTimeLog_(payload) {
+  if (isTimeLogsBackendDisabled_()) {
+    return { ok: false, error: 'Time log backend is disabled.' };
+  }
+
   var userId = String(payload.user_id || '').trim();
   var logDate = String(payload.log_date || '').trim();
   var timeIn = String(payload.time_in || '').trim();
@@ -1127,29 +1122,60 @@ function handleListTimeLogsByUser_(payload) {
 function handleDeleteTimeLog_(payload) {
   var userId = String(payload.user_id || '').trim();
   var timelogId = String(payload.timelog_id || '').trim();
+  var sessionId = String(payload.session_id || '').trim();
+  var logDate = String(payload.log_date || '').trim();
+  var timeIn = String(payload.time_in || '').trim();
+  var timeOut = String(payload.time_out || '').trim();
 
-  if (!userId || !timelogId) {
-    return { ok: false, error: 'user_id and timelog_id are required.' };
+  if (!userId || (!timelogId && !sessionId && !logDate)) {
+    return { ok: false, error: 'user_id and time log details are required.' };
   }
 
-  var sheet = getTimeLogsSheet_();
+  var sheet = getActiveSessionsSheet_();
   var headers = getHeaders_(sheet);
   var values = getSheetValues_(sheet);
-  var timelogCol = findColumnIndex_(headers, 'timelog_id');
+  var timelogCol = findColumnIndex_(headers, 'session_id');
   var userCol = findColumnIndex_(headers, 'user_id');
+  var logDateCol = findColumnIndex_(headers, 'log_date');
+  var timeInCol = findColumnIndex_(headers, 'time_in');
+  var timeOutCol = findColumnIndex_(headers, 'time_out');
 
   if (timelogCol === 0 || userCol === 0) {
-    throw new Error('time_logs sheet must include timelog_id and user_id columns.');
+    throw new Error('active_sessions sheet must include session_id and user_id columns.');
   }
 
+  var targetId = sessionId || timelogId;
   var rowIndex = -1;
   for (var i = 1; i < values.length; i++) {
-    var rowTimelogId = String(values[i][timelogCol - 1] || '');
-    var rowUserId = String(values[i][userCol - 1] || '');
+    var rowTimelogId = String(values[i][timelogCol - 1] || '').trim();
+    var rowUserId = String(values[i][userCol - 1] || '').trim();
 
-    if (rowTimelogId === timelogId && rowUserId === userId) {
+    if (targetId && rowTimelogId === targetId && rowUserId === userId) {
       rowIndex = i + 1;
       break;
+    }
+  }
+
+  if (rowIndex <= 0 && logDate && logDateCol > 0 && timeInCol > 0) {
+    var normalizedDate = formatCellDate_(logDate);
+    var normalizedTimeIn = normalizeTimeForCompare_(timeIn);
+    var normalizedTimeOut = normalizeTimeForCompare_(timeOut);
+
+    for (var j = 1; j < values.length; j++) {
+      var fallbackUserId = String(values[j][userCol - 1] || '').trim();
+      var fallbackDate = formatCellDate_(values[j][logDateCol - 1]);
+      var fallbackTimeIn = normalizeTimeForCompare_(values[j][timeInCol - 1]);
+      var fallbackTimeOut = timeOutCol > 0 ? normalizeTimeForCompare_(values[j][timeOutCol - 1]) : '';
+
+      if (
+        fallbackUserId === userId &&
+        fallbackDate === normalizedDate &&
+        fallbackTimeIn === normalizedTimeIn &&
+        (!normalizedTimeOut || fallbackTimeOut === normalizedTimeOut)
+      ) {
+        rowIndex = j + 1;
+        break;
+      }
     }
   }
 
@@ -1192,12 +1218,13 @@ function handleStartSession_(payload) {
     
     var userIdCol = findColumnIndex_(headers, 'user_id');
     var logDateCol = findColumnIndex_(headers, 'log_date');
+    var timeOutCol = findColumnIndex_(headers, 'time_out');
 
     for (var i = 1; i < values.length; i++) {
       var rowUserId = String(values[i][userIdCol - 1] || '').trim();
       var rowLogDate = formatCellDate_(values[i][logDateCol - 1]);
-      if (rowUserId === userId && rowLogDate === logDate) {
-        // Session already exists for this date
+      var rowTimeOut = String(serializeCellValue_(values[i][timeOutCol - 1]) || '').trim();
+      if (rowUserId === userId && !rowTimeOut) {
         return { ok: false, error: 'You already have an active session for today. Please log out first.' };
       }
     }
@@ -1240,8 +1267,8 @@ function handleEndSession_(payload) {
 
     Logger.log('DEBUG handleEndSession_ - Input: user_id=' + userId + ', log_date=' + logDate + ', time_out=' + timeOut);
 
-    if (!userId || !logDate || !timeOut) {
-      return { ok: false, error: 'user_id, log_date, and time_out are required.' };
+    if (!userId || !timeOut) {
+      return { ok: false, error: 'user_id and time_out are required.' };
     }
 
     var userRecord = findUserRecordByUserId_(userId);
@@ -1273,18 +1300,34 @@ function handleEndSession_(payload) {
     var timeIn = '';
 
     Logger.log('DEBUG handleEndSession_ - Looking for: user_id=' + userId + ', log_date=' + logDate);
-    
+
     for (var i = 1; i < sessValues.length; i++) {
       var rowUserId = String(sessValues[i][userIdCol - 1] || '').trim();
       var rowLogDate = formatCellDate_(sessValues[i][logDateCol - 1]);
+      var rowTimeOut = String(serializeCellValue_(sessValues[i][timeOutCol - 1]) || '').trim();
       Logger.log('DEBUG handleEndSession_ - Row ' + i + ': user_id=' + rowUserId + ', log_date=' + rowLogDate);
       
-      if (rowUserId === userId && rowLogDate === logDate) {
+      if (rowUserId === userId && !rowTimeOut && (!logDate || rowLogDate === logDate)) {
         sessionRow = i + 1; // +1 because sheet rows are 1-indexed (row 1 is header)
         sessionId = String(sessValues[i][sessionIdCol - 1] || '').trim();
         timeIn = String(sessValues[i][timeInCol - 1] || '').trim();
+        logDate = rowLogDate || logDate;
         Logger.log('DEBUG handleEndSession_ - Found session! Row=' + sessionRow + ', session_id=' + sessionId + ', time_in=' + timeIn);
         break;
+      }
+    }
+
+    if (sessionRow <= 0 && logDate) {
+      for (var fallbackIndex = 1; fallbackIndex < sessValues.length; fallbackIndex++) {
+        var fallbackUserId = String(sessValues[fallbackIndex][userIdCol - 1] || '').trim();
+        var fallbackTimeOut = String(serializeCellValue_(sessValues[fallbackIndex][timeOutCol - 1]) || '').trim();
+        if (fallbackUserId === userId && !fallbackTimeOut) {
+          sessionRow = fallbackIndex + 1;
+          sessionId = String(sessValues[fallbackIndex][sessionIdCol - 1] || '').trim();
+          timeIn = String(sessValues[fallbackIndex][timeInCol - 1] || '').trim();
+          logDate = formatCellDate_(sessValues[fallbackIndex][logDateCol - 1]);
+          break;
+        }
       }
     }
 
@@ -1329,8 +1372,8 @@ function handleGetActiveSession_(payload) {
 
     Logger.log('DEBUG handleGetActiveSession_ - Input: user_id=' + userId + ', log_date=' + logDate);
 
-    if (!userId || !logDate) {
-      return { ok: false, error: 'user_id and log_date are required.' };
+    if (!userId) {
+      return { ok: false, error: 'user_id is required.' };
     }
 
     var sheet = getActiveSessionsSheet_();
@@ -1339,26 +1382,43 @@ function handleGetActiveSession_(payload) {
 
     var userIdCol = findColumnIndex_(headers, 'user_id');
     var logDateCol = findColumnIndex_(headers, 'log_date');
+    var timeOutCol = findColumnIndex_(headers, 'time_out');
+
+    var fallbackSession = null;
 
     for (var i = 1; i < values.length; i++) {
       var rowUserId = String(values[i][userIdCol - 1] || '').trim();
       var rowLogDate = formatCellDate_(values[i][logDateCol - 1]);
-      
-      if (rowUserId === userId && rowLogDate === logDate) {
-        // Found active session for this user on this date
-        // Build object from row data using headers
+      var rowTimeOut = String(serializeCellValue_(values[i][timeOutCol - 1]) || '').trim();
+
+      if (rowUserId === userId && !rowTimeOut) {
         var sessionObj = {};
         for (var j = 0; j < headers.length; j++) {
           sessionObj[headers[j]] = values[i][j] || '';
         }
-        
-        Logger.log('DEBUG handleGetActiveSession_ - Found session: ' + JSON.stringify(sessionObj));
-        
+
+        if (!fallbackSession) {
+          fallbackSession = sessionObj;
+        }
+
+        if (!logDate || rowLogDate === logDate) {
+          Logger.log('DEBUG handleGetActiveSession_ - Found session: ' + JSON.stringify(sessionObj));
+
+          return {
+            ok: true,
+            session: sessionObj
+          };
+        }
+      }
+    }
+
+    if (fallbackSession) {
+      Logger.log('DEBUG handleGetActiveSession_ - Found fallback active session: ' + JSON.stringify(fallbackSession));
+
         return {
           ok: true,
-          session: sessionObj
+          session: fallbackSession
         };
-      }
     }
 
     // No active session found
@@ -1380,11 +1440,6 @@ function handleDebugSessionsSheet_(payload) {
     var activeHeaders = getHeaders_(activeSessions);
     var activeValues = getSheetValues_(activeSessions);
     
-    // Get time_logs sheet
-    var timeLogs = getTimeLogsSheet_();
-    var timeHeaders = getHeaders_(timeLogs);
-    var timeValues = getSheetValues_(timeLogs);
-    
     // Format the data for display
     var activeSessionsData = [];
     for (var i = 1; i < activeValues.length; i++) {
@@ -1393,15 +1448,6 @@ function handleDebugSessionsSheet_(payload) {
         row[activeHeaders[j]] = activeValues[i][j];
       }
       activeSessionsData.push(row);
-    }
-    
-    var timeLogsData = [];
-    for (var i = 1; i < timeValues.length; i++) {
-      var row = {};
-      for (var j = 0; j < timeHeaders.length; j++) {
-        row[timeHeaders[j]] = timeValues[i][j];
-      }
-      timeLogsData.push(row);
     }
     
     return {
@@ -1414,10 +1460,9 @@ function handleDebugSessionsSheet_(payload) {
         data: activeSessionsData
       },
       time_logs: {
-        sheet_name: timeLogs.getName(),
-        headers: timeHeaders,
-        row_count: timeValues.length - 1,
-        data: timeLogsData.slice(0, 10)
+        disabled: true,
+        row_count: 0,
+        data: []
       }
     };
   } catch (e) {
@@ -1443,7 +1488,6 @@ function handleListStudentsForAssignment_(payload) {
   }
 
   var usersSheet = getSheet_('users');
-  ensureSheetColumns_(usersSheet, ['company']);
 
   var assignedIds = {};
   var assignments = getActiveSupervisorAssignments_(supervisorUserId);
@@ -1476,7 +1520,7 @@ function handleListStudentsForAssignment_(payload) {
         full_name: String(row.full_name || ''),
         email: String(row.email || ''),
         profile_photo_url: String(row.profile_photo_url || ''),
-        company: String(row.company || ''),
+        company: '',
         department: String(row.department || ''),
         is_assigned: Boolean(assignedIds[studentUserId])
       };
@@ -1517,7 +1561,6 @@ function handleAssignStudentsToSupervisor_(payload) {
   }
 
   var usersSheet = getSheet_('users');
-  ensureSheetColumns_(usersSheet, ['company']);
   var users = readSheetObjects_(usersSheet);
   var validStudents = {};
   for (var j = 0; j < users.length; j++) {
@@ -1567,7 +1610,6 @@ function handleAssignStudentsToSupervisor_(payload) {
       assignment_id: createId_('ASG'),
       supervisor_user_id: supervisorUserId,
       student_user_id: studentUserIds[s],
-      company: String(studentRow.company || ''),
       department: String(studentRow.department || ''),
       status: 'active',
       created_at: createdAt,
@@ -1798,13 +1840,19 @@ function handleListSupervisorTimeLogs_(payload) {
     return { ok: false, error: 'This student is not assigned to you.' };
   }
 
-  var sheet = getTimeLogsSheet_();
+  var sheet = getActiveSessionsSheet_();
   var rows = readSheetObjects_(sheet)
     .filter(function (row) {
-      return String(serializeCellValue_(row.user_id) || '').trim() === studentUserId;
+      var rowUserId = String(serializeCellValue_(row.user_id) || '').trim();
+      var timeOut = String(serializeCellValue_(row.time_out) || '').trim();
+      return rowUserId === studentUserId && timeOut !== '';
     })
     .map(function (row) {
-      return sanitizeObjectForClient_(row);
+      var obj = sanitizeObjectForClient_(row);
+      obj.timelog_id = obj.session_id || '';
+      obj.entry_type = 'regular';
+      obj.status = 'approved';
+      return obj;
     });
 
   return { ok: true, logs: rows };
@@ -1875,14 +1923,14 @@ function handleDeleteSupervisorTimeLog_(payload) {
     return { ok: false, error: 'This student is not assigned to you.' };
   }
 
-  var sheet = getTimeLogsSheet_();
+  var sheet = getActiveSessionsSheet_();
   var headers = getHeaders_(sheet);
   var values = getSheetValues_(sheet);
-  var timelogCol = findColumnIndex_(headers, 'timelog_id');
+  var timelogCol = findColumnIndex_(headers, 'session_id');
   var userCol = findColumnIndex_(headers, 'user_id');
 
   if (timelogCol === 0 || userCol === 0) {
-    throw new Error('time_logs sheet must include timelog_id and user_id columns.');
+    throw new Error('active_sessions sheet must include session_id and user_id columns.');
   }
 
   var rowIndex = -1;
@@ -2973,6 +3021,9 @@ function getOrCreateSheetWithHeaders_(sheetName, headers) {
 }
 
 function getTimeLogsSheet_() {
+  if (isTimeLogsBackendDisabled_()) {
+    throw new Error('Time log backend is disabled.');
+  }
   return getOrCreateSheetWithHeaders_(TIME_LOGS_SHEET_, TIME_LOGS_HEADERS_);
 }
 
@@ -3528,6 +3579,36 @@ function formatCellDate_(cellValue) {
     return Utilities.formatDate(cellValue, Session.getScriptTimeZone(), 'yyyy-MM-dd');
   }
   return String(cellValue).trim();
+}
+
+function normalizeTimeForCompare_(value) {
+  if (!value) return '';
+  if (value instanceof Date) {
+    return Utilities.formatDate(value, Session.getScriptTimeZone(), 'HH:mm');
+  }
+
+  var text = String(value || '').trim();
+  if (!text) return '';
+
+  var isoMatch = text.match(/T(\d{2}):(\d{2})/);
+  if (isoMatch) return isoMatch[1] + ':' + isoMatch[2];
+
+  var amPmMatch = text.match(/(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)/i);
+  if (amPmMatch) {
+    var amPmHours = Number(amPmMatch[1]);
+    var amPmMinutes = Number(amPmMatch[2]);
+    var marker = String(amPmMatch[3] || '').toUpperCase();
+    if (marker === 'PM' && amPmHours < 12) amPmHours += 12;
+    if (marker === 'AM' && amPmHours === 12) amPmHours = 0;
+    return String(amPmHours).padStart(2, '0') + ':' + String(amPmMinutes).padStart(2, '0');
+  }
+
+  var hourMatch = text.match(/\b(\d{1,2}):(\d{2})(?::\d{2})?\b/);
+  if (hourMatch) {
+    return String(Number(hourMatch[1])).padStart(2, '0') + ':' + hourMatch[2];
+  }
+
+  return text;
 }
 
 function jsonResponse_(obj) {
@@ -4353,6 +4434,10 @@ function handleChangePassword_(payload) {
 }
 
 function sendDailyTimeLogReminders() {
+  if (isTimeLogsBackendDisabled_()) {
+    return;
+  }
+
   var todayISOStr = new Date().toISOString().slice(0, 10);
   
   var logsSheet = getSheet_(TIME_LOGS_SHEET_);
