@@ -82,7 +82,6 @@
   let selectedRequests = new Set();
   let selectAllChecked = false;
   let showBulkActions = false;
-  let isArchiving = false;
 
   let form = {
     requestType: "Absence",
@@ -880,6 +879,7 @@
                   <span class={statusMeta.badgeClass}>{request.status || "Pending"}</span>
                 </div>
 
+                <div class="request-card-body">
                 <div class="request-card-dates">
                   <div class="date-row">
                     <span class="label">For:</span>
@@ -909,6 +909,7 @@
                   {/if}
                 </div>
 
+                    <div class="req-meta">
                     {#if request.requestType === "Overtime" && request.total_hours}
                       <div class="req-meta-item">
                         <Timer size={13} />

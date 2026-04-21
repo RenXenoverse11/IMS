@@ -1,6 +1,17 @@
 <script>
   import { onDestroy, onMount } from 'svelte';
-  import { Check, RefreshCw, Search, Users, X, Loader2, Plus, Trash2 } from 'lucide-svelte';
+  import {
+    Check,
+    Clock3,
+    RefreshCw,
+    Search,
+    TrendingUp,
+    UserRoundCheck,
+    X,
+    Loader2,
+    Plus,
+    Trash2
+  } from 'lucide-svelte';
   import {
     assignStudentsToSupervisor,
     callApiAction,
@@ -428,7 +439,7 @@
   <div class="content">
     <div class="stats-grid">
       <div class="stat-card stat-blue">
-        <div class="stat-icon"><Users size={18} /></div>
+        <div class="stat-icon"><UserRoundCheck size={18} /></div>
         <p class="stat-value">{totalAssigned}</p>
         <p class="stat-label">Assigned Interns</p>
       </div>
@@ -440,13 +451,13 @@
       </div>
 
       <div class="stat-card stat-violet">
-        <div class="stat-icon"><Check size={18} /></div>
+        <div class="stat-icon"><TrendingUp size={18} /></div>
         <p class="stat-value">{averageProgress}%</p>
         <p class="stat-label">Average Progress</p>
       </div>
 
       <div class="stat-card stat-cyan">
-        <div class="stat-icon"><RefreshCw size={18} /></div>
+        <div class="stat-icon"><Clock3 size={18} /></div>
         <p class="stat-value" title={String(totalRequiredHours)}>{formatHours(totalRequiredHours)}</p>
         <p class="stat-label">Required Hours</p>
       </div>
@@ -922,23 +933,6 @@
     border-radius: 1rem;
     padding: 1.25rem;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-    border-top: 3px solid;
-  }
-
-  .stat-blue {
-    border-top-color: #2563eb;
-  }
-
-  .stat-success {
-    border-top-color: #059669;
-  }
-
-  .stat-violet {
-    border-top-color: #7c3aed;
-  }
-
-  .stat-cyan {
-    border-top-color: #0891b2;
   }
 
   .stat-icon {
