@@ -550,7 +550,24 @@ export async function getStudentSupervisor(studentUserId) {
   const result = await postAction('get_student_supervisor', {
     student_user_id: String(studentUserId || '').trim(),
   });
+  if (Array.isArray(result.supervisors) && result.supervisors.length) {
+    return result.supervisors[0];
+  }
   return result.supervisor || null;
+}
+
+export async function getStudentSupervisors(studentUserId) {
+  const result = await postAction('get_student_supervisor', {
+    student_user_id: String(studentUserId || '').trim(),
+  });
+
+  if (Array.isArray(result.supervisors)) {
+    return result.supervisors;
+  }
+  if (result.supervisor) {
+    return [result.supervisor];
+  }
+  return [];
 }
 
 export async function getNotificationPreferences(userId) {
