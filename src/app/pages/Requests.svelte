@@ -82,7 +82,6 @@
   let selectedRequests = new Set();
   let selectAllChecked = false;
   let showBulkActions = false;
-  let isArchiving = false;
 
   let form = {
     requestType: "Absence",
@@ -870,68 +869,38 @@
                 
                 <div class="request-card-content">
                   <div class="request-card-header">
-                  <div class="request-type-badge">
-                    {#if request.requestType === "Overtime"}
-                      <Clock3 size={14} /> Overtime
-                    {:else}
-                      <Calendar size={14} /> Absence
-                    {/if}
-                  </div>
-                  <span class={statusMeta.badgeClass}>{request.status || "Pending"}</span>
-                </div>
-
-                <div class="request-card-dates">
-                  <div class="date-row">
-                    <span class="label">For:</span>
-                    <span class="value">{formatDate(request.date)}</span>
-                  </div>
-                  {#if request.requestType === "Overtime" && request.total_hours}
-                    <div class="date-row">
-                      <span class="label">Duration:</span>
-                      <span class="value">{request.total_hours}h</span>
+                    <div class="request-type-badge">
+                      {#if request.requestType === "Overtime"}
+                        <Clock3 size={14} /> Overtime
+                      {:else}
+                        <Calendar size={14} /> Absence
+                      {/if}
                     </div>
-                  {/if}
-                  {#if request.created_at}
-                    <div class="date-row">
-                      <span class="label">Submitted:</span>
-                      <span class="value"
-                        >{formatCreatedDate(request.created_at)}</span
-                      >
+                    <div class="request-info-inline">
+                      <span class="request-info-item">
+                        <span class="info-label">For:</span>
+                        <span class="info-value">{formatDate(request.date)}</span>
+                      </span>
+                      {#if request.requestType === "Overtime" && request.total_hours}
+                        <span class="request-info-item">
+                          <span class="info-label">Duration:</span>
+                          <span class="info-value">{request.total_hours}h</span>
+                        </span>
+                      {/if}
+                      {#if request.created_at}
+                        <span class="request-info-item">
+                          <span class="info-label">Submitted:</span>
+                          <span class="info-value">{formatCreatedDate(request.created_at)}</span>
+                        </span>
+                      {/if}
+                      {#if isSupervisor}
+                        <span class="request-info-item">
+                          <span class="info-label">Requester:</span>
+                          <span class="info-value">{request.requester_name || "Unknown"}</span>
+                        </span>
+                      {/if}
                     </div>
-                  {/if}
-                  {#if isSupervisor}
-                    <div class="date-row">
-                      <span class="label">Requester:</span>
-                      <span class="value"
-                        >{request.requester_name || "Unknown"}</span
-                      >
-                    </div>
-                  {/if}
-                </div>
-
-                    {#if request.requestType === "Overtime" && request.total_hours}
-                      <div class="req-meta-item">
-                        <Timer size={13} />
-                        <span class="label">Duration:</span>
-                        <strong>{request.total_hours}h</strong>
-                      </div>
-                    {/if}
-
-                    {#if request.created_at}
-                      <div class="req-meta-item">
-                        <Clock3 size={13} />
-                        <span class="label">Submitted:</span>
-                        <strong>{formatCreatedDate(request.created_at)}</strong>
-                      </div>
-                    {/if}
-
-                    {#if isSupervisor}
-                      <div class="req-meta-item">
-                        <User size={13} />
-                        <span class="label">Requester:</span>
-                        <strong>{request.requester_name || "Unknown"}</strong>
-                      </div>
-                    {/if}
+                    <span class={statusMeta.badgeClass}>{request.status || "Pending"}</span>
                   </div>
 
                   <div class="req-reason-block">
@@ -969,7 +938,6 @@
                       <Trash2 size={12} /> Delete
                     </button>
                   {/if}
-                </div>
                 </div>
               </div>
             {/each}
@@ -1475,10 +1443,10 @@
       sans-serif;
     background: var(--bg);
     color: var(--text);
-    padding: 20px 24px;
+    padding: 16px 20px;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 14px;
     min-height: 100vh;
     transition:
       background 0.2s,
@@ -1495,7 +1463,7 @@
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
-    padding: 10px 12px;
+    padding: 8px 10px;
     box-shadow: var(--shadow-sm);
     transition:
       box-shadow 0.2s,
@@ -1534,13 +1502,13 @@
     color: var(--green);
   }
   .stat-value {
-    font-size: 22px;
+    font-size: 20px;
     font-weight: 700;
     letter-spacing: -0.4px;
     line-height: 1;
   }
   .stat-label {
-    font-size: 11px;
+    font-size: 10px;
     color: var(--text2);
     margin-top: 2px;
     font-weight: 500;
@@ -1586,20 +1554,25 @@
   .requests-section {
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
   }
 
   /* ========== EMPTY STATE ========== */
   .empty-requests {
     border: 1.5px dashed var(--border2);
-    border-radius: var(--radius);
+    border-radius: 0;
     padding: 40px 20px;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 10px;
-    background: var(--surface);
+    background: transparent;
   }
   .empty-icon {
     width: 48px;
@@ -1625,11 +1598,12 @@
   /* ========== FILTER ROW ========== */
   .filter-row {
     display: flex;
-    gap: 8px;
+    gap: 12px;
     align-items: center;
     justify-content: space-between;
-    padding: 16px 16px 0;
-    margin-bottom: 16px;
+    padding: 12px;
+    margin-bottom: 0;
+    border-bottom: 1px solid var(--border);
   }
   
   .filter-chips {
@@ -1654,11 +1628,11 @@
     background: transparent;
     color: var(--text2);
   }
-  .filter-pill:hover {
+  .filter-chip:hover {
     background: var(--surface2);
     color: var(--text);
   }
-  .filter-pill.active {
+  .filter-chip.active {
     background: var(--accent);
     color: #fff;
     border-color: var(--accent);
@@ -1686,7 +1660,8 @@
   .requests-list {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 0;
+    padding: 12px;
   }
   .req-card {
     background: var(--surface);
@@ -1696,11 +1671,26 @@
     overflow: hidden;
     cursor: default;
   }
+  .request-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    overflow: hidden;
+    cursor: default;
+    position: relative;
+    transition: all 0.2s ease;
+  }
+  .request-card + .request-card {
+    margin-top: 12px;
+  }
   .request-card[role="button"] {
     cursor: pointer;
   }
   .request-card[role="button"]:hover {
     background: rgba(59, 130, 246, 0.04);
+    border-color: var(--border2);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
   }
   .request-card::before {
     content: "";
@@ -1723,14 +1713,14 @@
   .request-card-selected {
     background: rgba(59, 130, 246, 0.08);
     border-color: #3b82f6;
-    border-left: 4px solid #3b82f6;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
   }
   .request-card-selected::before {
-    background: transparent;
+    background: #3b82f6;
+    width: 100%;
+    height: 3px;
   }
   .request-card:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow);
     transform: translateY(-1px);
   }
   .request-card-focused {
@@ -1748,22 +1738,45 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    padding: 13px 18px 10px;
+    gap: 16px;
+    padding: 12px 14px;
     border-bottom: 1px solid var(--border);
   }
-  .req-type-badge {
+  .request-type-badge {
     display: flex;
     align-items: center;
     gap: 7px;
     font-size: 14px;
     font-weight: 700;
     color: var(--text2);
+    white-space: nowrap;
+    flex-shrink: 0;
   }
-  .request-card-dates {
+  .request-info-inline {
     display: flex;
-    flex-direction: column;
-    gap: 10px;
+    align-items: center;
+    gap: 20px;
+    flex: 1;
+    overflow-x: auto;
+    font-size: 13px;
+  }
+  .request-info-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .info-label {
+    color: var(--text3);
+    font-weight: 500;
+  }
+  .info-value {
+    color: var(--text);
+    font-weight: 600;
+  }
+  .status-badge {
+    flex-shrink: 0;
   }
   .req-meta {
     display: flex;
@@ -1782,30 +1795,23 @@
     color: var(--text3);
     flex-shrink: 0;
   }
-  .req-meta-item strong {
-    color: var(--text);
-    font-weight: 700;
-  }
-  .req-meta-item .label {
-    color: var(--text3);
-    font-size: 12.5px;
-  }
   .req-reason-block {
     background: var(--surface2);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
+    border: none;
+    border-top: 1px solid var(--border);
+    border-radius: 0;
     padding: 10px 14px;
   }
   .req-reason-label {
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--text3);
-    margin-bottom: 4px;
+    margin-bottom: 3px;
   }
   .req-reason-text {
-    font-size: 14px;
+    font-size: 13px;
     color: var(--text2);
     line-height: 1.5;
   }
@@ -1813,7 +1819,8 @@
     display: flex;
     justify-content: flex-end;
     gap: 8px;
-    padding: 0 18px 14px;
+    padding: 10px 14px;
+    border-top: 1px solid var(--border);
   }
 
   .btn-edit,
