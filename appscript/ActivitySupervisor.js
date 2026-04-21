@@ -183,6 +183,8 @@ function getSupervisorTasks(payload) {
         assigned_student_ids: Array.isArray(assigned) ? assigned : []
       });
     }
+    // Reverse so that the most recently created task (last row in sheet) appears first.
+    tasks.reverse();
     return { ok: true, tasks: tasks };
   } catch (err) {
     return { ok: false, error: err && err.message ? String(err.message) : String(err) };

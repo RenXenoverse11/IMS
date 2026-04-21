@@ -25,6 +25,8 @@ function addActivityWorklog(payload) {
 		payload.notes || '',
 		payload.learnings || '',
 		payload.date || '',
+		// ensure status column exists (matches ACTIVITY_WORKLOG_HEADERS_ layout)
+		String(payload.status || 'Pending').trim(),
 		formatTimestamp_(payload.created_at || now),
 		payload.created_by || '',
 		payload.updated_by || ''
@@ -76,8 +78,20 @@ function addWorklogAttachment(payload) {
 				var blob = Utilities.newBlob(bytes, mimeType, fileName || 'upload');
 				var uploadFolder = getOrCreateWorklogAttachmentsFolder_();
 				var createdFile = uploadFolder.createFile(blob);
-				createdFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-				link = createdFile.getUrl();
+				// setSharing or getUrl may fail if the executing account lacks Drive permission
+				// or if the deployment authorization doesn't include Drive scopes. Fail gracefully
+				// and continue by leaving `link` empty so the attachment record still saves.
+				try {
+					createdFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+				} catch (shareErr) {
+					// Do not abort the whole operation for a sharing permission error.
+				}
+				// Always capture the file URL regardless of whether sharing setup succeeded.
+				try {
+					link = createdFile.getUrl();
+				} catch (urlErr) {
+					link = '';
+				}
 			} catch (uploadErr) {
 				return { ok: false, error: 'Unable to save attachment to Drive: ' + (uploadErr.message || String(uploadErr)) };
 			}
@@ -97,17 +111,17 @@ function addWorklogAttachment(payload) {
 
 		return {
 			ok: true,
-			attachment: {
-				attachment_id: attachmentId,
-				task_id: taskId,
-				user_id: userId,
-				file_type: fileType,
-				file_size: fileSize,
-				file_name: fileName,
-				link: link,
-				uploaded_at: uploadedAt,
-				uploaded_by: uploadedBy
-			}
+				attachment: {
+					attachment_id: attachmentId,
+					task_id: taskId,
+					user_id: userId,
+					file_type: fileType,
+					file_size: fileSize,
+					file_name: fileName,
+					link: link,
+					uploaded_at: uploadedAt,
+					uploaded_by: uploadedBy
+				}
 		};
 	} catch (err) {
 		return { ok: false, error: err.message || String(err) };
@@ -172,12 +186,28 @@ function getActivityWorklogs(payload) {
 				}
 				
 				if (!alreadyExists) {
+					var existingLink = String(attachRow.link || '').trim();
+					// if there's no stored link, try to find file by name in the attachments folder
+					if (!existingLink) {
+						try {
+							var folder = getOrCreateWorklogAttachmentsFolder_();
+							var filesByName = folder.getFilesByName(String(attachRow.file_name || '').trim());
+							if (filesByName.hasNext()) {
+								var f = filesByName.next();
+								try { f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (e) {}
+								existingLink = f.getUrl();
+							}
+						} catch (e) {
+							existingLink = String(attachRow.link || '').trim();
+						}
+					}
+
 					worklogsMap[attachTaskId].attachments.push({
 						attachment_id: attachmentId,
 						file_type: fileType,
 						file_size: fileSize,
 						file_name: String(attachRow.file_name || '').trim(),
-						link: String(attachRow.link || '').trim(),
+						link: existingLink,
 						uploaded_at: String(attachRow.uploaded_at || '').trim()
 					});
 				}
@@ -225,8 +255,8 @@ function backfillWorklogAttachmentLinks() {
 			var files = folder.getFilesByName(fileName);
 			if (files.hasNext()) {
 				var file = files.next();
-				file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-				row[linkIdx] = file.getUrl();
+				try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (e) {}
+				try { row[linkIdx] = file.getUrl(); } catch (e) { row[linkIdx] = row[linkIdx] || ''; }
 				sheet.getRange(r + 1, 1, 1, row.length).setValues([row]);
 				updated++;
 			}

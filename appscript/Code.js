@@ -3992,10 +3992,23 @@ function getOrCreateDocumentUploadsFolder_() {
 function getOrCreateWorklogAttachmentsFolder_() {
   var folders = DriveApp.getFoldersByName(WORKLOG_ATTACHMENTS_FOLDER_);
   if (folders.hasNext()) {
-    return folders.next();
+    var f = folders.next();
+    // try to ensure folder is shareable by link so interns/supervisors can view attachments
+    try {
+      f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    } catch (e) {
+      // ignore if permission or scope not available
+    }
+    return f;
   }
 
-  return DriveApp.createFolder(WORKLOG_ATTACHMENTS_FOLDER_);
+  var created = DriveApp.createFolder(WORKLOG_ATTACHMENTS_FOLDER_);
+  try {
+    created.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  } catch (e) {
+    // ignore if permission or scope not available
+  }
+  return created;
 }
 
 
