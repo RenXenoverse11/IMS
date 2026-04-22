@@ -288,4 +288,166 @@ function updateSupervisorTask(payload) {
     return { ok: false, error: err && err.message ? String(err.message) : String(err) };
   }
 }
- 
+
+// Add an attachment to the supervisor_attch sheet (uploads file to Drive and stores link)
+function addSupervisorTaskAttachment(payload) {
+  try {
+    var suptaskId = String(payload.suptask_id || '').trim();
+    if (!suptaskId) return { ok: false, error: 'suptask_id is required.' };
+
+    var fileName    = String(payload.file_name    || 'attachment').trim();
+    var fileDataBase64 = String(payload.file_data_base64 || '');
+    var mimeType    = String(payload.mime_type    || 'application/octet-stream').trim();
+    var fileType    = String(payload.file_type    || '').trim();
+    var fileSize    = String(payload.file_size    || '').trim();
+    var userId      = String(payload.user_id      || '').trim();
+    var uploadedBy  = String(payload.uploaded_by  || userId).trim();
+    var uploadedAt  = String(payload.uploaded_at  || isoNow_()).trim();
+
+    if (!suptaskId || !userId) return { ok: false, error: 'suptask_id and user_id are required.' };
+
+    var link = '';
+
+    // Upload to Google Drive using shared folder helper (same as addWorklogAttachment)
+    if (fileDataBase64) {
+      try {
+        var bytes  = Utilities.base64Decode(fileDataBase64);
+        var blob   = Utilities.newBlob(bytes, mimeType, fileName || 'attachment');
+        var folder = getOrCreateWorklogAttachmentsFolder_();
+        var driveFile = folder.createFile(blob);
+
+        // setSharing may fail on certain accounts — never abort the save for it
+        try {
+          driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+        } catch (shareErr) {
+          // ignore — file is still saved
+        }
+
+        // getUrl may also fail in edge cases — capture gracefully
+        try {
+          link = driveFile.getUrl();
+        } catch (urlErr) {
+          link = '';
+        }
+      } catch (uploadErr) {
+        return { ok: false, error: 'Unable to save attachment to Drive: ' + (uploadErr.message || String(uploadErr)) };
+      }
+    }
+
+    var sheet = getOrCreateSheetWithHeaders_('supervisor_attch', [
+      'supattch_id', 'suptask_id', 'user_id', 'file_type', 'file_size', 'file_name', 'link', 'uploaded_at', 'uploaded_by'
+    ]);
+
+    // Generate ID matching the WLA_ pattern used for worklogs (SUPA_ prefix)
+    var supattchId = '';
+    try {
+      var rowCount = sheet.getLastRow();
+      supattchId = 'SUPA_' + String(rowCount).padStart(4, '0');
+    } catch (e) {
+      supattchId = createId_('SUPA');
+    }
+
+    sheet.appendRow([
+      supattchId,
+      suptaskId,
+      userId,
+      fileType,
+      fileSize,
+      fileName,
+      link,
+      uploadedAt,
+      uploadedBy
+    ]);
+
+    return {
+      ok: true,
+      supattch_id: supattchId,
+      link: link,
+      attachment: {
+        supattch_id: supattchId,
+        suptask_id: suptaskId,
+        user_id: userId,
+        file_type: fileType,
+        file_size: fileSize,
+        file_name: fileName,
+        link: link,
+        uploaded_at: uploadedAt,
+        uploaded_by: uploadedBy
+      }
+    };
+  } catch (err) {
+    return { ok: false, error: err && err.message ? String(err.message) : String(err) };
+  }
+}
+
+// Retrieve all attachments for a supervisor task from supervisor_attch
+function getSupervisorTaskAttachments(payload) {
+  try {
+    var suptaskId = String(payload.suptask_id || '').trim();
+    if (!suptaskId) return { ok: false, error: 'suptask_id is required.' };
+
+    var sheet = getOrCreateSheetWithHeaders_('supervisor_attch', [
+      'supattch_id', 'suptask_id', 'user_id', 'file_type', 'file_size', 'file_name', 'link', 'uploaded_at', 'uploaded_by'
+    ]);
+    var rows = readSheetObjects_(sheet) || [];
+    var attachments = [];
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i] || {};
+      if (String(r.suptask_id || '').trim() === suptaskId) {
+        attachments.push({
+          supattch_id: String(r.supattch_id || '').trim(),
+          suptask_id: String(r.suptask_id || '').trim(),
+          user_id: String(r.user_id || '').trim(),
+          file_type: String(r.file_type || '').trim(),
+          file_size: String(r.file_size || '').trim(),
+          file_name: String(r.file_name || '').trim(),
+          link: String(r.link || '').trim(),
+          uploaded_at: String(r.uploaded_at || '').trim(),
+          uploaded_by: String(r.uploaded_by || '').trim()
+        });
+      }
+    }
+    return { ok: true, attachments: attachments };
+  } catch (err) {
+    return { ok: false, error: err && err.message ? String(err.message) : String(err) };
+  }
+}
+
+// Delete a supervisor attachment by supattch_id (removes the row from supervisor_attch)
+function deleteSupervisorTaskAttachment(payload) {
+  try {
+    var supattchId = String(payload.supattch_id || '').trim();
+    if (!supattchId) return { ok: false, error: 'supattch_id is required.' };
+
+    var sheet = getOrCreateSheetWithHeaders_('supervisor_attch', [
+      'supattch_id', 'suptask_id', 'user_id', 'file_type', 'file_size', 'file_name', 'link', 'uploaded_at', 'uploaded_by'
+    ]);
+
+    var values = getSheetValues_(sheet) || [];
+    if (values.length <= 1) return { ok: false, error: 'No rows found.' };
+
+    var headers = values[0].map(function(h){ return normalizeHeader_(h); });
+    var idCol = -1;
+    for (var c = 0; c < headers.length; c++) {
+      if (String(headers[c] || '').toLowerCase() === 'supattch_id') { idCol = c + 1; break; }
+    }
+    if (idCol === -1) return { ok: false, error: 'supattch_id column not found.' };
+
+    var foundRow = -1;
+    for (var r = 1; r < values.length; r++) {
+      var cell = String(values[r][idCol - 1] || '').trim();
+      if (cell === supattchId) { foundRow = r + 1; break; }
+    }
+    if (foundRow === -1) return { ok: false, error: 'Attachment not found.' };
+
+    try {
+      sheet.deleteRow(foundRow);
+    } catch (delErr) {
+      return { ok: false, error: 'Unable to delete row: ' + (delErr && delErr.message ? String(delErr.message) : String(delErr)) };
+    }
+
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err && err.message ? String(err.message) : String(err) };
+  }
+}

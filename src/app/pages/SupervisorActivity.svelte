@@ -60,6 +60,19 @@
   let editAssigneeButtonEl;
   let editAssigneeDropdownEl;
 
+  // Attachment state for Add Task modal
+  let newTaskAttachments = [];
+  let newTaskFileInput = null;
+
+  // Attachment state for Edit Task modal
+  let editTaskAttachments = [];
+  let editTaskFileInput = null;
+
+  // Separate attachment state for View/Edit Task modals (prevents flicker)
+  let viewTaskAttachments = [];
+  let isLoadingAttachments = false;
+  // Cache: { [sup_taskid]: attachment[] } — populated after tasks load so opening a task is instant
+  let taskAttachmentsCache = {};
 
   let refreshIntervalId;
   let now = new Date();
@@ -72,6 +85,18 @@
 
   function updateNow() {
     now = new Date();
+  }
+
+  async function fetchSupervisorAttachments(id) {
+    if (!id) { viewTaskAttachments = []; return; }
+    try {
+      const res = await callGetSupervisorTaskAttachments({ suptask_id: id });
+      const fetched = (res && res.ok && Array.isArray(res.attachments)) ? res.attachments : [];
+      taskAttachmentsCache[id] = fetched;
+      viewTaskAttachments = fetched;
+    } catch (e) {
+      viewTaskAttachments = taskAttachmentsCache[id] || [];
+    }
   }
 
   function formatRelativeTime(timestamp) {
@@ -246,6 +271,21 @@
           }));
           supervisorTasks = mapped.filter(x => String(x.status || '').toLowerCase() !== 'archived');
           archivedSupervisorTasks = mapped.filter(x => String(x.status || '').toLowerCase() === 'archived');
+          // Pre-fetch all attachments in parallel so task details open instantly.
+          // Await completion here so clicking a task finds attachments in cache immediately.
+          const allTaskIds = mapped.map(t => t.id).filter(Boolean);
+          try {
+            await Promise.all(allTaskIds.map(async (tid) => {
+              try {
+                const r = await callGetSupervisorTaskAttachments({ suptask_id: tid });
+                taskAttachmentsCache[tid] = (r && r.ok && Array.isArray(r.attachments)) ? r.attachments : [];
+              } catch (e) {
+                taskAttachmentsCache[tid] = [];
+              }
+            }));
+          } catch (e) {
+            // ignore prefetch failures — tasks still load
+          }
         } else {
           supervisorTasks = supervisorTasks || [];
           archivedSupervisorTasks = archivedSupervisorTasks || [];
@@ -448,6 +488,7 @@
     const fresh = supervisorTasks.find(t => String(t.id) === vid);
     if (fresh) {
       // only replace when fields differ to avoid stomping local edits
+      // preserve viewTaskAttachments — do NOT touch it here
       if (String(fresh.due_date || '') !== String(viewTask.due_date || '')) {
         viewTask = fresh;
       }
@@ -496,6 +537,132 @@
     clearInterval(refreshIntervalId);
   });
 
+  // --- Attachment helpers (mirrored from ActivityIntern) ---
+  function fileToBase64_(file) {
+    return new Promise((resolve, reject) => {
+      if (!file) { reject(new Error('No file selected.')); return; }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = String(reader.result || '');
+        const commaIndex = dataUrl.indexOf(',');
+        resolve(commaIndex >= 0 ? dataUrl.slice(commaIndex + 1) : '');
+      };
+      reader.onerror = () => reject(new Error('Unable to read selected file.'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function getFileExtension_(fileName) {
+    const name = String(fileName || '').trim();
+    const dotIndex = name.lastIndexOf('.');
+    if (dotIndex === -1) return '';
+    return name.slice(dotIndex + 1).toLowerCase();
+  }
+
+  function handleNewTaskFileUpload(event) {
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) return;
+    const wrapped = files.map(f => ({ file: f, name: f.name }));
+    newTaskAttachments = [...newTaskAttachments, ...wrapped];
+    event.target.value = '';
+  }
+
+  function removeNewTaskAttachment(index) {
+    if (typeof index !== 'number') return;
+    newTaskAttachments = newTaskAttachments.filter((_, i) => i !== index);
+    if (newTaskAttachments.length === 0 && newTaskFileInput) newTaskFileInput.value = '';
+  }
+
+  function handleEditTaskFileUpload(event) {
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) return;
+    const wrapped = files.map(f => ({ file: f, name: f.name }));
+    editTaskAttachments = [...editTaskAttachments, ...wrapped];
+    event.target.value = '';
+  }
+
+  function removeEditTaskAttachment(index) {
+    if (typeof index !== 'number') return;
+    editTaskAttachments = editTaskAttachments.filter((_, i) => i !== index);
+    if (editTaskAttachments.length === 0 && editTaskFileInput) editTaskFileInput.value = '';
+  }
+
+  function callAddSupervisorTaskAttachment(payload) {
+    return new Promise((resolve, reject) => {
+      const run = globalThis?.google?.script?.run;
+      if (!run) { reject(new Error('Apps Script runtime is not available in this view.')); return; }
+      run
+        .withSuccessHandler(resolve)
+        .withFailureHandler((error) => reject(new Error(error?.message || String(error))))
+        .addSupervisorTaskAttachment(payload);
+    });
+  }
+
+  function callGetSupervisorTaskAttachments(payload) {
+    return new Promise((resolve, reject) => {
+      const run = globalThis?.google?.script?.run;
+      if (!run) { reject(new Error('Apps Script runtime is not available in this view.')); return; }
+      run
+        .withSuccessHandler(resolve)
+        .withFailureHandler((error) => reject(new Error(error?.message || String(error))))
+        .getSupervisorTaskAttachments(payload);
+    });
+  }
+
+  function callDeleteSupervisorTaskAttachment(payload) {
+    return new Promise((resolve, reject) => {
+      const run = globalThis?.google?.script?.run;
+      if (!run) { reject(new Error('Apps Script runtime is not available in this view.')); return; }
+      run
+        .withSuccessHandler(resolve)
+        .withFailureHandler((error) => reject(new Error(error?.message || String(error))))
+        .deleteSupervisorTaskAttachment(payload);
+    });
+  }
+
+  async function uploadAttachmentsForTask(taskId, attachmentsList) {
+    const uploadErrors = [];
+    const validAttachments = attachmentsList.filter(a => a && a.file && a.file.size > 0);
+    for (const entry of validAttachments) {
+      const file = entry.file;
+      const fileName = String(entry.name || file.name || '').trim();
+      try {
+        const ext = getFileExtension_(fileName);
+        const mimeSuffix = String(file.type || '').includes('/') ? String(file.type).split('/').pop() : '';
+        const sizeMb = `${(file.size / 1024 / 1024).toFixed(2)} MB`;
+        const fileDataBase64 = await fileToBase64_(file);
+        const res = await callAddSupervisorTaskAttachment({
+          suptask_id: taskId,
+          user_id: currentUser?.user_id || '',
+          file_type: ext || mimeSuffix || String(file.type || '').trim(),
+          file_size: sizeMb,
+          file_name: fileName,
+          file_data_base64: fileDataBase64,
+          mime_type: file.type || 'application/octet-stream',
+          uploaded_at: new Date().toISOString(),
+          uploaded_by: currentUser?.user_id || ''
+        });
+        if (!res?.ok) throw new Error(res?.error || 'Upload failed.');
+      } catch (uploadErr) {
+        uploadErrors.push(`${fileName}: ${uploadErr?.message || uploadErr}`);
+      }
+    }
+    return uploadErrors;
+  }
+
+  async function removeExistingAttachment(supattchId) {
+    if (!supattchId) return;
+    try {
+      const res = await callDeleteSupervisorTaskAttachment({ supattch_id: String(supattchId) });
+      if (!res || !res.ok) throw new Error(res && res.error ? res.error : 'Unable to delete attachment.');
+      // remove from local view list
+      viewTaskAttachments = (viewTaskAttachments || []).filter(a => String(a.supattch_id || a.attachment_id || '') !== String(supattchId));
+    } catch (err) {
+      loadError = err?.message || 'Unable to remove attachment.';
+    }
+  }
+  // --- End attachment helpers ---
+
   async function submitNewTask() {
     if (!newTaskTitle.trim() || newTaskAssignees.length === 0) return;
     isCreatingTask = true;
@@ -529,6 +696,12 @@
         assigned_student_ids: Array.isArray(payload.assigned_student_ids) ? payload.assigned_student_ids : []
       };
 
+      // Upload attachments (if any)
+      let uploadErrors = [];
+      if (newTaskAttachments.length > 0 && savedId) {
+        uploadErrors = await uploadAttachmentsForTask(String(savedId), newTaskAttachments);
+      }
+
       // Optimistically pin the new task at the very top.
       supervisorTasks = [savedTask, ...supervisorTasks.filter(t => String(t.id) !== String(savedTask.id))];
 
@@ -537,7 +710,13 @@
       newTaskDescription = '';
       newTaskDueDate = '';
       newTaskAssignees = [];
+      newTaskAttachments = [];
+      if (newTaskFileInput) newTaskFileInput.value = '';
       showAddTask = false;
+
+      if (uploadErrors.length > 0) {
+        loadError = `Task created. Some attachments failed:\n${uploadErrors.join('\n')}`;
+      }
 
       // Refresh other data (worklogs, KPIs) but merge the server task list so the
       // new task stays on top and retains its due_date if the server echoes empty.
@@ -573,28 +752,20 @@
   function openViewTask(task) {
     if (!task) return;
     const id = String(task.id || task.sup_taskid || task.task_id || '');
-    // prefer the authoritative task object from supervisorTasks (fresh from server)
     const found = supervisorTasks.find(t => String(t.id) === id) || task;
     viewTask = found || null;
+    // Use cached attachments instantly; refresh in background to pick up any new ones
+    viewTaskAttachments = taskAttachmentsCache[id] || [];
+    isLoadingAttachments = false;
     showViewTask = true;
-    // fetch attachments for this task so they display in the view modal
-    (async () => {
-      try {
-        const res = await callGetTaskAttachments({ task_id: id });
-        if (res && res.ok && Array.isArray(res.attachments)) {
-          viewTask = { ...(viewTask || {}), attachments: res.attachments };
-        } else {
-          viewTask = { ...(viewTask || {}), attachments: [] };
-        }
-      } catch (e) {
-        viewTask = { ...(viewTask || {}), attachments: [] };
-      }
-    })();
+    (async () => { await fetchSupervisorAttachments(id); })();
   }
 
   function closeViewTask() {
     showViewTask = false;
     viewTask = null;
+    viewTaskAttachments = [];
+    isLoadingAttachments = false;
   }
 
   function formatDateToMMDDYYYY(dateStr) {
@@ -700,7 +871,16 @@
       status: task.status || 'Pending'
     };
     editTaskAssignees = Array.isArray(task.assigned_student_ids) ? [...task.assigned_student_ids] : [];
+    editTaskAttachments = [];
+    if (editTaskFileInput) editTaskFileInput.value = '';
+    // fetch existing attachments for edit modal as well
+    const id = String(task.id || '');
+    // immediately display cached attachments if available to avoid delay
+    viewTaskAttachments = taskAttachmentsCache[id] || [];
+    isLoadingAttachments = false;
     showEditTask = true;
+    // refresh cache in background
+    (async () => { await fetchSupervisorAttachments(id); })();
   }
 
   function toggleEditAssigneeSelection(userId) {
@@ -742,6 +922,15 @@
         return t;
       });
       
+      // upload any new attachments
+      if (editTaskAttachments.length > 0) {
+        const uploadErrors = await uploadAttachmentsForTask(String(editTaskForm.id), editTaskAttachments);
+        if (uploadErrors.length > 0) {
+          loadError = `Task saved. Some attachments failed:\n${uploadErrors.join('\n')}`;
+        }
+        editTaskAttachments = [];
+        if (editTaskFileInput) editTaskFileInput.value = '';
+      }
       // update viewTask if open
       if (viewTask && String(viewTask.id) === String(editTaskForm.id)) {
         viewTask = supervisorTasks.find(x => String(x.id) === String(editTaskForm.id)) || viewTask;
@@ -1019,6 +1208,34 @@ function toggleEditAssigneeDropdown() {
 
       <label for="task-desc">Description</label>
       <textarea id="task-desc" rows="5" bind:value={newTaskDescription}></textarea>
+
+      <!-- Attachments -->
+      <div class="task-view-section" style="margin-top:0.7rem;">
+        <div class="attachment-editor">
+          <div class="attachment-editor-head">
+            <span>Attachments</span>
+            <label class="attachment-upload-btn" for="sup-add-task-file-upload">Upload files</label>
+            <input id="sup-add-task-file-upload" class="hidden-file-input" type="file" multiple bind:this={newTaskFileInput} on:change={handleNewTaskFileUpload} />
+          </div>
+
+          {#if newTaskAttachments.length === 0}
+            <p class="sup-attach-empty">No attachments.</p>
+          {:else}
+            <ul class="attachment-list">
+              {#each newTaskAttachments as att, i}
+                <li>
+                  <div class="attachment-row">
+                    <div class="attachment-main"><span>{att.name}</span></div>
+                    <div class="attachment-actions">
+                      <button type="button" class="remove-item" on:click={() => removeNewTaskAttachment(i)}>Remove</button>
+                    </div>
+                  </div>
+                </li>
+              {/each}
+            </ul>
+          {/if}
+        </div>
+      </div>
 
       <div class="modal-actions">
         <button class="ghost btn-compact" type="button" on:click={() => { showAddTask = false; }}>Cancel</button>
@@ -1358,28 +1575,34 @@ function toggleEditAssigneeDropdown() {
               <textarea rows="4" readonly style="min-height:6rem">{viewTask?.description || 'No description'}</textarea>
             </label>
 
-            {#if viewTask?.attachments && viewTask.attachments.length > 0}
-              <div class="task-view-section">
+            <div class="task-view-section">
                 <span class="row-label">Attachments</span>
-                <ul class="attachment-list">
-                  {#each viewTask.attachments as a}
-                    <li>
-                      <div class="attachment-row">
-                        <span style="overflow:hidden; white-space:nowrap; text-overflow:ellipsis;">{a.file_name || a.file_name || 'file'}</span>
-                        <div class="attachment-actions">
-                          {#if a.link}
-                            <a class="attachment-action" href={a.link} target="_blank" rel="noopener noreferrer" title="View"><ExternalLink size={14} /></a>
-                            <a class="attachment-action" href={getDriveDownloadUrl(a.link)} target="_blank" rel="noopener noreferrer" title="Download"><Download size={14} /></a>
-                          {:else}
-                            <span class="muted">No link</span>
-                          {/if}
+                {#if viewTaskAttachments.length === 0}
+                  <p class="sup-attach-empty">No attachments.</p>
+                {:else}
+                  <ul class="attachment-list">
+                    {#each viewTaskAttachments as a}
+                      <li>
+                        <div class="attachment-row">
+                          <div class="attachment-main">
+                            {#if a.link}
+                              <a href={a.link} target="_blank" rel="noopener noreferrer">{a.file_name || 'file'}</a>
+                            {:else}
+                              <span>{a.file_name || 'file'}</span>
+                            {/if}
+                          </div>
+                          <div class="attachment-actions">
+                            {#if a.link}
+                              <a class="attachment-action" href={a.link} target="_blank" rel="noopener noreferrer" aria-label="View attachment" title="View"><ExternalLink size={14} /></a>
+                              <a class="attachment-action" href={getDriveDownloadUrl(a.link)} target="_blank" rel="noopener noreferrer" aria-label="Download attachment" title="Download"><Download size={14} /></a>
+                            {/if}
+                          </div>
                         </div>
-                      </div>
-                    </li>
-                  {/each}
-                </ul>
+                      </li>
+                    {/each}
+                  </ul>
+                {/if}
               </div>
-            {/if}
           </div>
         </div>
       {/if}
@@ -1446,6 +1669,54 @@ function toggleEditAssigneeDropdown() {
               <span>Description</span>
               <textarea rows="4" bind:value={editTaskForm.description}></textarea>
             </label>
+
+            <!-- Attachments (existing + upload new) -->
+            <div class="task-view-section" style="margin-top:0.7rem;">
+              <div class="attachment-editor">
+                <div class="attachment-editor-head">
+                  <span>Attachments</span>
+                  <label class="attachment-upload-btn" for="sup-edit-task-file-upload">Upload files</label>
+                  <input id="sup-edit-task-file-upload" class="hidden-file-input" type="file" multiple bind:this={editTaskFileInput} on:change={handleEditTaskFileUpload} />
+                </div>
+
+                {#if viewTaskAttachments.length === 0 && editTaskAttachments.length === 0}
+                  <p class="sup-attach-empty">No attachments yet.</p>
+                {:else}
+                  <ul class="attachment-list">
+                    {#each viewTaskAttachments as a}
+                      <li>
+                        <div class="attachment-row">
+                          <div class="attachment-main">
+                            {#if a.link}
+                              <a href={a.link} target="_blank" rel="noopener noreferrer">{a.file_name || 'file'}</a>
+                            {:else}
+                              <span>{a.file_name || 'file'}</span>
+                            {/if}
+                          </div>
+                          <div class="attachment-actions">
+                            {#if a.link}
+                              <a class="attachment-action" href={a.link} target="_blank" rel="noopener noreferrer" aria-label="View attachment" title="View"><ExternalLink size={14} /></a>
+                              <a class="attachment-action" href={getDriveDownloadUrl(a.link)} target="_blank" rel="noopener noreferrer" aria-label="Download attachment" title="Download"><Download size={14} /></a>
+                            {/if}
+                            <button type="button" class="remove-item" on:click={() => removeExistingAttachment(a.supattch_id)}>Remove</button>
+                          </div>
+                        </div>
+                      </li>
+                    {/each}
+                    {#each editTaskAttachments as att, i}
+                      <li>
+                        <div class="attachment-row">
+                          <div class="attachment-main"><span>{att.name}</span></div>
+                          <div class="attachment-actions">
+                            <button type="button" class="remove-item" on:click={() => removeEditTaskAttachment(i)}>Remove</button>
+                          </div>
+                        </div>
+                      </li>
+                    {/each}
+                  </ul>
+                {/if}
+              </div>
+            </div>
           </div>
         </div>
       {/if}
@@ -2030,6 +2301,7 @@ function toggleEditAssigneeDropdown() {
   }
 
   .row-label { color: var(--muted); font-weight: 600 }
+  .row-label { font-size: 0.95rem }
   .row-value { color: var(--ink); font-weight: 700 }
 
   .pill { display:inline-flex; align-items:center; justify-content:center; border-radius:9999px; padding:0.25rem 0.65rem; font-size:0.7rem; font-weight:800 }
@@ -2266,5 +2538,108 @@ function toggleEditAssigneeDropdown() {
     display: block;
     margin-bottom: 0.25rem;
   }
+
+  /* ── Attachment editor (matches ActivityIntern design) ── */
+  .attachment-editor { display: grid; gap: 0.5rem; }
+  .attachment-editor-head {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.4rem;
+  }
+  .attachment-editor-head span {
+    color: var(--muted);
+    font-size: 0.95rem;
+    font-weight: 600;
+  }
+  .attachment-upload-btn {
+    border: 1px solid var(--border);
+    background: var(--soft);
+    color: var(--ink);
+    border-radius: 0.45rem;
+    padding: 0.32rem 0.5rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .hidden-file-input { display: none; }
+  .attachment-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.35rem;
+  }
+  .attachment-list li {
+    display: block;
+    margin: 0; padding: 0;
+    border: none; background: transparent;
+  }
+  .attachment-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+    padding: 0.6rem 0.9rem;
+    border-radius: 0.7rem;
+    background: color-mix(in srgb, var(--border) 20%, var(--surface));
+    border: 1px solid var(--border);
+    width: 100%;
+    box-sizing: border-box;
+  }
+  :global(.dark) .attachment-row {
+    background: #1b2330 !important;
+    border: 1px solid #ffffff12 !important;
+  }
+  .attachment-main {
+    min-width: 0;
+    overflow: hidden;
+    flex: 1;
+  }
+  .attachment-main a,
+  .attachment-main span {
+    font-weight: 600;
+    color: var(--ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: inline-block;
+    font-size: 0.88rem;
+  }
+  .attachment-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-shrink: 0;
+  }
+  .attachment-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 0.5rem;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--accent);
+    text-decoration: none;
+    transition: transform 0.12s, background 0.12s, border-color 0.12s;
+  }
+  .attachment-action:hover {
+    background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+    border-color: var(--accent);
+    transform: translateY(-1px);
+  }
+  .remove-item {
+    border: 1px solid var(--border);
+    background: var(--soft);
+    color: var(--ink);
+    border-radius: 0.45rem;
+    padding: 0.32rem 0.5rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .sup-attach-empty { font-size: 0.8rem; color: var(--muted); margin: 0; }
 
 </style>
