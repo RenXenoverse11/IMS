@@ -750,6 +750,9 @@ let assignedTasksError = '';
   function getAttachmentNames(attachments) {
     if (Array.isArray(attachments)) {
       return attachments.map((item) => {
+        if (item && typeof item === 'object') {
+          return String(item.file_name || item.name || '').trim();
+        }
         if (typeof item === 'object' && item instanceof File) {
           return item.name;
         }
@@ -979,6 +982,24 @@ let assignedTasksError = '';
       source.due_date || source.dueDate || defaultValue.due_date || defaultValue.dueDate || ''
     );
 
+    // Normalize attachments: preserve objects with links, or wrap plain strings
+    const rawAttachments = source.attachments || defaultValue.attachments || [];
+    const attachments = Array.isArray(rawAttachments)
+      ? rawAttachments.map(a => {
+          if (a && typeof a === 'object') {
+            return {
+              attachment_id: String(a.attachment_id || a.id || '').trim(),
+              file_name: String(a.file_name || a.name || '').trim(),
+              file_type: String(a.file_type || '').trim(),
+              file_size: String(a.file_size || '').trim(),
+              link: String(a.link || '').trim(),
+              uploaded_at: String(a.uploaded_at || '').trim(),
+            };
+          }
+          return { attachment_id: '', file_name: String(a || '').trim(), file_type: '', file_size: '', link: '', uploaded_at: '' };
+        }).filter(a => a.file_name)
+      : [];
+
     return {
       id: String(source.id || defaultValue.id || '').trim(),
       userId: String(source.user_id || source.userId || defaultValue.user_id || defaultValue.userId || '').trim(),
@@ -988,7 +1009,7 @@ let assignedTasksError = '';
       owner: String(source.assigned_by || source.owner || defaultValue.assigned_by || defaultValue.owner || ''),
       priority: String(source.priority || defaultValue.priority || 'medium'),
       description: String(source.description || defaultValue.description || 'No description provided yet.'),
-      attachments: getAttachmentNames(source.attachments || defaultValue.attachments),
+      attachments,
       dailyChecklist: normalizeTaskChecklist(
         source.daily_checklist || source.checklist,
         defaultValue.dailyChecklist || defaultValue.checklist
@@ -1127,13 +1148,21 @@ let assignedTasksError = '';
             try {
               const ext = attachment.name.split('.').pop()?.toLowerCase() || '';
               const sizeMB = `${(attachment.size / 1024 / 1024).toFixed(2)}MB`;
+              // Read file as base64 so the backend can upload it to Drive
+              const base64Data = await new Promise((res, rej) => {
+                const reader = new FileReader();
+                reader.onload = () => res((reader.result || '').replace(/^data:[^;]+;base64,/, ''));
+                reader.onerror = () => rej(new Error('Failed to read file'));
+                reader.readAsDataURL(attachment);
+              });
               await callAddActivityTaskAttachment({
                 task_id: taskId,
                 user_id: user?.user_id || '',
                 file_type: ext || '',
                 file_size: sizeMB,
                 file_name: attachment.name,
-                link: '',
+                mime_type: attachment.type || 'application/octet-stream',
+                file_data_base64: base64Data,
                 uploaded_at: nowDate.toISOString(),
                 uploaded_by: user?.user_id || ''
               });
@@ -1229,7 +1258,7 @@ let assignedTasksError = '';
       dueDate: toInputDate(task.dueDate),
       description: task.description,
       dailyChecklist: (task.dailyChecklist || []).map((item) => ({ ...item })),
-      attachments: getAttachmentNames(task.attachments),
+      attachments: (task.attachments || []).map(a => ({ ...a })),
     };
     isViewTaskModalOpen = true;
   }
@@ -1272,7 +1301,7 @@ let assignedTasksError = '';
       description: viewedTask.description,
       assignedBy: viewedTask.owner || assignedSupervisors[0]?.user_id || '',
       dailyChecklist: viewedTask.dailyChecklist.map((item) => ({ ...item })),
-      attachments: getAttachmentNames(viewedTask.attachments),
+      attachments: (viewedTask.attachments || []).map(a => ({ ...a })),
     };
     isEditingViewedTask = true;
   }
@@ -1286,7 +1315,7 @@ let assignedTasksError = '';
         description: viewedTask.description,
         assignedBy: viewedTask.owner || assignedSupervisors[0]?.user_id || '',
         dailyChecklist: viewedTask.dailyChecklist.map((item) => ({ ...item })),
-        attachments: getAttachmentNames(viewedTask.attachments),
+        attachments: (viewedTask.attachments || []).map(a => ({ ...a })),
       };
     }
 
@@ -1368,9 +1397,20 @@ let assignedTasksError = '';
       return;
     }
 
+    // Store new File objects wrapped as attachment-like objects (file_name set, file property for later upload)
+    const newEntries = files.map(file => ({
+      attachment_id: '',
+      file_name: file.name,
+      file_type: file.name.split('.').pop()?.toLowerCase() || '',
+      file_size: `${(file.size / 1024 / 1024).toFixed(2)}MB`,
+      link: '',
+      uploaded_at: '',
+      _file: file, // transient: used when saving
+    }));
+
     taskViewEditForm = {
       ...taskViewEditForm,
-      attachments: [...taskViewEditForm.attachments, ...files.map((file) => file.name)],
+      attachments: [...taskViewEditForm.attachments, ...newEntries],
     };
 
     event.currentTarget.value = '';
@@ -1388,6 +1428,7 @@ let assignedTasksError = '';
     const cleanedChecklist = formState.dailyChecklist
       .filter((item) => item.label.trim())
       .map((item) => ({ label: item.label.trim(), done: !!item.done }));
+    // attachments may be objects or strings; extract filenames for the activity_logs column
     const cleanedAttachments = getAttachmentNames(formState.attachments);
 
     return {
@@ -1437,8 +1478,43 @@ let assignedTasksError = '';
       }
 
       const nextTask = mapCreatedTaskToUi(result.task, payload);
+
+      // Upload any newly added attachments (those with _file property)
+      const user = getCurrentUser();
+      const nowDate = new Date();
+      const newAttachments = taskViewEditForm.attachments.filter(a => a && a._file instanceof File);
+      for (const entry of newAttachments) {
+        try {
+          const base64Data = await new Promise((res, rej) => {
+            const reader = new FileReader();
+            reader.onload = () => res((reader.result || '').replace(/^data:[^;]+;base64,/, ''));
+            reader.onerror = () => rej(new Error('Failed to read file'));
+            reader.readAsDataURL(entry._file);
+          });
+          const attResult = await callAddActivityTaskAttachment({
+            task_id: viewedTask.id,
+            user_id: user?.user_id || '',
+            file_type: entry.file_type || '',
+            file_size: entry.file_size || '',
+            file_name: entry.file_name,
+            mime_type: entry._file.type || 'application/octet-stream',
+            file_data_base64: base64Data,
+            uploaded_at: nowDate.toISOString(),
+            uploaded_by: user?.user_id || '',
+          });
+          if (attResult?.ok && attResult.attachment?.link) {
+            entry.link = attResult.attachment.link;
+          }
+        } catch (e) {
+          // non-fatal
+        }
+      }
+
       applyTaskUpdateToUi(originalTitle, nextTask);
       isEditingViewedTask = false;
+
+      // Refresh tasks to get updated attachment list from backend
+      await fetchAssignedTasks();
       
       // Reset the file input element
       if (taskViewFileInput) {
@@ -1488,7 +1564,7 @@ let assignedTasksError = '';
       dueDate: toInputDate(selectedOverviewTask.dueDate),
       description: selectedOverviewTask.description,
       dailyChecklist: selectedOverviewTask.dailyChecklist.map((item) => ({ ...item })),
-      attachments: getAttachmentNames(selectedOverviewTask.attachments),
+      attachments: (selectedOverviewTask.attachments || []).map(a => ({ ...a })),
     };
     isEditingTrackerTask = true;
     trackerMenuOpen = false;
@@ -1521,6 +1597,37 @@ let assignedTasksError = '';
       applyTaskUpdateToUi(originalTitle, nextTask);
       selectedOverviewTaskTitle = nextTask.title;
       isEditingTrackerTask = false;
+
+      // Upload any newly added attachments (those with _file property)
+      const user = getCurrentUser();
+      const nowDate = new Date();
+      const newAttachments = trackerEditForm.attachments.filter(a => a && a._file instanceof File);
+      for (const entry of newAttachments) {
+        try {
+          const base64Data = await new Promise((res, rej) => {
+            const reader = new FileReader();
+            reader.onload = () => res((reader.result || '').replace(/^data:[^;]+;base64,/, ''));
+            reader.onerror = () => rej(new Error('Failed to read file'));
+            reader.readAsDataURL(entry._file);
+          });
+          await callAddActivityTaskAttachment({
+            task_id: selectedOverviewTask.id,
+            user_id: user?.user_id || '',
+            file_type: entry.file_type || '',
+            file_size: entry.file_size || '',
+            file_name: entry.file_name,
+            mime_type: entry._file.type || 'application/octet-stream',
+            file_data_base64: base64Data,
+            uploaded_at: nowDate.toISOString(),
+            uploaded_by: user?.user_id || '',
+          });
+        } catch (e) {
+          // non-fatal
+        }
+      }
+
+      // Refresh tasks to get updated attachment list from backend
+      await fetchAssignedTasks();
       
       // Reset the file input element
       if (trackerFileInput) {
@@ -1635,9 +1742,19 @@ let assignedTasksError = '';
       return;
     }
 
+    const newEntries = files.map(file => ({
+      attachment_id: '',
+      file_name: file.name,
+      file_type: file.name.split('.').pop()?.toLowerCase() || '',
+      file_size: `${(file.size / 1024 / 1024).toFixed(2)}MB`,
+      link: '',
+      uploaded_at: '',
+      _file: file,
+    }));
+
     trackerEditForm = {
       ...trackerEditForm,
-      attachments: [...trackerEditForm.attachments, ...files.map((file) => file.name)],
+      attachments: [...trackerEditForm.attachments, ...newEntries],
     };
 
     event.currentTarget.value = '';
@@ -1929,12 +2046,7 @@ let assignedTasksError = '';
                   {#each addTaskForm.attachments as attachment, index}
                     <li>
                       {#if attachment instanceof File}
-                        <span>
-                          {attachment.name} 
-                          <span style="font-size: 0.85rem; color: var(--color-muted);">
-                            ({attachment.name.split('.').pop()?.toUpperCase() } - {(attachment.size / 1024 / 1024).toFixed(2)}MB)
-                          </span>
-                        </span>
+                        <span>{attachment.name}</span>
                       {:else}
                         <span>{attachment}</span>
                       {/if}
@@ -2148,12 +2260,30 @@ let assignedTasksError = '';
                       <p class="overview-empty-copy">No attachments yet.</p>
                     {:else}
                       <ul class="attachment-list">
-                        {#each trackerEditForm.attachments as fileName, index}
+                        {#each trackerEditForm.attachments as att, index}
                           <li>
-                            <span>{fileName}</span>
-                            <button type="button" class="remove-item" on:click={() => removeEditTaskAttachment(index)}>
-                              Remove
-                            </button>
+                            <div class="attachment-row">
+                              <div class="attachment-main">
+                                {#if att && att.link}
+                                  <a href={att.link} target="_blank" rel="noopener noreferrer">{att.file_name || att.name || att}</a>
+                                {:else}
+                                  <span>{(att && (att.file_name || att.name)) || att}</span>
+                                {/if}
+                              </div>
+                              <div class="attachment-actions">
+                                {#if att && att.link}
+                                  <a class="attachment-action" href={att.link} target="_blank" rel="noopener noreferrer" aria-label="View attachment" title="View">
+                                    <ExternalLink size={14} />
+                                  </a>
+                                  <a class="attachment-action" href={getDriveDownloadUrl(att.link)} target="_blank" rel="noopener noreferrer" aria-label="Download attachment" title="Download">
+                                    <Download size={14} />
+                                  </a>
+                                {/if}
+                                <button type="button" class="remove-item" on:click={() => removeEditTaskAttachment(index)}>
+                                  Remove
+                                </button>
+                              </div>
+                            </div>
                           </li>
                         {/each}
                       </ul>
@@ -2659,6 +2789,61 @@ let assignedTasksError = '';
           border-color: var(--color-accent);
           transform: translateY(-1px);
         }
+        .attachment-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.6rem;
+          padding: 0.45rem 0.6rem;
+          border-radius: 0.7rem;
+          background: color-mix(in srgb, var(--color-border) 20%, var(--color-surface));
+          border: 1px solid var(--color-border);
+        }
+
+        :global(html.dark) .attachment-row {
+          background: #1b2330 !important;
+          border: 1px solid #ffffff12 !important;
+        }
+
+        .attachment-main {
+          min-width: 0;
+          overflow: hidden;
+        }
+
+        .attachment-main a,
+        .attachment-main span {
+          font-weight: 600;
+          color: var(--color-heading);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          display: inline-block;
+        }
+
+        .attachment-actions {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.4rem;
+          flex-shrink: 0;
+        }
+
+        .attachment-action {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 30px;
+          height: 30px;
+          border-radius: 0.5rem;
+          border: 1px solid var(--color-border);
+          background: var(--color-surface);
+          color: var(--color-accent);
+        }
+
+        .attachment-action:hover {
+          background: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface));
+          border-color: var(--color-accent);
+          transform: translateY(-1px);
+        }
         @keyframes fadeIn {
           from { opacity: 0; transform: translateY(10px); }
           to { opacity: 1; transform: none; }
@@ -2819,12 +3004,30 @@ let assignedTasksError = '';
               <p class="overview-empty-copy">No attachments.</p>
             {:else}
               <ul class="attachment-list">
-                {#each taskViewEditForm.attachments as fileName, index}
+                {#each taskViewEditForm.attachments as att, index}
                   <li>
-                    <span>{fileName}</span>
-                    <button type="button" class="remove-item" on:click={() => removeTaskViewAttachment(index)}>
-                      Remove
-                    </button>
+                    <div class="attachment-row">
+                      <div class="attachment-main">
+                        {#if att && att.link}
+                          <a href={att.link} target="_blank" rel="noopener noreferrer">{att.file_name || att.name || att}</a>
+                        {:else}
+                          <span>{(att && (att.file_name || att.name)) || att}</span>
+                        {/if}
+                      </div>
+                      <div class="attachment-actions">
+                        {#if att && att.link}
+                          <a class="attachment-action" href={att.link} target="_blank" rel="noopener noreferrer" aria-label="View attachment" title="View">
+                            <ExternalLink size={14} />
+                          </a>
+                          <a class="attachment-action" href={getDriveDownloadUrl(att.link)} target="_blank" rel="noopener noreferrer" aria-label="Download attachment" title="Download">
+                            <Download size={14} />
+                          </a>
+                        {/if}
+                        <button type="button" class="remove-item" on:click={() => removeTaskViewAttachment(index)}>
+                          Remove
+                        </button>
+                      </div>
+                    </div>
                   </li>
                 {/each}
               </ul>
@@ -2834,8 +3037,28 @@ let assignedTasksError = '';
           <p class="overview-empty-copy">No attachments.</p>
         {:else}
           <ul class="attachment-list">
-            {#each viewedTask.attachments as fileName}
-              <li><span>{fileName}</span></li>
+            {#each viewedTask.attachments as att}
+              <li>
+                <div class="attachment-row">
+                  <div class="attachment-main">
+                    {#if att && att.link}
+                      <a href={att.link} target="_blank" rel="noopener noreferrer">{att.file_name || att.name || att}</a>
+                    {:else}
+                      <span>{(att && (att.file_name || att.name)) || att}</span>
+                    {/if}
+                  </div>
+                  <div class="attachment-actions">
+                    {#if att && att.link}
+                      <a class="attachment-action" href={att.link} target="_blank" rel="noopener noreferrer" aria-label="View attachment" title="View">
+                        <ExternalLink size={14} />
+                      </a>
+                      <a class="attachment-action" href={getDriveDownloadUrl(att.link)} target="_blank" rel="noopener noreferrer" aria-label="Download attachment" title="Download">
+                        <Download size={14} />
+                      </a>
+                    {/if}
+                  </div>
+                </div>
+              </li>
             {/each}
           </ul>
         {/if}

@@ -750,6 +750,8 @@ function getActivityTasks(payload) {
 	var rows = readSheetObjects_(sheet);
 	var requestedUserId = String(filter.user_id || '').trim();
 	var requestedEmail = String(filter.email || '').trim().toLowerCase();
+
+	var tasksMap = {};
 	var tasks = rows
 		.filter(function(row) {
 			if (requestedUserId) {
@@ -761,8 +763,9 @@ function getActivityTasks(payload) {
 			return true;
 		})
 		.map(function(row) {
-			return {
-				id: String(row.id || '').trim(),
+			var taskId = String(row.id || '').trim();
+			var task = {
+				id: taskId,
 				user_id: String(row.user_id || '').trim(),
 				task_name: String(row.task_name || row.title || '').trim(),
 				due_date: String(row.due_date || '').trim(),
@@ -770,19 +773,55 @@ function getActivityTasks(payload) {
 				description: String(row.description || '').trim(),
 				assigned_by: String(row.assigned_by || '').trim(),
 				checklist: parseActivityJsonArray_(row.checklist),
-				attachments: parseActivityJsonArray_(row.attachments),
+				attachments: [],
 				priority: String(row.priority || 'medium').trim(),
 				created_at: String(row.created_at || '').trim(),
 				created_by: String(row.created_by || '').trim(),
 				updated_at: String(row.updated_at || '').trim(),
 				updated_by: String(row.updated_by || '').trim()
 			};
+			tasksMap[taskId] = task;
+			return task;
 		})
 		.sort(function(left, right) {
 			var rightTime = new Date(right.created_at || 0).getTime() || 0;
 			var leftTime = new Date(left.created_at || 0).getTime() || 0;
 			return rightTime - leftTime;
 		});
+
+	// Hydrate attachments from act_attachments sheet
+	try {
+		var attSheet = getSheet_('act_attachments');
+		var attRows = readSheetObjects_(attSheet);
+		for (var i = 0; i < attRows.length; i++) {
+			var attRow = attRows[i];
+			var attTaskId = String(attRow.task_id || '').trim();
+			if (!tasksMap[attTaskId]) continue;
+			var existingLink = String(attRow.link || '').trim();
+			// If no stored link, try to find file by name in the task attachments folder
+			if (!existingLink) {
+				try {
+					var folder = getOrCreateTaskAttachmentsFolder_();
+					var filesByName = folder.getFilesByName(String(attRow.file_name || '').trim());
+					if (filesByName.hasNext()) {
+						var f = filesByName.next();
+						try { f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (e) {}
+						existingLink = f.getUrl();
+					}
+				} catch (e) {}
+			}
+			tasksMap[attTaskId].attachments.push({
+				attachment_id: String(attRow.id || '').trim(),
+				file_type: String(attRow.file_type || '').trim(),
+				file_size: String(attRow.file_size || '').trim(),
+				file_name: String(attRow.file_name || '').trim(),
+				link: existingLink,
+				uploaded_at: String(attRow.uploaded_at || '').trim()
+			});
+		}
+	} catch (err) {
+		// If act_attachments sheet doesn't exist, skip
+	}
 
 	return {
 		ok: true,
