@@ -1042,34 +1042,35 @@ function toggleEditAssigneeDropdown() {
                           {#each log.attachments as file}
                             <li class="log-attachment-item">
                               <div class="log-attachment-main">
-                                <span class="log-attachment-name">{file.file_name || file.file_type || 'file'}</span>
-                                <span class="log-attachment-meta">{file.file_type || 'file'}{file.file_size ? ` • ${file.file_size}` : ''}</span>
-                              </div>
-                              <div class="log-attachment-actions">
-                                {#if file.link}
-                                  <a
-                                    class="log-attachment-action"
-                                    href={file.link}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    aria-label="View attachment"
-                                    title="View"
-                                  >
-                                    <ExternalLink size={14} />
-                                  </a>
-                                  <a
-                                    class="log-attachment-action"
-                                    href={getDriveDownloadUrl(file.link)}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    aria-label="Download attachment"
-                                    title="Download"
-                                  >
-                                    <Download size={14} />
-                                  </a>
-                                {:else}
-                                  <span class="log-attachment-empty">No link</span>
-                                {/if}
+                                <div style="min-width:0; overflow:hidden">
+                                  <span class="log-attachment-name">{file.file_name || 'file'}</span>
+                                </div>
+                                <div class="log-attachment-actions">
+                                  {#if file.link}
+                                    <a
+                                      class="log-attachment-action"
+                                      href={file.link}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      aria-label="View attachment"
+                                      title="View"
+                                    >
+                                      <ExternalLink size={14} />
+                                    </a>
+                                    <a
+                                      class="log-attachment-action"
+                                      href={getDriveDownloadUrl(file.link)}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      aria-label="Download attachment"
+                                      title="Download"
+                                    >
+                                      <Download size={14} />
+                                    </a>
+                                  {:else}
+                                    <span class="log-attachment-empty">No link</span>
+                                  {/if}
+                                </div>
                               </div>
                             </li>
                           {/each}
@@ -1194,34 +1195,35 @@ function toggleEditAssigneeDropdown() {
                           {#each log.attachments as file}
                             <li class="log-attachment-item">
                               <div class="log-attachment-main">
-                                <span class="log-attachment-name">{file.file_name || file.file_type || 'file'}</span>
-                                <span class="log-attachment-meta">{file.file_type || 'file'}{file.file_size ? ` • ${file.file_size}` : ''}</span>
-                              </div>
-                              <div class="log-attachment-actions">
-                                {#if file.link}
-                                  <a
-                                    class="log-attachment-action"
-                                    href={file.link}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    aria-label="View attachment"
-                                    title="View"
-                                  >
-                                    <ExternalLink size={14} />
-                                  </a>
-                                  <a
-                                    class="log-attachment-action"
-                                    href={getDriveDownloadUrl(file.link)}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    aria-label="Download attachment"
-                                    title="Download"
-                                  >
-                                    <Download size={14} />
-                                  </a>
-                                {:else}
-                                  <span class="log-attachment-empty">No link</span>
-                                {/if}
+                                <div style="min-width:0; overflow:hidden">
+                                  <span class="log-attachment-name">{file.file_name || 'file'}</span>
+                                </div>
+                                <div class="log-attachment-actions">
+                                  {#if file.link}
+                                    <a
+                                      class="log-attachment-action"
+                                      href={file.link}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      aria-label="View attachment"
+                                      title="View"
+                                    >
+                                      <ExternalLink size={14} />
+                                    </a>
+                                    <a
+                                      class="log-attachment-action"
+                                      href={getDriveDownloadUrl(file.link)}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      aria-label="Download attachment"
+                                      title="Download"
+                                    >
+                                      <Download size={14} />
+                                    </a>
+                                  {:else}
+                                    <span class="log-attachment-empty">No link</span>
+                                  {/if}
+                                </div>
                               </div>
                             </li>
                           {/each}
@@ -1740,7 +1742,8 @@ function toggleEditAssigneeDropdown() {
 
   .log-details { display:flex; flex-direction:column; gap:0.45rem; margin-top:0.25rem }
   .detail-row { display:flex; gap:0.6rem; align-items:flex-start }
-  .detail-value { color: var(--muted); font-size:0.92rem }
+  .detail-value { color: var(--muted); font-size:0.92rem; flex: 1; min-width:0 }
+  .detail-row .row-label { flex: 0 0 80px; }
 
   .status-pill {
     padding: 0.2rem 0.7rem;
@@ -1826,18 +1829,28 @@ function toggleEditAssigneeDropdown() {
   .log-attachments { align-items: flex-start; }
   .log-attachment-list { list-style: none; padding: 0; margin: 0.2rem 0 0 0; display: grid; gap: 0.45rem; }
   .log-attachment-item {
+    display: block;
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+  }
+  .log-attachment-main {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.7rem;
-    padding: 0.45rem 0.6rem;
+    gap: 0.6rem;
+    padding: 0.52rem 0.9rem;
     border-radius: 0.6rem;
     background: color-mix(in srgb, var(--border) 35%, var(--surface));
     border: 1px solid var(--border);
+    width: 100%;
+    box-sizing: border-box;
+    min-width: 0;
+    max-width: 100%;
   }
-  .log-attachment-main { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
   .log-attachment-name { font-size: 0.9rem; font-weight: 700; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .log-attachment-meta { font-size: 0.78rem; color: var(--muted); font-weight: 600; }
+  .log-attachment-meta { display: none; }
   .log-attachment-actions { display: inline-flex; align-items: center; gap: 0.4rem; flex-shrink: 0; }
   .log-attachment-action {
     display: inline-flex;

@@ -3788,11 +3788,24 @@ var DOCUMENTS_HEADERS_ = ['id', 'user_id', 'name', 'folder', 'type', 'size', 'ur
 var ACT_ATTACHMENTS_SHEET_ = 'act_attachments';
 // include task_id and file_name so attachments can be associated with a task
 var ACT_ATTACHMENTS_HEADERS_ = ['id', 'task_id', 'user_id', 'file_type', 'file_size', 'file_name', 'link', 'uploaded_at', 'uploaded_by'];
+var TASK_ATTACHMENTS_FOLDER_ = 'IMS Task Attachments';
 var DOCUMENT_FOLDERS_SHEET_ = 'document_folders';
 var DOCUMENT_FOLDERS_HEADERS_ = ['id', 'user_id', 'folder_name', 'path', 'created_date', 'is_default'];
 var DOCUMENT_UPLOADS_FOLDER_ = 'IMS Documents Uploads';
 var WORKLOG_ATTACHMENTS_FOLDER_ = 'IMS Worklog Attachments';
  
+
+function getOrCreateTaskAttachmentsFolder_() {
+  var folders = DriveApp.getFoldersByName(TASK_ATTACHMENTS_FOLDER_);
+  if (folders.hasNext()) {
+    var f = folders.next();
+    try { f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (e) {}
+    return f;
+  }
+  var created = DriveApp.createFolder(TASK_ATTACHMENTS_FOLDER_);
+  try { created.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (e) {}
+  return created;
+}
 
 // Add a new attachment to act_attachments with sequential ATT_0001 IDs
 function addActivityTaskAttachment(payload) {
@@ -3803,9 +3816,25 @@ function addActivityTaskAttachment(payload) {
     var fileSize = String(payload.file_size || '').trim();
     var fileName = String(payload.file_name || '').trim();
     var link = String(payload.link || '').trim();
+    var fileDataBase64 = String(payload.file_data_base64 || '').trim();
+    var mimeType = String(payload.mime_type || 'application/octet-stream').trim();
     // normalize uploaded_at to 'YYYY-MM-DD HH:MM:SS'
     var uploadedAt = Utilities.formatDate(new Date(payload.uploaded_at || new Date()), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
     var uploadedBy = String(payload.uploaded_by || '').trim();
+
+    // Upload file to Drive if base64 data is provided
+    if (fileDataBase64) {
+      try {
+        var bytes = Utilities.base64Decode(fileDataBase64);
+        var blob = Utilities.newBlob(bytes, mimeType, fileName || 'upload');
+        var uploadFolder = getOrCreateTaskAttachmentsFolder_();
+        var createdFile = uploadFolder.createFile(blob);
+        try { createdFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (e) {}
+        try { link = createdFile.getUrl(); } catch (e) { link = ''; }
+      } catch (uploadErr) {
+        return { ok: false, error: 'Unable to save attachment to Drive: ' + (uploadErr.message || String(uploadErr)) };
+      }
+    }
 
     if (!userId) {
       return { ok: false, error: 'user_id is required.' };
