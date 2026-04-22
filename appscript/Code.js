@@ -1,7 +1,6 @@
 function doGet() {
   return HtmlService.createHtmlOutputFromFile('Index')
-    .setTitle('IMS')
-    .setFaviconUrl('https://raw.githubusercontent.com/RenXenoverse11/IMS/ims-favicon-host/public/ims-logo-favicon-v2.png');
+    .setTitle('IMS');
 }
 
 var OTP_EXPIRY_MINUTES_ = 10;
