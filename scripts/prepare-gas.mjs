@@ -53,7 +53,8 @@ function toDataUri(filePath, content) {
 function replaceAssetPaths(source, assetMap) {
   let output = source;
 
-  for (const [assetPath, assetValue] of assetMap.entries()) {
+  const orderedEntries = [...assetMap.entries()].sort((a, b) => b[0].length - a[0].length);
+  for (const [assetPath, assetValue] of orderedEntries) {
     output = output.split(assetPath).join(assetValue);
   }
 
