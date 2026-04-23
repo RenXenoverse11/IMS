@@ -76,6 +76,8 @@
 
   let refreshIntervalId;
   let now = new Date();
+  // Track in-progress updates per-worklog so UI buttons disable per-item instead of globally.
+  let updatingWorklogMap = {};
 
   // artificial frontend delay (ms) to smooth perceived loading/saving time
   const ARTIFICIAL_DELAY_MS = 500;
@@ -311,6 +313,8 @@
 
   async function handleWorklogStatus(taskId, status) {
     if (!taskId) return;
+    // mark this worklog as updating so buttons can be disabled individually
+    updatingWorklogMap = { ...updatingWorklogMap, [taskId]: true };
     try {
       await maybeDelay();
       await callUpdateWorklogStatus({
@@ -321,6 +325,9 @@
       await refreshOverview();
     } catch (error) {
       loadError = error?.message || 'Unable to update work log.';
+    } finally {
+      const { [taskId]: _, ...rest } = updatingWorklogMap;
+      updatingWorklogMap = rest;
     }
   }
 
@@ -1335,7 +1342,13 @@ function toggleEditAssigneeDropdown() {
                 </div>
 
                 <div class="log-actions">
-                  <button class="primary btn-compact" on:click|stopPropagation={() => approveWorklog(log)} disabled={isLoading}>Approve</button>
+                  <button
+                    class="primary btn-compact"
+                    on:click|stopPropagation={() => approveWorklog(log)}
+                    disabled={isLoading || updatingWorklogMap[String(log.task_id || '')]}
+                  >
+                    Approve
+                  </button>
                 </div>
               </div>
             </div>
