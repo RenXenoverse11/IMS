@@ -93,9 +93,17 @@
       const res = await callGetSupervisorTaskAttachments({ suptask_id: id });
       const fetched = (res && res.ok && Array.isArray(res.attachments)) ? res.attachments : [];
       taskAttachmentsCache[id] = fetched;
-      viewTaskAttachments = fetched;
+      // Only apply if this task is still the one currently open — prevents stale
+      // async callbacks from a previous task overwriting the newly opened task's attachments.
+      const currentId = viewTask ? String(viewTask.id || viewTask.sup_taskid || viewTask.task_id || '') : '';
+      if (showViewTask && currentId === String(id)) {
+        viewTaskAttachments = fetched;
+      }
     } catch (e) {
-      viewTaskAttachments = taskAttachmentsCache[id] || [];
+      const currentId = viewTask ? String(viewTask.id || viewTask.sup_taskid || viewTask.task_id || '') : '';
+      if (showViewTask && currentId === String(id)) {
+        viewTaskAttachments = taskAttachmentsCache[id] || [];
+      }
     }
   }
 
