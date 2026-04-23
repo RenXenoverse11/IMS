@@ -31,6 +31,8 @@
   let isLoading = false;
   let loadError = '';
   let selectedDate = '';
+  // selected intern for the Approved Worklogs (Archive) panel
+  let approvedSelectedStudentId = 'all';
 
   let showAddTask = false;
   let newTaskTitle = '';
@@ -408,6 +410,8 @@
       const logDate = extractLogDateISO(log);
       if (!logDate || logDate !== selectedDate) return false;
     }
+    const matchesStudent = approvedSelectedStudentId === 'all' || String(log.user_id || '') === approvedSelectedStudentId;
+    if (!matchesStudent) return false;
     return true;
   });
 
@@ -1171,88 +1175,92 @@ function toggleEditAssigneeDropdown() {
   </section>
 
   {#if showAddTask}
-    <div class="modal-backdrop" role="button" tabindex="0" aria-label="Close dialog" on:click={() => showAddTask = false} on:keydown={(e) => { if (e.key === 'Escape') showAddTask = false; }}></div>
-    <div class="modal add-task-modal" role="dialog" aria-modal="true" aria-label="Add Task">
-      <h3 style="font-weight:700; margin:0 0 0.5rem 0;">Add Task</h3>
+    <div class="task-view-modal-overlay" role="presentation" on:click={() => showAddTask = false}>
+      <div class="task-view-modal" role="dialog" aria-modal="true" aria-label="Add Task" on:click|stopPropagation>
 
-      <div class="task-view-grid" style="margin-bottom:0.3rem;">
-        <label class="title-field">
-          <span>Task</span>
-          <input id="task-title" type="text" bind:value={newTaskTitle} />
+        <div class="task-view-modal-head">
+          <h4>Add Task</h4>
+          <div class="task-view-head-actions">
+            <button type="button" class="task-view-action primary" on:click={submitNewTask} disabled={isCreatingTask}>{isCreatingTask ? 'Saving...' : 'Submit'}</button>
+            <button type="button" class="task-view-close" on:click={() => { showAddTask = false; }}>Cancel</button>
+          </div>
+        </div>
+
+        <div class="task-view-grid">
+          <label class="title-field">
+            <span>Task</span>
+            <input id="task-title" type="text" bind:value={newTaskTitle} />
+          </label>
+
+          <label class="status-field">
+            <span>Status</span>
+            <select id="task-status" bind:value={newTaskStatus}>
+              <option value="Pending">Pending</option>
+              <option value="In Progress">In Progress</option>
+              <option value="Overdue">Overdue</option>
+              <option value="Completed">Completed</option>
+            </select>
+          </label>
+
+          <label class="due-field">
+            <span>Due Date</span>
+            <input id="task-due" type="date" bind:value={newTaskDueDate} />
+          </label>
+
+          <label class="assigned-field">
+            <span>Assigned To</span>
+            <div style="position:relative;">
+              <button bind:this={assigneeButtonEl} type="button" class="ghost btn-compact" on:click={toggleAssigneeDropdown} aria-haspopup="listbox" aria-expanded={showAssigneeDropdown} style="width:100%; text-align:left; display:flex; justify-content:space-between; align-items:center; border-radius:0.5rem; padding:0.45rem 0.6rem;">
+                <span>{assigneeLabel()}</span>
+                <span style="opacity:0.7">▾</span>
+              </button>
+              {#if showAssigneeDropdown}
+                <div bind:this={assigneeDropdownEl} role="listbox" tabindex="-1" style="position:absolute; z-index:70; left:0; right:0; max-height:220px; overflow:auto; background:var(--surface); border:1px solid var(--border); border-radius:0.5rem; margin-top:0.4rem; padding:0.4rem;">
+                  {#if filteredAssignees.length === 0}
+                    <div style="padding:0.5rem; color:var(--muted);">No interns found.</div>
+                  {:else}
+                    {#each filteredAssignees as s}
+                      <label style="display:flex; align-items:center; gap:0.5rem; padding:0.25rem 0.4rem; cursor:pointer;">
+                        <input type="checkbox" checked={newTaskAssignees.indexOf(s.user_id) !== -1} on:change={() => toggleAssigneeSelection(s.user_id)} />
+                        <span class="assignee-name">{s.full_name}</span>
+                      </label>
+                    {/each}
+                  {/if}
+                </div>
+              {/if}
+            </div>
+          </label>
+        </div>
+
+        <label class="task-view-description">
+          <span>Description</span>
+          <textarea id="task-desc" rows="4" bind:value={newTaskDescription}></textarea>
         </label>
 
-        <label class="status-field">
-          <span>Status</span>
-          <select id="task-status" bind:value={newTaskStatus}>
-            <option value="Pending">Pending</option>
-            <option value="In Progress">In Progress</option>
-            <option value="Overdue">Overdue</option>
-            <option value="Completed">Completed</option>
-          </select>
-        </label>
-
-        <label class="due-field">
-          <span>Due Date</span>
-          <input id="task-due" type="date" bind:value={newTaskDueDate} />
-        </label>
-
-        <label class="assigned-field">
-          <span>Assigned To</span>
-          <div style="position:relative;">
-            <button bind:this={assigneeButtonEl} type="button" class="ghost btn-compact" on:click={toggleAssigneeDropdown} aria-haspopup="listbox" aria-expanded={showAssigneeDropdown} style="width:100%; text-align:left; display:flex; justify-content:space-between; align-items:center; border-radius:0.5rem; padding:0.45rem 0.6rem;">
-              <span>{assigneeLabel()}</span>
-              <span style="opacity:0.7">▾</span>
-            </button>
-            {#if showAssigneeDropdown}
-              <div bind:this={assigneeDropdownEl} role="listbox" tabindex="-1" style="position:absolute; z-index:70; left:0; right:0; max-height:220px; overflow:auto; background:var(--surface); border:1px solid var(--border); border-radius:0.5rem; margin-top:0.4rem; padding:0.4rem; box-shadow: none;">
-                {#if filteredAssignees.length === 0}
-                  <div style="padding:0.5rem; color:var(--muted);">No interns found.</div>
-                {:else}
-                  {#each filteredAssignees as s}
-                    <label style="display:flex; align-items:center; gap:0.5rem; padding:0.25rem 0.4rem; cursor:pointer;">
-                      <input type="checkbox" checked={newTaskAssignees.indexOf(s.user_id) !== -1} on:change={() => toggleAssigneeSelection(s.user_id)} />
-                      <span class="assignee-name">{s.full_name}</span>
-                    </label>
-                  {/each}
-                {/if}
-              </div>
+        <div class="task-view-section">
+          <div class="attachment-editor">
+            <div class="attachment-editor-head">
+              <span>Attachments</span>
+              <label class="attachment-upload-btn" for="sup-add-task-file-upload">Upload files</label>
+              <input id="sup-add-task-file-upload" class="hidden-file-input" type="file" multiple bind:this={newTaskFileInput} on:change={handleNewTaskFileUpload} />
+            </div>
+            {#if newTaskAttachments.length > 0}
+              <ul class="attachment-list">
+                {#each newTaskAttachments as att, i}
+                  <li>
+                    <div class="attachment-row">
+                      <div class="attachment-main"><span>{att.name}</span></div>
+                      <div class="attachment-actions">
+                        <button type="button" class="remove-item" on:click={() => removeNewTaskAttachment(i)}>Remove</button>
+                      </div>
+                    </div>
+                  </li>
+                {/each}
+              </ul>
             {/if}
           </div>
-        </label>
-      </div>
-
-      <label for="task-desc">Description</label>
-      <textarea id="task-desc" rows="5" bind:value={newTaskDescription}></textarea>
-
-      <!-- Attachments -->
-      <div class="task-view-section" style="margin-top:0.7rem;">
-        <div class="attachment-editor">
-          <div class="attachment-editor-head">
-            <span>Attachments</span>
-            <label class="attachment-upload-btn" for="sup-add-task-file-upload">Upload files</label>
-            <input id="sup-add-task-file-upload" class="hidden-file-input" type="file" multiple bind:this={newTaskFileInput} on:change={handleNewTaskFileUpload} />
-          </div>
-
-          {#if newTaskAttachments.length > 0}
-            <ul class="attachment-list">
-              {#each newTaskAttachments as att, i}
-                <li>
-                  <div class="attachment-row">
-                    <div class="attachment-main"><span>{att.name}</span></div>
-                    <div class="attachment-actions">
-                      <button type="button" class="remove-item" on:click={() => removeNewTaskAttachment(i)}>Remove</button>
-                    </div>
-                  </div>
-                </li>
-              {/each}
-            </ul>
-          {/if}
         </div>
-      </div>
 
-      <div class="modal-actions">
-        <button class="ghost btn-compact" type="button" on:click={() => { showAddTask = false; }}>Cancel</button>
-        <button class="primary btn-compact" type="button" on:click={submitNewTask} disabled={isCreatingTask}>Submit</button>
       </div>
     </div>
   {/if}
@@ -1428,11 +1436,19 @@ function toggleEditAssigneeDropdown() {
           <h3>Worklogs</h3>
         </div>
         <div class="filters" style="display:flex; align-items:center; gap:0.6rem;">
-          <div style="display:flex; align-items:center; gap:0.4rem;">
-            <input aria-label="Filter by date" class="small-date" type="date" bind:value={selectedDate} />
-            {#if selectedDate}
-              <button type="button" class="ghost btn-compact" on:click={() => selectedDate = ''} aria-label="Clear date">Clear</button>
-            {/if}
+          <div style="display:flex; align-items:center; gap:0.6rem;">
+            <select class="small-select" bind:value={approvedSelectedStudentId} aria-label="Filter interns">
+              <option value="all">All interns</option>
+              {#each students as student}
+                <option value={student.user_id}>{student.full_name}</option>
+              {/each}
+            </select>
+            <div style="display:flex; align-items:center; gap:0.4rem;">
+              <input aria-label="Filter by date" class="small-date" type="date" bind:value={selectedDate} />
+              {#if selectedDate}
+                <button type="button" class="ghost btn-compact" on:click={() => selectedDate = ''} aria-label="Clear date">Clear</button>
+              {/if}
+            </div>
           </div>
         </div>
       </div>
@@ -1754,11 +1770,14 @@ function toggleEditAssigneeDropdown() {
     --shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
   }
 
-  .supervisor-activity {
+  :global(.supervisor-activity) {
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
     color: var(--ink);
+    /* Force Supervisor page to use the same font-family and base size as ActivityIntern */
+    font-family: 'Segoe UI', system-ui, -apple-system, 'Roboto', 'Helvetica Neue', Arial, sans-serif !important;
+    font-size: 0.95rem !important;
   }
 
   /* header removed: styles intentionally omitted to keep layout compact */
@@ -2397,15 +2416,7 @@ function toggleEditAssigneeDropdown() {
     gap: 0.9rem;
   }
 
-  /* Add Task modal: match view/edit modal width and attachment label style */
-  .modal.add-task-modal { width: min(38rem, 100%); }
-  .modal.add-task-modal .attachment-editor .attachment-editor-head span {
-    color: var(--muted);
-    font-size: 0.74rem;
-    font-weight: 600;
-    display: block;
-    margin-bottom: 0.25rem;
-  }
+  /* ensure the standalone description label in Add Task matches grid labels */
 
   .task-view-modal-head {
     display: flex;
