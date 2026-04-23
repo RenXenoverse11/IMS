@@ -1157,10 +1157,10 @@ function toggleEditAssigneeDropdown() {
 
   {#if showAddTask}
     <div class="modal-backdrop" role="button" tabindex="0" aria-label="Close dialog" on:click={() => showAddTask = false} on:keydown={(e) => { if (e.key === 'Escape') showAddTask = false; }}></div>
-    <div class="modal" role="dialog" aria-modal="true" aria-label="Add Task">
+    <div class="modal add-task-modal" role="dialog" aria-modal="true" aria-label="Add Task">
       <h3 style="font-weight:700; margin:0 0 0.5rem 0;">Add Task</h3>
 
-      <div class="task-view-grid" style="margin-bottom:0.6rem;">
+      <div class="task-view-grid" style="margin-bottom:0.3rem;">
         <label class="title-field">
           <span>Task</span>
           <input id="task-title" type="text" bind:value={newTaskTitle} />
@@ -2378,6 +2378,16 @@ function toggleEditAssigneeDropdown() {
     gap: 0.9rem;
   }
 
+  /* Add Task modal: match view/edit modal width and attachment label style */
+  .modal.add-task-modal { width: min(38rem, 100%); }
+  .modal.add-task-modal .attachment-editor .attachment-editor-head span {
+    color: var(--muted);
+    font-size: 0.74rem;
+    font-weight: 600;
+    display: block;
+    margin-bottom: 0.25rem;
+  }
+
   .task-view-modal-head {
     display: flex;
     align-items: center;
@@ -2431,7 +2441,7 @@ function toggleEditAssigneeDropdown() {
   .task-view-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.65rem;
+    gap: 0.45rem;
     align-items: start;
   }
 
@@ -2448,6 +2458,17 @@ function toggleEditAssigneeDropdown() {
     color: var(--muted);
     font-size: 0.74rem;
     font-weight: 600;
+  }
+
+  /* Ensure Attachments label in view/edit modals matches other modal labels */
+  .task-view-section > .row-label,
+  .task-view-section > span,
+  .task-view-modal .attachment-editor .attachment-editor-head span {
+    color: var(--muted);
+    font-size: 0.74rem;
+    font-weight: 600;
+    display: block;
+    margin-bottom: 0.25rem;
   }
 
   .task-view-grid input,
