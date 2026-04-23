@@ -1258,7 +1258,7 @@ let assignedTasksError = '';
       dueDate: toInputDate(task.dueDate),
       description: task.description,
       dailyChecklist: (task.dailyChecklist || []).map((item) => ({ ...item })),
-      attachments: (task.attachments || []).map(a => ({ ...a })),
+      attachments: (task.attachments || []).map((a) => (typeof a === 'string' ? { file_name: a, link: '' } : { ...a })),
     };
     isViewTaskModalOpen = true;
   }
@@ -1301,7 +1301,7 @@ let assignedTasksError = '';
       description: viewedTask.description,
       assignedBy: viewedTask.owner || assignedSupervisors[0]?.user_id || '',
       dailyChecklist: viewedTask.dailyChecklist.map((item) => ({ ...item })),
-      attachments: (viewedTask.attachments || []).map(a => ({ ...a })),
+      attachments: (viewedTask.attachments || []).map((a) => (typeof a === 'string' ? { file_name: a, link: '' } : { ...a })),
     };
     isEditingViewedTask = true;
   }
@@ -1315,7 +1315,7 @@ let assignedTasksError = '';
         description: viewedTask.description,
         assignedBy: viewedTask.owner || assignedSupervisors[0]?.user_id || '',
         dailyChecklist: viewedTask.dailyChecklist.map((item) => ({ ...item })),
-        attachments: (viewedTask.attachments || []).map(a => ({ ...a })),
+        attachments: (viewedTask.attachments || []).map((a) => (typeof a === 'string' ? { file_name: a, link: '' } : { ...a })),
       };
     }
 
@@ -1564,7 +1564,7 @@ let assignedTasksError = '';
       dueDate: toInputDate(selectedOverviewTask.dueDate),
       description: selectedOverviewTask.description,
       dailyChecklist: selectedOverviewTask.dailyChecklist.map((item) => ({ ...item })),
-      attachments: (selectedOverviewTask.attachments || []).map(a => ({ ...a })),
+      attachments: (selectedOverviewTask.attachments || []).map((a) => (typeof a === 'string' ? { file_name: a, link: '' } : { ...a })),
     };
     isEditingTrackerTask = true;
     trackerMenuOpen = false;
@@ -2789,6 +2789,19 @@ let assignedTasksError = '';
           border-color: var(--color-accent);
           transform: translateY(-1px);
         }
+        .hidden-file-input { display: none; }
+        .attachment-list {
+          list-style: none;
+          margin: 0;
+          padding: 0;
+          display: grid;
+          gap: 0.35rem;
+        }
+        .attachment-list li {
+          display: block;
+          margin: 0; padding: 0;
+          border: none; background: transparent;
+        }
         .attachment-row {
           display: flex;
           align-items: center;
@@ -2801,17 +2814,15 @@ let assignedTasksError = '';
           width: 100%;
           box-sizing: border-box;
         }
-
         :global(html.dark) .attachment-row {
           background: #1b2330 !important;
           border: 1px solid #ffffff12 !important;
         }
-
         .attachment-main {
           min-width: 0;
           overflow: hidden;
+          flex: 1;
         }
-
         .attachment-main a,
         .attachment-main span {
           font-weight: 600;
@@ -2820,15 +2831,14 @@ let assignedTasksError = '';
           text-overflow: ellipsis;
           white-space: nowrap;
           display: inline-block;
+          font-size: 0.88rem;
         }
-
         .attachment-actions {
           display: inline-flex;
           align-items: center;
           gap: 0.4rem;
           flex-shrink: 0;
         }
-
         .attachment-action {
           display: inline-flex;
           align-items: center;
@@ -2839,13 +2849,25 @@ let assignedTasksError = '';
           border: 1px solid var(--color-border);
           background: var(--color-surface);
           color: var(--color-accent);
+          text-decoration: none;
+          transition: transform 0.12s, background 0.12s, border-color 0.12s;
         }
-
         .attachment-action:hover {
           background: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface));
           border-color: var(--color-accent);
           transform: translateY(-1px);
         }
+        .remove-item {
+          border: 1px solid var(--color-border);
+          background: var(--color-soft);
+          color: var(--color-text);
+          border-radius: 0.45rem;
+          padding: 0.32rem 0.5rem;
+          font-size: 0.72rem;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .sup-attach-empty { font-size: 0.8rem; color: var(--color-muted); margin: 0; }
         @keyframes fadeIn {
           from { opacity: 0; transform: translateY(10px); }
           to { opacity: 1; transform: none; }
@@ -4535,6 +4557,58 @@ let assignedTasksError = '';
     color: #34d399 !important;
     background: rgba(52,211,153,0.15) !important;
     border-color: rgba(52,211,153,0.25) !important;
+  }
+
+  /* Strong overrides to ensure task-view modal attachments match supervisor pill layout */
+  .task-view-modal .task-view-section .attachment-row {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 0.6rem !important;
+    padding: 0.6rem 0.9rem !important;
+    border-radius: 0.7rem !important;
+    background: color-mix(in srgb, var(--color-border) 20%, var(--color-surface)) !important;
+    border: 1px solid var(--color-border) !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  .task-view-modal .task-view-section .attachment-main {
+    min-width: 0 !important;
+    overflow: hidden !important;
+    flex: 1 !important;
+  }
+
+  .task-view-modal .task-view-section .attachment-main a,
+  .task-view-modal .task-view-section .attachment-main span {
+    font-weight: 600 !important;
+    color: var(--color-heading) !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    display: inline-block !important;
+    font-size: 0.88rem !important;
+  }
+
+  .task-view-modal .task-view-section .attachment-actions {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 0.4rem !important;
+    flex-shrink: 0 !important;
+    flex-direction: row !important;
+  }
+
+  .task-view-modal .task-view-section .attachment-action {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 36px !important;
+    height: 36px !important;
+    border-radius: 10px !important;
+    border: 1px solid var(--color-border) !important;
+    background: var(--color-surface) !important;
+    color: var(--color-accent) !important;
   }
 
   .tone-red {
