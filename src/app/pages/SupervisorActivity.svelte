@@ -2500,14 +2500,15 @@ function toggleEditAssigneeDropdown() {
   }
 
   .task-view-modal {
-    width: min(38rem, 100%);
+    /* match ActivityIntern modal sizing and padding */
+    width: min(500px, 100%);
     max-height: calc(100vh - 2rem);
     overflow: auto;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 0.9rem;
-    box-shadow: 0 28px 48px -32px rgba(15, 23, 42, 0.55);
-    padding: 1rem;
+    border-radius: var(--ims-ref-radius, 0.9rem);
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.25);
+    padding: 20px;
     display: grid;
     gap: 0.9rem;
   }
