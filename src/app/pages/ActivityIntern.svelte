@@ -3223,7 +3223,7 @@ let assignedTasksError = '';
   .activity-shell {
     position: relative;
     border-radius: 1.25rem;
-    padding: 0.35rem;
+    padding: 0;
     isolation: isolate;
     width: 100%;
     min-width: 0;
@@ -4842,7 +4842,7 @@ let assignedTasksError = '';
     --color-accent: var(--ims-ref-accent);
     --color-accent-bg: var(--ims-ref-accent-glow);
     width: 100%;
-    padding: 20px 24px;
+    padding: 0;
     border-radius: 0;
     display: flex;
     flex-direction: column;
@@ -5739,7 +5739,7 @@ let assignedTasksError = '';
   @media (max-width: 720px) {
     .activity-shell {
       gap: 12px;
-      padding: 16px;
+      padding: 0;
     }
 
     .stats-grid {

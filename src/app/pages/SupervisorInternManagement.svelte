@@ -1,6 +1,17 @@
 <script>
   import { onDestroy, onMount } from 'svelte';
-  import { Check, RefreshCw, Search, Users, X, Loader2, Plus, Trash2 } from 'lucide-svelte';
+  import {
+    Check,
+    Clock3,
+    RefreshCw,
+    Search,
+    TrendingUp,
+    UserRoundCheck,
+    X,
+    Loader2,
+    Plus,
+    Trash2
+  } from 'lucide-svelte';
   import {
     assignStudentsToSupervisor,
     callApiAction,
@@ -38,10 +49,22 @@
   let editingInternName = '';
   let editingEndDate = '';
   let savingEndDate = false;
+  const HOURS_PER_WORKING_DAY = 8;
 
   function toNumber(value) {
     const parsed = Number(value || 0);
     return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function formatHours(value) {
+    const numeric = toNumber(value);
+    const rounded = Math.round(numeric * 10) / 10;
+    const normalized = rounded === 0 ? 0 : rounded;
+
+    if (normalized === 0) return '0h';
+    if (Math.abs(normalized) < 1) return `${normalized.toFixed(1)}h`;
+    if (Number.isInteger(normalized)) return `${normalized}h`;
+    return `${normalized.toFixed(1)}h`;
   }
 
   function toPercent(completed, required) {
@@ -80,43 +103,19 @@
     return d;
   }
 
-  function calculateDaysRemaining(estimatedEndDate) {
-    const dateStr = String(estimatedEndDate || '').trim();
-    if (!dateStr) return null;
-    
-    try {
-      // Parse the date - could be ISO string or date-only format
-      let dateToUse;
-      if (dateStr.includes('T')) {
-        dateToUse = new Date(dateStr);
-      } else {
-        dateToUse = new Date(`${dateStr}T00:00:00`);
-      }
-      
-      if (Number.isNaN(dateToUse.getTime())) return null;
-      
-      const today = new Date();
-      const todayOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-      const diffMs = dateToUse.getTime() - todayOnly.getTime();
-      const daysRemaining = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-      
-      return daysRemaining;
-    } catch {
-      return null;
-    }
+  function calculateDaysRemaining(requiredHours, completedHours) {
+    const remainingHours = Math.max(0, toNumber(requiredHours) - toNumber(completedHours));
+    return Math.ceil(remainingHours / HOURS_PER_WORKING_DAY);
   }
 
   function formatDaysRemaining(days) {
-    if (days === null) return '-';
-    if (days < 0) return 'Completed';
-    if (days === 0) return 'Today';
+    if (days <= 0) return '0 days left';
     if (days === 1) return '1 day left';
     return `${days} days left`;
   }
 
   function getDaysStatus(days) {
-    if (days === null) return 'muted';
-    if (days < 0) return 'success';
+    if (days <= 0) return 'success';
     if (days <= 7) return 'warning';
     return 'info';
   }
@@ -386,6 +385,8 @@
     // No longer needed - removed
   }
 
+  let refreshTimer = null;
+
   onMount(() => {
     currentUser = currentUser || getCurrentUser();
 
@@ -395,10 +396,16 @@
     });
 
     loadData();
+
+    // Refresh days remaining every minute so it's always up-to-date
+    refreshTimer = setInterval(() => {
+      assignedStudents = assignedStudents; // Trigger reactivity
+    }, 60000); // Update every 60 seconds
   });
 
   onDestroy(() => {
     if (typeof unsubscribe === 'function') unsubscribe();
+    if (refreshTimer) clearInterval(refreshTimer);
   });
 
   $: currentRole = String(currentUser?.role || '').trim().toLowerCase();
@@ -432,26 +439,26 @@
   <div class="content">
     <div class="stats-grid">
       <div class="stat-card stat-blue">
-        <div class="stat-icon"><Users size={18} /></div>
+        <div class="stat-icon"><UserRoundCheck size={18} /></div>
         <p class="stat-value">{totalAssigned}</p>
         <p class="stat-label">Assigned Interns</p>
       </div>
 
       <div class="stat-card stat-success">
         <div class="stat-icon"><Check size={18} /></div>
-        <p class="stat-value">{totalCompletedHours}h</p>
+        <p class="stat-value" title={String(totalCompletedHours)}>{formatHours(totalCompletedHours)}</p>
         <p class="stat-label">Completed Hours</p>
       </div>
 
       <div class="stat-card stat-violet">
-        <div class="stat-icon"><Check size={18} /></div>
+        <div class="stat-icon"><TrendingUp size={18} /></div>
         <p class="stat-value">{averageProgress}%</p>
         <p class="stat-label">Average Progress</p>
       </div>
 
       <div class="stat-card stat-cyan">
-        <div class="stat-icon"><RefreshCw size={18} /></div>
-        <p class="stat-value">{totalRequiredHours}h</p>
+        <div class="stat-icon"><Clock3 size={18} /></div>
+        <p class="stat-value" title={String(totalRequiredHours)}>{formatHours(totalRequiredHours)}</p>
         <p class="stat-label">Required Hours</p>
       </div>
     </div>
@@ -491,7 +498,7 @@
             {@const required = toNumber(student.required_hours)}
             {@const completed = toNumber(student.completed_hours)}
             {@const progress = toPercent(completed, required)}
-            {@const daysLeft = calculateDaysRemaining(student.estimated_end_date)}
+            {@const daysLeft = calculateDaysRemaining(required, completed)}
             {@const daysStatus = getDaysStatus(daysLeft)}
             <article class="assigned-card">
               <div class="card-header-row">
@@ -527,11 +534,11 @@
                 <div class="hours-row">
                   <div class="hours-stat">
                     <p class="label">Completed</p>
-                    <p class="value">{completed}h</p>
+                    <p class="value" title={String(completed)}>{formatHours(completed)}</p>
                   </div>
                   <div class="hours-stat">
                     <p class="label">Required</p>
-                    <p class="value">{required}h</p>
+                    <p class="value" title={String(required)}>{formatHours(required)}</p>
                   </div>
                   <div class="hours-stat">
                     <p class="label">Progress</p>

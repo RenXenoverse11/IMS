@@ -1,6 +1,7 @@
 function doGet() {
   return HtmlService.createHtmlOutputFromFile('Index')
-    .setTitle('Internship Management System');
+    .setTitle('IMS')
+    .setFaviconUrl('https://raw.githubusercontent.com/RenXenoverse11/IMS/ims-favicon-host/public/ims-logo-favicon-v2.png');
 }
 
 var OTP_EXPIRY_MINUTES_ = 10;
@@ -4470,31 +4471,61 @@ function getGroupMemberIds_(userId) {
   var targetUserId = String(userId || '').trim();
   if (!targetUserId) return [];
 
-  var userRecord = findUserRecordByUserId_(targetUserId);
-  if (!userRecord) return [targetUserId];
+  var assignments = readSheetObjects_(getOrCreateSheetWithHeaders_(SUPERVISOR_ASSIGNMENTS_SHEET_, SUPERVISOR_ASSIGNMENTS_HEADERS_))
+    .filter(function (row) {
+      return String(row.status || '').trim().toLowerCase() !== 'inactive';
+    });
 
-  var role = String(userRecord.user.role || '').trim();
-  var supervisorId = null;
-
-  if (role === 'Supervisor') {
-    supervisorId = targetUserId;
-  } else {
-    supervisorId = findSupervisorForStudent_(targetUserId);
-  }
-
-  if (!supervisorId) {
+  if (!assignments.length) {
     return [targetUserId];
   }
 
-  var assignments = getActiveSupervisorAssignments_(supervisorId);
-  var memberIds = assignments.map(function (a) {
-    return String(a.student_user_id || '').trim();
-  });
-  memberIds.push(supervisorId);
+  var supervisorToStudents = {};
+  var studentToSupervisors = {};
 
-  return memberIds.filter(function (id, index, self) {
-    return id && self.indexOf(id) === index;
-  });
+  for (var i = 0; i < assignments.length; i++) {
+    var supervisorId = String(assignments[i].supervisor_user_id || '').trim();
+    var studentId = String(assignments[i].student_user_id || '').trim();
+    if (!supervisorId || !studentId) {
+      continue;
+    }
+
+    if (!supervisorToStudents[supervisorId]) {
+      supervisorToStudents[supervisorId] = {};
+    }
+    supervisorToStudents[supervisorId][studentId] = true;
+
+    if (!studentToSupervisors[studentId]) {
+      studentToSupervisors[studentId] = {};
+    }
+    studentToSupervisors[studentId][supervisorId] = true;
+  }
+
+  var queue = [targetUserId];
+  var seen = {};
+  seen[targetUserId] = true;
+
+  while (queue.length) {
+    var currentId = String(queue.shift() || '').trim();
+    if (!currentId) {
+      continue;
+    }
+
+    var studentMap = supervisorToStudents[currentId] || {};
+    var supervisorMap = studentToSupervisors[currentId] || {};
+
+    var connectedIds = Object.keys(studentMap).concat(Object.keys(supervisorMap));
+    for (var j = 0; j < connectedIds.length; j++) {
+      var nextId = String(connectedIds[j] || '').trim();
+      if (!nextId || seen[nextId]) {
+        continue;
+      }
+      seen[nextId] = true;
+      queue.push(nextId);
+    }
+  }
+
+  return Object.keys(seen).filter(Boolean);
 }
 
 function getUserNamesMap_(userIds) {
@@ -4528,33 +4559,45 @@ function handleGetStudentSupervisor_(payload) {
   }
 
   var assignments = readSheetObjects_(getSheet_(SUPERVISOR_ASSIGNMENTS_SHEET_));
-  var activeAssignment = null;
+  var activeAssignments = [];
   for (var i = 0; i < assignments.length; i++) {
     if (String(assignments[i].student_user_id || '').trim() === studentId && String(assignments[i].status || '').trim() !== 'inactive') {
-      activeAssignment = assignments[i];
-      break;
+      activeAssignments.push(assignments[i]);
     }
   }
 
-  if (!activeAssignment) {
-    return { ok: true, supervisor: null }; // No supervisor assigned
+  if (!activeAssignments.length) {
+    return { ok: true, supervisor: null, supervisors: [] }; // No supervisor assigned
   }
 
-  var supervisorId = String(activeAssignment.supervisor_user_id || '').trim();
-  var supervisorRecord = findUserRecordByUserId_(supervisorId);
-  if (!supervisorRecord) {
-    return { ok: true, supervisor: null };
-  }
+  var seenSupervisorIds = {};
+  var supervisors = [];
+  for (var j = 0; j < activeAssignments.length; j++) {
+    var supervisorId = String(activeAssignments[j].supervisor_user_id || '').trim();
+    if (!supervisorId || seenSupervisorIds[supervisorId]) {
+      continue;
+    }
+    seenSupervisorIds[supervisorId] = true;
 
-  return {
-    ok: true,
-    supervisor: {
+    var supervisorRecord = findUserRecordByUserId_(supervisorId);
+    if (!supervisorRecord) {
+      continue;
+    }
+
+    supervisors.push({
       user_id: supervisorId,
       full_name: String(supervisorRecord.user.full_name || ''),
       email: String(supervisorRecord.user.email || ''),
-      department: String(activeAssignment.department || supervisorRecord.user.department || ''),
+      department: String(activeAssignments[j].department || supervisorRecord.user.department || ''),
       profile_photo_url: String(supervisorRecord.user.profile_photo_url || '')
-    }
+    });
+  }
+
+  var primarySupervisor = supervisors.length ? supervisors[0] : null;
+  return {
+    ok: true,
+    supervisor: primarySupervisor,
+    supervisors: supervisors
   };
 }
 

@@ -41,6 +41,7 @@
     '/supervisor/time-logs': SupervisorTimeLog,
     '/supervisor/projects': SupervisorProjects,
     '/supervisor/requests': Requests,
+    '/supervisor/projects': SupervisorProjects,
     '/supervisor/activity': SupervisorActivity,
     '/supervisor/documents': Documents,
   };
@@ -64,6 +65,7 @@
     '/supervisor/time-logs',
     '/supervisor/projects',
     '/supervisor/requests',
+    '/supervisor/projects',
     '/supervisor/activity',
     '/documents',
     '/settings',

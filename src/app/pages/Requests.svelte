@@ -2,6 +2,7 @@
   import { onDestroy, onMount, tick } from "svelte";
   import {
     AlertTriangle,
+    Archive,
     Calendar,
     CheckCircle2,
     Clock3,
@@ -15,7 +16,7 @@
     User,
     XCircle,
     X,
-    Archive,
+    CheckCircle,
   } from "lucide-svelte";
   import {
     callApiAction,
@@ -51,6 +52,9 @@
   let deepLinkRequestId = "";
   let highlightedRequestId = "";
 
+  // Approve loading state
+  let approvingRequestId = null;
+
   // Bulk archive state
   let bulkArchiveMode = false;
   let selectedRequestsForArchive = new Set();
@@ -78,8 +82,10 @@
   let rejectionRemarks = "";
   let isRejectingRequest = false;
 
-  // Approval loading state
-  let approvingRequestId = null;
+  // Bulk selection state
+  let selectedRequests = new Set();
+  let selectAllChecked = false;
+  let showBulkActions = false;
 
   let form = {
     requestType: "Absence",
@@ -416,18 +422,26 @@
   async function updateRequestStatus(requestId, nextStatus) {
     try {
       approvingRequestId = requestId;
+      console.log("Approving request:", { requestId, nextStatus, supervisorId: currentUser?.user_id });
       const result = await callBackend("update_request_status", {
         request_id: requestId,
         status: nextStatus,
         supervisor_user_id: String(currentUser?.user_id || "").trim(),
       });
+      console.log("Update status result:", result);
       if (result && result.ok) {
+        formSuccess = `Request ${nextStatus.toLowerCase()}.`;
+        setTimeout(() => (formSuccess = ""), 3000);
         await loadRequests();
       } else {
         console.error("Failed to update request status:", result?.error);
+        formError = result?.error || "Failed to update request status";
+        setTimeout(() => (formError = ""), 3000);
       }
     } catch (err) {
       console.error("Update request status error:", err);
+      formError = "Error updating request status";
+      setTimeout(() => (formError = ""), 3000);
     } finally {
       approvingRequestId = null;
     }
@@ -511,170 +525,92 @@
     }
   }
 
-  function openArchiveModal(request) {
-    requestToArchive = request;
-    showArchiveModal = true;
-  }
-
-  function closeArchiveModal() {
-    requestToArchive = null;
-    showArchiveModal = false;
-  }
-
-  function openDeleteArchivedModal(request) {
-    requestToDeletePermanently = request;
-    showDeleteArchivedModal = true;
-  }
-
-  function closeDeleteArchivedModal() {
-    requestToDeletePermanently = null;
-    showDeleteArchivedModal = false;
-  }
-
-  async function confirmDeleteArchived() {
-    if (!requestToDeletePermanently) return;
-    isDeletingPermanently = true;
-    try {
-      const result = await callBackend("delete_archived_request", {
-        request_id: requestToDeletePermanently.id,
-      });
-      if (result && result.ok) {
-        closeDeleteArchivedModal();
-        await loadRequests();
-        formSuccess = "Request deleted permanently.";
-        setTimeout(() => (formSuccess = ""), 3000);
-      } else {
-        formError = result?.error || "Failed to delete request.";
-      }
-    } catch (err) {
-      console.error("Delete archived request error:", err);
-      formError = "Failed to delete request.";
-    } finally {
-      isDeletingPermanently = false;
-    }
-  }
-
-  async function confirmArchiveRequest() {
-    if (!requestToArchive) return;
-    isArchiving = true;
-    try {
-      const result = await callBackend("archive_request", {
-        request_id: requestToArchive.id,
-      });
-      if (result && result.ok) {
-        closeArchiveModal();
-        await loadRequests();
-        const message = requestToArchive.archived 
-          ? "Request recovered successfully." 
-          : "Request moved to trash successfully.";
-        formSuccess = message;
-        setTimeout(() => (formSuccess = ""), 3000);
-      } else {
-        formError = result?.error || "Failed to process request.";
-      }
-    } catch (err) {
-      console.error("Archive request error:", err);
-      formError = "Failed to process request.";
-    } finally {
-      isArchiving = false;
-    }
-  }
-
-  function toggleBulkArchiveSelection(requestId) {
-    if (selectedRequestsForArchive.has(requestId)) {
-      selectedRequestsForArchive.delete(requestId);
+  // Bulk selection functions
+  function toggleRequestSelection(requestId) {
+    if (selectedRequests.has(requestId)) {
+      selectedRequests.delete(requestId);
     } else {
-      selectedRequestsForArchive.add(requestId);
+      selectedRequests.add(requestId);
     }
-    selectedRequestsForArchive = selectedRequestsForArchive;
+    selectedRequests = selectedRequests; // Trigger reactivity
   }
 
-  async function confirmBulkArchiveRequests() {
-    if (selectedRequestsForArchive.size === 0) return;
+  function toggleSelectAll() {
+    if (selectAllChecked) {
+      selectedRequests.clear();
+      selectAllChecked = false;
+    } else {
+      filteredRequests.forEach(r => selectedRequests.add(r.id));
+      selectAllChecked = true;
+    }
+    selectedRequests = selectedRequests; // Trigger reactivity
+  }
+
+  async function archiveSelectedRequests() {
+    if (selectedRequests.size === 0) return;
     isArchiving = true;
-    let successCount = 0;
-    let failureCount = 0;
-
     try {
-      for (const requestId of selectedRequestsForArchive) {
-        try {
-          const result = await callBackend("archive_request", {
-            request_id: requestId,
-          });
-          if (result && result.ok) {
-            successCount++;
-          } else {
-            failureCount++;
-          }
-        } catch (err) {
-          console.error("Error archiving request:", err);
-          failureCount++;
-        }
+      for (const requestId of selectedRequests) {
+        await callBackend("update_request_status", {
+          request_id: requestId,
+          status: "Archived",
+          supervisor_user_id: String(currentUser?.user_id || "").trim(),
+        });
       }
-
+      selectedRequests.clear();
+      selectAllChecked = false;
       await loadRequests();
-      selectedRequestsForArchive.clear();
-      selectedRequestsForArchive = selectedRequestsForArchive;
-      bulkArchiveMode = false;
-
-      if (failureCount === 0) {
-        formSuccess = `${successCount} request(s) archived successfully.`;
-      } else if (successCount === 0) {
-        formError = `Failed to archive ${failureCount} request(s).`;
-      } else {
-        formSuccess = `${successCount} request(s) archived. ${failureCount} failed.`;
-      }
-      setTimeout(() => (formSuccess = formError = ""), 3000);
+      formSuccess = `${selectedRequests.size} request(s) archived.`;
+      setTimeout(() => (formSuccess = ""), 3000);
     } catch (err) {
-      console.error("Bulk archive error:", err);
+      console.error("Archive requests error:", err);
       formError = "Failed to archive requests.";
     } finally {
       isArchiving = false;
     }
   }
 
-  async function confirmBulkDeleteRequests() {
-    if (selectedRequestsForArchive.size === 0) return;
-    isBulkDeleting = true;
-    let successCount = 0;
-    let failureCount = 0;
-
+  async function recoverSelectedRequests() {
+    if (selectedRequests.size === 0) return;
+    isArchiving = true;
     try {
-      for (const requestId of selectedRequestsForArchive) {
-        try {
-          const result = await callBackend("delete_archived_request", {
-            request_id: requestId,
-          });
-          if (result && result.ok) {
-            successCount++;
-          } else {
-            failureCount++;
-          }
-        } catch (err) {
-          console.error("Error deleting request:", err);
-          failureCount++;
-        }
+      for (const requestId of selectedRequests) {
+        await callBackend("update_request_status", {
+          request_id: requestId,
+          status: "Pending",
+          supervisor_user_id: String(currentUser?.user_id || "").trim(),
+        });
       }
-
+      selectedRequests.clear();
+      selectAllChecked = false;
       await loadRequests();
-      selectedRequestsForArchive.clear();
-      selectedRequestsForArchive = selectedRequestsForArchive;
-      showBulkDeleteModal = false;
-      bulkArchiveMode = false;
-
-      if (failureCount === 0) {
-        formSuccess = `${successCount} request(s) deleted permanently.`;
-      } else if (successCount === 0) {
-        formError = `Failed to delete ${failureCount} request(s).`;
-      } else {
-        formSuccess = `${successCount} request(s) deleted. ${failureCount} failed.`;
-      }
-      setTimeout(() => (formSuccess = formError = ""), 3000);
+      formSuccess = `${selectedRequests.size} request(s) recovered.`;
+      setTimeout(() => (formSuccess = ""), 3000);
     } catch (err) {
-      console.error("Bulk delete error:", err);
-      formError = "Failed to delete requests.";
+      console.error("Recover requests error:", err);
+      formError = "Failed to recover requests.";
     } finally {
-      isBulkDeleting = false;
+      isArchiving = false;
+    }
+  }
+
+  async function deleteSelectedRequests() {
+    if (selectedRequests.size === 0) return;
+    if (!confirm(`Delete ${selectedRequests.size} request(s) permanently?`)) return;
+    try {
+      for (const requestId of selectedRequests) {
+        await callBackend("delete_request", {
+          request_id: requestId,
+        });
+      }
+      selectedRequests.clear();
+      selectAllChecked = false;
+      await loadRequests();
+      formSuccess = `${selectedRequests.size} request(s) deleted permanently.`;
+      setTimeout(() => (formSuccess = ""), 3000);
+    } catch (err) {
+      console.error("Delete requests error:", err);
+      formError = "Failed to delete requests.";
     }
   }
 
@@ -713,20 +649,15 @@
 
   $: filteredRequests = requests
     .filter((r) => {
-      // Filter by archive status first
-      const isArchived = r.archived === true || r.archived === "true";
+      const status = String(r.status || "").toLowerCase();
       if (requestFilter === "archive") {
-        return isArchived;
-      } else {
-        if (isArchived) return false; // Hide archived when not viewing archive
+        return status === "archived";
       }
-
-      // Then filter by request type
-      if (requestFilter === "all") return true;
+      if (requestFilter === "all") return status !== "archived";
       return (
         String(r.requestType || "").toLowerCase() ===
         requestFilter.toLowerCase()
-      );
+      ) && status !== "archived";
     })
     .sort((a, b) => {
       const dateA = new Date(a.date || a.request_date || a.applied_date || 0);
@@ -734,62 +665,76 @@
       return dateB.getTime() - dateA.getTime();
     });
 
-  $: totalRequests = filteredRequests.length;
-  $: pendingRequests = filteredRequests.filter(
+  $: totalRequests = requests.filter(
+    (request) => String(request?.status || "").toLowerCase() !== "archived",
+  ).length;
+  $: pendingRequests = requests.filter(
     (request) => String(request?.status || "").toLowerCase() === "pending",
   ).length;
-  $: resolvedRequests = filteredRequests.filter((request) => {
+  $: resolvedRequests = requests.filter((request) => {
     const status = String(request?.status || "").toLowerCase();
     return status === "approved" || status === "rejected";
   }).length;
+  $: archivedRequests = requests.filter(
+    (request) => String(request?.status || "").toLowerCase() === "archived",
+  ).length;
 </script>
 
 <section class="requests-modern">
   <!-- Stat Cards -->
   <div class="stat-cards">
     <div class="stat-card blue">
-      <div class="stat-card-top">
-        <div style="flex:1"></div>
-        <div class="stat-icon blue">
-          <FileText size={16} />
-        </div>
+      <div class="stat-icon blue">
+        <FileText size={20} />
       </div>
-      <div class="stat-value">{totalRequests}</div>
-      <div class="stat-label">Total Requests</div>
+      <div class="stat-body">
+        <div class="stat-value">{totalRequests}</div>
+        <div class="stat-label">Total Requests</div>
+      </div>
     </div>
 
     <div class="stat-card amber">
-      <div class="stat-card-top">
-        <div style="flex:1"></div>
-        <div class="stat-icon amber">
-          <Clock3 size={16} />
-        </div>
+      <div class="stat-icon amber">
+        <Clock3 size={20} />
       </div>
-      <div class="stat-value">{pendingRequests}</div>
-      <div class="stat-label">Pending Review</div>
+      <div class="stat-body">
+        <div class="stat-value">{pendingRequests}</div>
+        <div class="stat-label">Pending Review</div>
+      </div>
     </div>
 
     <div class="stat-card green">
-      <div class="stat-card-top">
-        <div style="flex:1"></div>
-        <div class="stat-icon green">
-          <ShieldCheck size={16} />
-        </div>
+      <div class="stat-icon green">
+        <ShieldCheck size={20} />
       </div>
-      <div class="stat-value">{resolvedRequests}</div>
-      <div class="stat-label">Resolved</div>
+      <div class="stat-body">
+        <div class="stat-value">{resolvedRequests}</div>
+        <div class="stat-label">Resolved</div>
+      </div>
+    </div>
+
+    <div class="stat-card purple">
+      <div class="stat-icon purple">
+        <Archive size={20} />
+      </div>
+      <div class="stat-body">
+        <div class="stat-value">{archivedRequests}</div>
+        <div class="stat-label">Archive</div>
+      </div>
     </div>
   </div>
 
   <!-- Tab Row -->
   <div class="tab-row">
-    <button
-      class="tab-btn"
-      class:active={activeTab === "my-requests"}
-      on:click={() => setTab("my-requests")}
-    >
-      {listTabLabel}
-    </button>
+    {#if !isSupervisor}
+      <button
+        class="tab-btn"
+        class:active={activeTab === "my-requests"}
+        on:click={() => setTab("my-requests")}
+      >
+        {listTabLabel}
+      </button>
+    {/if}
     {#if !isSupervisor}
       <button
         class="tab-btn"
@@ -824,27 +769,70 @@
       {:else}
         <!-- Filter Pills -->
         <div class="filter-row">
-          <button
-            class="filter-chip"
-            class:active={requestFilter === "all"}
-            on:click={() => (requestFilter = "all")}
-          >
-            All
-          </button>
-          <button
-            class="filter-chip"
-            class:active={requestFilter === "absence"}
-            on:click={() => (requestFilter = "absence")}
-          >
-            📅 Absence
-          </button>
-          <button
-            class="filter-chip"
-            class:active={requestFilter === "overtime"}
-            on:click={() => (requestFilter = "overtime")}
-          >
-            ⏱️ Overtime
-          </button>
+          <div class="filter-chips">
+            <button
+              class="filter-chip"
+              class:active={requestFilter === "all"}
+              on:click={() => (requestFilter = "all")}
+            >
+              All
+            </button>
+            <button
+              class="filter-chip"
+              class:active={requestFilter === "absence"}
+              on:click={() => (requestFilter = "absence")}
+            >
+              <Calendar size={14} /> Absence
+            </button>
+            <button
+              class="filter-chip"
+              class:active={requestFilter === "overtime"}
+              on:click={() => (requestFilter = "overtime")}
+            >
+              <Clock3 size={14} /> Overtime
+            </button>
+            {#if isSupervisor}
+              <button
+                class="filter-chip"
+                class:active={requestFilter === "archive"}
+                on:click={() => (requestFilter = "archive")}
+              >
+                <FileText size={14} /> Archive
+              </button>
+            {/if}
+          </div>
+          <div class="bulk-action-buttons">
+            {#if showBulkActions}
+              <button class="cancel-btn" on:click={() => { showBulkActions = false; selectedRequests.clear(); selectAllChecked = false; selectedRequests = selectedRequests; }}>
+                Cancel
+              </button>
+              {#if isSupervisor && selectedRequests.size > 0}
+                {#if requestFilter === "archive"}
+                  <button class="recover-btn" on:click={recoverSelectedRequests} disabled={isArchiving}>
+                    {#if isArchiving}
+                      <span class="spinning-icon"><Loader2 size={14} /></span>
+                      Recovering...
+                    {:else}
+                      ↻ Recover ({selectedRequests.size})
+                    {/if}
+                  </button>
+                {:else}
+                  <button class="archive-btn" on:click={archiveSelectedRequests} disabled={isArchiving}>
+                    {#if isArchiving}
+                      <span class="spinning-icon"><Loader2 size={14} /></span>
+                      Archiving...
+                    {:else}
+                      Archive ({selectedRequests.size})
+                    {/if}
+                  </button>
+                {/if}
+              {/if}
+            {:else}
+              <button class="select-btn" on:click={() => { showBulkActions = true; }}>
+                Select
+              </button>
+            {/if}
+          </div>
         </div>
 
         {#if filteredRequests.length === 0}
@@ -854,6 +842,20 @@
           </div>
         {:else}
           <div class="requests-list">
+            <!-- Select All Checkbox (for supervisor) -->
+            {#if isSupervisor && showBulkActions}
+              <div class="select-all-row" on:click={toggleSelectAll} role="button" tabindex="0">
+                <input 
+                  type="checkbox" 
+                  bind:checked={selectAllChecked}
+                  on:change={toggleSelectAll}
+                  on:click={(e) => e.stopPropagation()}
+                  class="select-all-checkbox"
+                />
+                <span>Select All</span>
+              </div>
+            {/if}
+
             {#each filteredRequests as request (request.id)}
               {@const statusMeta =
                 STATUS_META[request.status] ?? STATUS_META.Pending}
@@ -867,65 +869,82 @@
                 class:request-card-pending={statusTone === "pending"}
                 class:request-card-approved={statusTone === "approved"}
                 class:request-card-rejected={statusTone === "rejected"}
+                class:request-card-selected={selectedRequests.has(request.id)}
+                on:click={() => { if (isSupervisor && showBulkActions) toggleRequestSelection(request.id); }}
+                role={isSupervisor && showBulkActions ? "button" : "article"}
+                tabindex={isSupervisor && showBulkActions ? 0 : -1}
               >
-                <div class="request-card-header">
-                  <div class="request-type-badge">
-                    {#if request.requestType === "Overtime"}
-                      <Clock3 size={14} /> Overtime
-                    {:else}
-                      <Calendar size={14} /> Absence
-                    {/if}
+                {#if isSupervisor && showBulkActions}
+                  <div class="request-card-checkbox">
+                    <input 
+                      type="checkbox" 
+                      checked={selectedRequests.has(request.id)}
+                      on:change={() => toggleRequestSelection(request.id)}
+                      on:click={(e) => e.stopPropagation()}
+                      class="request-checkbox"
+                    />
                   </div>
-                  <span class={statusMeta.badgeClass}>{request.status || "Pending"}</span>
-                </div>
-
-                <div class="req-card-body">
-                  <div class="req-meta">
-                    <div class="req-meta-item">
-                      <Calendar size={13} />
-                      <span class="label">For:</span>
-                      <strong>{formatCreatedDate(request.date)}</strong>
+                {/if}
+                
+                <div class="request-card-content">
+                  <div class="request-card-header">
+                    <div class="request-type-badge">
+                      {#if request.requestType === "Overtime"}
+                        <Clock3 size={14} /> Overtime
+                      {:else}
+                        <Calendar size={14} /> Absence
+                      {/if}
                     </div>
-
-                    {#if request.requestType === "Overtime" && request.total_hours}
-                      <div class="req-meta-item">
-                        <Timer size={13} />
-                        <span class="label">Duration:</span>
-                        <strong>{request.total_hours}h</strong>
-                      </div>
-                    {/if}
-
-                    {#if request.created_at}
-                      <div class="req-meta-item">
-                        <Clock3 size={13} />
-                        <span class="label">Submitted:</span>
-                        <strong>{formatCreatedDate(request.created_at)}</strong>
-                      </div>
-                    {/if}
-
-                    {#if isSupervisor}
-                      <div class="req-meta-item">
-                        <User size={13} />
-                        <span class="label">Requester:</span>
-                        <strong>{request.requester_name || "Unknown"}</strong>
-                      </div>
-                    {/if}
+                    <div class="request-info-inline">
+                      <span class="request-info-item">
+                        <span class="info-label">For:</span>
+                        <span class="info-value">{formatDate(request.date)}</span>
+                      </span>
+                      {#if request.created_at}
+                        <span class="request-info-item">
+                          <span class="info-label">Submitted:</span>
+                          <span class="info-value">{formatCreatedDate(request.created_at)}</span>
+                        </span>
+                      {/if}
+                      {#if isSupervisor}
+                        <span class="request-info-item">
+                          <span class="info-label">Requester:</span>
+                          <span class="info-value">{request.requester_name || "Unknown"}</span>
+                        </span>
+                      {/if}
+                    </div>
+                    <span class={statusMeta.badgeClass}>{request.status || "Pending"}</span>
                   </div>
 
                   <div class="req-reason-block">
-                    <div class="req-reason-label">Reason</div>
-                    <p class="req-reason-text">{previewReason(request.reason)}</p>
+                    <div class="req-reason-header">
+                      <div>
+                        <div class="req-reason-label">Reason</div>
+                        <p class="req-reason-text">{previewReason(request.reason)}</p>
+                      </div>
+                      {#if request.requestType === "Overtime" && request.total_hours}
+                        <div class="req-duration-info">
+                          <span class="info-label">Duration:</span>
+                          <span class="info-value">{request.total_hours}h</span>
+                        </div>
+                      {/if}
+                    </div>
                   </div>
                 </div>
 
                 <div class="req-card-footer">
-                  {#if isSupervisor && request.status === "Pending"}
+                  {#if isSupervisor && request.status === "Pending" && String(request?.status || "").toLowerCase() !== "archived"}
                     <button
                       class="action-btn approve"
+                      disabled={approvingRequestId === request.id}
                       on:click={() =>
                         updateRequestStatus(request.id, "Approved")}
                     >
-                      <ShieldCheck size={13} /> Approve
+                      {#if approvingRequestId === request.id}
+                        <Loader2 size={13} class="spin" /> Approving...
+                      {:else}
+                        <CheckCircle size={13} /> Approve
+                      {/if}
                     </button>
                     <button
                       class="btn-reject"
@@ -933,7 +952,7 @@
                     >
                       <XCircle size={12} /> Reject
                     </button>
-                  {:else if !isSupervisor && request.status === "Pending"}
+                  {:else if !isSupervisor && request.status === "Pending" && String(request?.status || "").toLowerCase() !== "archived"}
                     <button
                       class="btn-edit"
                       on:click={() => editRequest(request)}
@@ -1450,13 +1469,12 @@
       system-ui,
       -apple-system,
       sans-serif;
-    background: var(--bg);
+    background: transparent;
     color: var(--text);
-    padding: 20px 24px;
     display: flex;
     flex-direction: column;
-    gap: 16px;
-    min-height: 100vh;
+    gap: 20px;
+    min-height: auto;
     transition:
       background 0.2s,
       color 0.2s;
@@ -1465,38 +1483,40 @@
   /* ========== STAT CARDS ========== */
   .stat-cards {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
   }
   .stat-card {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
-    padding: 10px 12px;
+    padding: 18px 20px;
     box-shadow: var(--shadow-sm);
     transition:
       box-shadow 0.2s,
       transform 0.2s;
     position: relative;
     overflow: hidden;
+    display: flex;
+    align-items: center;
+    gap: 14px;
   }
   .stat-card:hover {
     box-shadow: var(--shadow);
     transform: translateY(-2px);
   }
-  .stat-card-top {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 4px;
-  }
   .stat-icon {
-    width: 26px;
-    height: 26px;
-    border-radius: 6px;
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
     display: grid;
     place-items: center;
     flex-shrink: 0;
+  }
+  .stat-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
   }
   .stat-icon.blue {
     background: var(--accent-glow);
@@ -1510,14 +1530,18 @@
     background: var(--green-dim);
     color: var(--green);
   }
+  .stat-icon.purple {
+    background: var(--purple-dim);
+    color: var(--purple);
+  }
   .stat-value {
-    font-size: 22px;
+    font-size: 28px;
     font-weight: 700;
     letter-spacing: -0.4px;
     line-height: 1;
   }
   .stat-label {
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text2);
     margin-top: 2px;
     font-weight: 500;
@@ -1563,20 +1587,25 @@
   .requests-section {
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
   }
 
   /* ========== EMPTY STATE ========== */
   .empty-requests {
     border: 1.5px dashed var(--border2);
-    border-radius: var(--radius);
+    border-radius: 0;
     padding: 40px 20px;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 10px;
-    background: var(--surface);
+    background: transparent;
   }
   .empty-icon {
     width: 48px;
@@ -1602,11 +1631,25 @@
   /* ========== FILTER ROW ========== */
   .filter-row {
     display: flex;
+    gap: 12px;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px;
+    margin-bottom: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  
+  .filter-chips {
+    display: flex;
     gap: 8px;
     flex-wrap: wrap;
-    margin-bottom: 14px;
+    align-items: center;
   }
+  
   .filter-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     padding: 6px 14px;
     border-radius: 40px;
     font-family: inherit;
@@ -1618,24 +1661,40 @@
     background: transparent;
     color: var(--text2);
   }
-  .filter-pill:hover {
+  .filter-chip:hover {
     background: var(--surface2);
     color: var(--text);
   }
-  .filter-pill.active {
+  .filter-chip.active {
     background: var(--accent);
     color: #fff;
     border-color: var(--accent);
   }
-  .filter-pill :global(svg) {
-    flex-shrink: 0;
+  
+  .select-btn {
+    padding: 6px 14px;
+    border-radius: 30px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    font-size: 12.5px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: var(--text2);
+    white-space: nowrap;
+  }
+  .select-btn:hover {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
   }
 
   /* ========== REQUEST CARDS ========== */
   .requests-list {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 0;
+    padding: 12px;
   }
   .req-card {
     background: var(--surface);
@@ -1643,39 +1702,114 @@
     border-radius: var(--radius);
     box-shadow: var(--shadow-sm);
     overflow: hidden;
-    transition:
-      box-shadow 0.2s,
-      transform 0.2s,
-      border-color 0.2s;
+    cursor: default;
   }
-  .req-card:hover {
-    box-shadow: var(--shadow);
+  .request-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    overflow: hidden;
+    cursor: default;
+    position: relative;
+    transition: all 0.2s ease;
+  }
+  .request-card + .request-card {
+    margin-top: 12px;
+  }
+  .request-card[role="button"] {
+    cursor: pointer;
+  }
+  .request-card[role="button"]:hover {
+    background: rgba(59, 130, 246, 0.04);
+    border-color: var(--border2);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  }
+  .request-card::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 3px;
+    background: var(--accent);
+  }
+  .request-card-pending::before {
+    background: var(--amber);
+  }
+  .request-card-approved::before {
+    background: var(--green);
+  }
+  .request-card-rejected::before {
+    background: var(--red);
+  }
+  .request-card-selected {
+    background: rgba(59, 130, 246, 0.08);
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+  }
+  .request-card-selected::before {
+    background: #3b82f6;
+    width: 100%;
+    height: 3px;
+  }
+  .request-card:hover {
     transform: translateY(-1px);
   }
   .request-card-focused {
     border-color: var(--accent2);
     box-shadow: 0 0 0 3px var(--accent-glow);
   }
-  .req-card-header {
+  .request-card-content {
+    margin-left: 0;
+    transition: margin-left 0.2s;
+  }
+  .request-card[role="button"] .request-card-content {
+    margin-left: 28px;
+  }
+  .request-card-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    padding: 13px 18px 10px;
+    gap: 16px;
+    padding: 12px 14px;
     border-bottom: 1px solid var(--border);
   }
-  .req-type-badge {
+  .request-type-badge {
     display: flex;
     align-items: center;
     gap: 7px;
     font-size: 14px;
     font-weight: 700;
     color: var(--text2);
+    white-space: nowrap;
+    flex-shrink: 0;
   }
-  .request-card-dates {
+  .request-info-inline {
     display: flex;
-    flex-direction: column;
-    gap: 10px;
+    align-items: center;
+    gap: 20px;
+    flex: 1;
+    overflow-x: auto;
+    font-size: 13px;
+  }
+  .request-info-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .info-label {
+    color: var(--text3);
+    font-weight: 500;
+  }
+  .info-value {
+    color: var(--text);
+    font-weight: 600;
+  }
+  .status-badge {
+    flex-shrink: 0;
   }
   .req-meta {
     display: flex;
@@ -1694,38 +1828,57 @@
     color: var(--text3);
     flex-shrink: 0;
   }
-  .req-meta-item strong {
-    color: var(--text);
-    font-weight: 700;
-  }
-  .req-meta-item .label {
-    color: var(--text3);
-    font-size: 12.5px;
-  }
   .req-reason-block {
     background: var(--surface2);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
+    border: none;
+    border-top: 1px solid var(--border);
+    border-radius: 0;
     padding: 10px 14px;
   }
   .req-reason-label {
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--text3);
-    margin-bottom: 4px;
+    margin-bottom: 3px;
   }
   .req-reason-text {
-    font-size: 14px;
+    font-size: 13px;
     color: var(--text2);
     line-height: 1.5;
+  }
+  .req-reason-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .req-duration-info {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .req-duration-info .info-label {
+    color: var(--text3);
+    font-weight: 500;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  .req-duration-info .info-value {
+    color: var(--text);
+    font-weight: 600;
+    font-size: 13px;
   }
   .req-card-footer {
     display: flex;
     justify-content: flex-end;
     gap: 8px;
-    padding: 0 18px 14px;
+    padding: 10px 14px;
+    border-top: 1px solid var(--border);
   }
 
   .btn-edit,
@@ -1750,14 +1903,63 @@
     color: #fff;
     box-shadow: 0 2px 6px var(--accent-glow);
   }
+  .btn-reject {
+    background: var(--red);
+    color: #fff;
+    box-shadow: 0 2px 6px var(--red-dim);
+  }
+  .btn-reject:hover:not(:disabled) {
+    background: #b91c1c;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px var(--red-dim);
+  }
+  
+  /* Action buttons base styling */
+  .action-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 15px;
+    border-radius: var(--radius-sm);
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 700;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  
   .action-btn.reject {
     background: var(--red);
     color: #fff;
     box-shadow: 0 2px 6px var(--red-dim);
   }
+  .action-btn.reject:hover:not(:disabled) {
+    background: #b91c1c;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px var(--red-dim);
+  }
+  .action-btn.approve {
+    background: var(--accent);
+    color: #fff;
+    box-shadow: 0 2px 6px var(--accent-glow);
+  }
+  .action-btn.approve:hover:not(:disabled) {
+    background: #1d4ed8;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px var(--accent-glow);
+  }
   .action-btn.edit {
     background: var(--accent);
     color: white;
+  }
+  .action-btn.edit:hover:not(:disabled) {
+    background: #1d4ed8;
+    transform: translateY(-1px);
+  }
+  .action-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
   }
   .btn-edit :global(svg),
   .btn-delete :global(svg),
@@ -2157,72 +2359,152 @@
     text-align: right;
   }
 
-  /* Bulk archive styles */
-  .bulk-checkbox {
-    width: 18px;
-    height: 18px;
-    cursor: pointer;
-    accent-color: var(--accent);
-    flex-shrink: 0;
-    margin-right: 8px;
-  }
-
-  .bulk-toggle-btn {
-    margin-left: auto;
-  }
-
-  .bulk-actions-menu {
+  /* Bulk Action Buttons */
+  .bulk-action-buttons {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-left: 8px;
+    justify-content: flex-end;
   }
 
-  .bulk-action-btn {
+  .cancel-btn {
+    padding: 6px 14px;
+    border-radius: 30px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    font-size: 12.5px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: var(--text2);
+    white-space: nowrap;
+  }
+  .cancel-btn:hover {
+    background: var(--surface3);
+    border-color: var(--border2);
+  }
+
+  .archive-btn {
+    padding: 6px 14px;
+    border-radius: 30px;
+    background: #3b82f6;
+    border: 1px solid #3b82f6;
+    font-size: 12.5px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: white;
+    white-space: nowrap;
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 8px 16px;
-    font-size: 13px;
-    font-weight: 600;
-    border-radius: 6px;
-    border: none;
-    cursor: pointer;
-    background: var(--accent);
-    color: white;
-    transition: all 0.2s ease;
   }
-
-  .bulk-action-btn:hover:not(:disabled) {
-    opacity: 0.9;
-    transform: translateY(-1px);
+  .archive-btn:hover:not(:disabled) {
+    background: #2563eb;
+    border-color: #2563eb;
   }
-
-  .bulk-action-btn:disabled {
-    opacity: 0.6;
+  .archive-btn:disabled {
+    opacity: 0.7;
     cursor: not-allowed;
   }
 
-  .bulk-action-btn.archive-action {
-    background: var(--orange);
-  }
-
-  .bulk-action-btn.delete-action {
-    background: var(--red);
-  }
-
-  .spinning-icon {
+  .recover-btn {
+    padding: 6px 14px;
+    border-radius: 30px;
+    background: var(--green);
+    border: 1px solid var(--green);
+    font-size: 12.5px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: white;
+    white-space: nowrap;
     display: inline-flex;
-    animation: spin 1s linear infinite;
+    align-items: center;
+    gap: 6px;
+  }
+  .recover-btn:hover:not(:disabled) {
+    opacity: 0.9;
+  }
+  .recover-btn:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
   }
 
-  @keyframes spin {
-    from {
-      transform: rotate(0deg);
-    }
-    to {
-      transform: rotate(360deg);
-    }
+  .recover-btn {
+    background: var(--green);
+    color: white;
+  }
+
+  .recover-btn:hover {
+    opacity: 0.9;
+  }
+
+  .delete-btn {
+    background: var(--red);
+    color: white;
+  }
+
+  .delete-btn:hover {
+    opacity: 0.9;
+  }
+
+  /* Select All Row */
+  .select-all-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: var(--surface2);
+    border-radius: var(--radius-sm);
+    margin-bottom: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text2);
+    cursor: pointer;
+    transition: all 0.2s;
+    user-select: none;
+  }
+  .select-all-row:hover {
+    background: var(--surface3);
+    color: var(--text);
+  }
+  .select-all-row[role="button"]:focus {
+    outline: 2px solid var(--accent2);
+    outline-offset: 2px;
+  }
+  /* Request Card Checkbox */
+  .request-card-checkbox {
+    display: flex;
+    align-items: center;
+    padding-right: 8px;
+    position: absolute;
+    left: 12px;
+    top: 16px;
+    z-index: 10;
+  }
+
+  .request-checkbox {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    accent-color: #3b82f6;
+  }
+
+  .select-all-checkbox {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    accent-color: #3b82f6;
+  }
+
+  /* Color variables for bulk buttons */
+  :root {
+    --blue: #3b82f6;
+  }
+
+  :global(.dark) {
+    --blue: #3b82f6;
   }
 
   /* ========== RESPONSIVE ========== */
