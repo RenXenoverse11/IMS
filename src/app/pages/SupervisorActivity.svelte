@@ -65,10 +65,41 @@
   // Attachment state for Add Task modal
   let newTaskAttachments = [];
   let newTaskFileInput = null;
+  // Checklist for Add Task
+  let newTaskChecklist = [];
 
   // Attachment state for Edit Task modal
   let editTaskAttachments = [];
   let editTaskFileInput = null;
+
+  // Checklist helpers for Edit Task
+  function addEditTaskChecklistItem() {
+    editTaskForm = { ...editTaskForm, dailyChecklist: [...(editTaskForm.dailyChecklist || []), { label: '', done: false }] };
+  }
+
+  function updateEditTaskChecklistItem(index, field, value) {
+    editTaskForm = {
+      ...editTaskForm,
+      dailyChecklist: (editTaskForm.dailyChecklist || []).map((item, i) => (i === index ? { ...item, [field]: value } : item))
+    };
+  }
+
+  function removeEditTaskChecklistItem(index) {
+    editTaskForm = { ...editTaskForm, dailyChecklist: (editTaskForm.dailyChecklist || []).filter((_, i) => i !== index) };
+  }
+
+  // Checklist helpers for Add Task
+  function addNewTaskChecklistItem() {
+    newTaskChecklist = [...newTaskChecklist, { label: '', done: false }];
+  }
+
+  function updateNewTaskChecklistItem(index, field, value) {
+    newTaskChecklist = newTaskChecklist.map((item, i) => (i === index ? { ...item, [field]: value } : item));
+  }
+
+  function removeNewTaskChecklistItem(index) {
+    newTaskChecklist = newTaskChecklist.filter((_, i) => i !== index);
+  }
 
   // Separate attachment state for View/Edit Task modals (prevents flicker)
   let viewTaskAttachments = [];
@@ -279,7 +310,8 @@
             // tolerate multiple possible server field names for due date
             due_date: String(t.due_date || t.dueDate || t.due || t.date || t.due_date_formatted || t.dueDateFormatted || ''),
             status: String(t.status || ''),
-            assigned_student_ids: Array.isArray(t.assigned_student_ids) ? t.assigned_student_ids : (Array.isArray(t.assigned_ids) ? t.assigned_ids : [])
+            assigned_student_ids: Array.isArray(t.assigned_student_ids) ? t.assigned_student_ids : (Array.isArray(t.assigned_ids) ? t.assigned_ids : []),
+            daily_checklist: Array.isArray(t.daily_checklist) ? t.daily_checklist : (Array.isArray(t.dailyChecklist) ? t.dailyChecklist : [])
           }));
           supervisorTasks = mapped.filter(x => String(x.status || '').toLowerCase() !== 'archived');
           archivedSupervisorTasks = mapped.filter(x => String(x.status || '').toLowerCase() === 'archived');
@@ -688,6 +720,8 @@
     try {
       // Send YYYY-MM-DD directly — backend formatDateYMD_ handles this format correctly.
       // Do NOT convert to dd-mm-yy: parseDateLike_ on the server cannot parse that format.
+      const cleanedChecklist = (Array.isArray(newTaskChecklist) ? newTaskChecklist : []).filter(i => String(i.label || '').trim()).map(i => ({ label: String(i.label || '').trim(), done: !!i.done }));
+
       const payload = {
         title: newTaskTitle.trim(),
         description: newTaskDescription.trim(),
@@ -695,6 +729,7 @@
         status: newTaskStatus,
         supervisor_user_id: currentUser?.user_id || '',
         assigned_student_ids: Array.isArray(newTaskAssignees) ? newTaskAssignees : (newTaskAssignees ? [newTaskAssignees] : []),
+        dailyChecklist: cleanedChecklist,
         created_by: currentUser?.user_id || '',
         updated_by: currentUser?.user_id || ''
       };
@@ -730,6 +765,7 @@
       newTaskDueDate = '';
       newTaskAssignees = [];
       newTaskAttachments = [];
+      newTaskChecklist = [];
       if (newTaskFileInput) newTaskFileInput.value = '';
       showAddTask = false;
 
@@ -887,7 +923,8 @@
       title: task.title || '',
       description: task.description || '',
       due_date: toISOInputDate(task.due_date) || '',
-      status: task.status || 'Pending'
+      status: task.status || 'Pending',
+      dailyChecklist: Array.isArray(task.daily_checklist) ? task.daily_checklist.map(i => ({ label: String(i.label || '').trim(), done: !!i.done })) : (Array.isArray(task.dailyChecklist) ? task.dailyChecklist.map(i => ({ label: String(i.label || '').trim(), done: !!i.done })) : [])
     };
     editTaskAssignees = Array.isArray(task.assigned_student_ids) ? [...task.assigned_student_ids] : [];
     editTaskAttachments = [];
@@ -920,6 +957,7 @@
         due_date: editTaskForm.due_date || '',  // YYYY-MM-DD from <input type="date">
         status: editTaskForm.status,
         assigned_student_ids: Array.isArray(editTaskAssignees) ? editTaskAssignees : [],
+        dailyChecklist: (Array.isArray(editTaskForm.dailyChecklist) ? editTaskForm.dailyChecklist : []).filter(i => String(i.label || '').trim()).map(i => ({ label: String(i.label || '').trim(), done: !!i.done })),
         updated_by: currentUser?.user_id || ''
       };
       // simulate brief save latency
@@ -1176,7 +1214,7 @@ function toggleEditAssigneeDropdown() {
 
   {#if showAddTask}
     <div class="task-view-modal-overlay" role="presentation" on:click={() => showAddTask = false}>
-      <div class="task-view-modal" role="dialog" aria-modal="true" aria-label="Add Task" on:click|stopPropagation>
+      <div class="task-view-modal" role="dialog" aria-modal="true" aria-label="Add Task" tabindex="-1" on:click|stopPropagation on:keydown|stopPropagation>
 
         <div class="task-view-modal-head">
           <h4>Add Task</h4>
@@ -1238,6 +1276,26 @@ function toggleEditAssigneeDropdown() {
         </label>
 
         <div class="task-view-section">
+          <div class="task-view-section-head">
+              <span>Checklist</span>
+              <div class="task-view-section-actions">
+                <button type="button" class="ghost btn-compact" on:click={addNewTaskChecklistItem}>+ Add item</button>
+              </div>
+            </div>
+          {#if newTaskChecklist.length > 0}
+            <ul style="list-style:none; padding:0; margin:0.5rem 0 0 0;">
+              {#each newTaskChecklist as item, i}
+                <li style="display:flex; gap:0.5rem; align-items:center; padding:0.25rem 0;">
+                  <input type="checkbox" checked={item.done} on:change={(e) => updateNewTaskChecklistItem(i, 'done', e.target.checked)} />
+                  <input type="text" placeholder="Item label" value={item.label} on:input={(e) => updateNewTaskChecklistItem(i, 'label', e.target.value)} style="flex:1;" />
+                  <button type="button" class="remove-item" on:click={() => removeNewTaskChecklistItem(i)}>Remove</button>
+                </li>
+              {/each}
+            </ul>
+          {/if}
+        </div>
+
+        <div class="task-view-section">
           <div class="attachment-editor">
             <div class="attachment-editor-head">
               <span>Attachments</span>
@@ -1290,7 +1348,7 @@ function toggleEditAssigneeDropdown() {
           <p class="empty">No work logs found.</p>
         {:else}
           {#each overviewWorkLogs as log}
-            <div class="log-card {expandedLogIds.indexOf(log.task_id) !== -1 ? 'expanded' : 'collapsed'}" on:click={() => toggleExpand(log.task_id)} role="button" tabindex="0">
+            <div class="log-card {expandedLogIds.indexOf(log.task_id) !== -1 ? 'expanded' : 'collapsed'}" on:click={() => toggleExpand(log.task_id)} on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { toggleExpand(log.task_id); } }} role="button" tabindex="0">
               <div class="log-meta">
                 <div>
                   <div class="log-user"><strong>{log.user_name || 'Unknown'}</strong></div>
@@ -1457,7 +1515,7 @@ function toggleEditAssigneeDropdown() {
           <p class="empty">No approved work logs yet.</p>
         {:else}
           {#each approvedWorkLogs as log}
-            <div class="log-card {expandedLogIds.indexOf(log.task_id) !== -1 ? 'expanded' : 'collapsed'}" on:click={() => toggleExpand(log.task_id)} role="button" tabindex="0">
+            <div class="log-card {expandedLogIds.indexOf(log.task_id) !== -1 ? 'expanded' : 'collapsed'}" on:click={() => toggleExpand(log.task_id)} on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { toggleExpand(log.task_id); } }} role="button" tabindex="0">
               <div class="log-meta">
                 <div>
                   <div class="log-user"><strong>{log.user_name || 'Unknown'}</strong></div>
@@ -1574,7 +1632,7 @@ function toggleEditAssigneeDropdown() {
 
       {#if showViewTask}
         <div class="task-view-modal-overlay" role="presentation" on:click={closeViewTask}>
-          <div class="task-view-modal" role="dialog" aria-modal="true" aria-label="Task details form" on:click|stopPropagation>
+          <div class="task-view-modal" role="dialog" aria-modal="true" aria-label="Task details form" tabindex="-1" on:click|stopPropagation on:keydown|stopPropagation>
             <div class="task-view-modal-head">
               <h4>Task Details</h4>
               <div class="task-view-head-actions">
@@ -1611,6 +1669,22 @@ function toggleEditAssigneeDropdown() {
             </label>
 
             <div class="task-view-section">
+                <span class="row-label">Checklist</span>
+                {#if !(viewTask && (viewTask.daily_checklist || viewTask.dailyChecklist) && (viewTask.daily_checklist || viewTask.dailyChecklist).length)}
+                  <p class="sup-attach-empty">No checklist items.</p>
+                {:else}
+                  <ul style="list-style:none; padding:0; margin:0.4rem 0 0 0;">
+                    {#each (viewTask.daily_checklist || viewTask.dailyChecklist || []) as it}
+                      <li style="display:flex; gap:0.6rem; align-items:center; padding:0.2rem 0;">
+                        <input type="checkbox" disabled checked={!!it.done} />
+                        <span class:done={!!it.done}>{it.label}</span>
+                      </li>
+                    {/each}
+                  </ul>
+                {/if}
+              </div>
+
+            <div class="task-view-section">
                 <span class="row-label">Attachments</span>
                 {#if viewTaskAttachments.length === 0}
                   <p class="sup-attach-empty">No attachments.</p>
@@ -1644,7 +1718,7 @@ function toggleEditAssigneeDropdown() {
 
       {#if showEditTask}
         <div class="task-view-modal-overlay" role="presentation" on:click={() => { showEditTask = false; }}>
-          <div class="task-view-modal" role="dialog" aria-modal="true" aria-label="Edit Task" on:click|stopPropagation>
+          <div class="task-view-modal" role="dialog" aria-modal="true" aria-label="Edit Task" tabindex="-1" on:click|stopPropagation on:keydown|stopPropagation>
             <div class="task-view-modal-head">
               <h4>Edit Task</h4>
               <div class="task-view-head-actions">
@@ -1704,6 +1778,28 @@ function toggleEditAssigneeDropdown() {
               <span>Description</span>
               <textarea rows="4" bind:value={editTaskForm.description}></textarea>
             </label>
+
+            <div class="task-view-section" style="margin-top:0.6rem;">
+              <div class="task-view-section-head">
+                <span>Checklist</span>
+                <div class="task-view-section-actions">
+                  <button type="button" class="ghost btn-compact" on:click={addEditTaskChecklistItem}>+ Add item</button>
+                </div>
+              </div>
+              {#if !(editTaskForm.dailyChecklist && editTaskForm.dailyChecklist.length)}
+                <p class="sup-attach-empty" style="margin:0.5rem 0 0 0;">No checklist items.</p>
+              {:else}
+                <ul style="list-style:none; padding:0; margin:0.5rem 0 0 0;">
+                  {#each editTaskForm.dailyChecklist as item, i}
+                    <li style="display:flex; gap:0.5rem; align-items:center; padding:0.25rem 0;">
+                      <input type="checkbox" checked={item.done} on:change={(e) => updateEditTaskChecklistItem(i, 'done', e.target.checked)} />
+                      <input type="text" placeholder="Item label" value={item.label} on:input={(e) => updateEditTaskChecklistItem(i, 'label', e.target.value)} style="flex:1;" />
+                      <button type="button" class="remove-item" on:click={() => removeEditTaskChecklistItem(i)}>Remove</button>
+                    </li>
+                  {/each}
+                </ul>
+              {/if}
+            </div>
 
             <!-- Attachments (existing + upload new) -->
             <div class="task-view-section" style="margin-top:0.7rem;">
@@ -2501,6 +2597,31 @@ function toggleEditAssigneeDropdown() {
     margin-bottom: 0.25rem;
   }
 
+  /* Ensure checklist header inside nested container matches other labels */
+  .task-view-section .task-view-section-head span,
+  .task-view-section .task-view-section-head .row-label {
+    color: var(--muted);
+    font-size: 0.74rem;
+    font-weight: 600;
+    display: block;
+    margin-bottom: 0.25rem;
+  }
+
+  /* Stack checklist header and position the add button under the label */
+  .task-view-section .task-view-section-head {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .task-view-section .task-view-section-head button {
+    align-self: flex-start;
+    margin-top: 0.25rem;
+  }
+
+  .task-view-section .task-view-section-actions { width:100%; display:flex; justify-content:flex-start }
+  .task-view-section .task-view-section-actions button { margin:0 }
+
   .task-view-grid input,
   .task-view-grid select,
   .task-view-description textarea,
@@ -2596,11 +2717,27 @@ function toggleEditAssigneeDropdown() {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 0.2rem;
+    gap: 0.35rem;
   }
+
+  /* Force consistent font family and size for all controls inside task modals */
+  .task-view-modal,
+  .task-view-modal input,
+  .task-view-modal select,
+  .task-view-modal textarea,
+  .task-view-modal button,
+  .task-view-modal label,
+  .task-view-modal div[role="listbox"] label span,
+  .task-view-modal .assignee-name,
+  .task-view-modal .edit-assignee-name {
+    font-family: 'Segoe UI', system-ui, -apple-system, 'Roboto', 'Helvetica Neue', Arial, sans-serif !important;
+    font-size: 0.82rem !important;
+    line-height: 1.15 !important;
+  }
+  
   .attachment-editor-head span {
     color: var(--muted);
-    font-size: 0.95rem;
+    font-size: 0.74rem;
     font-weight: 600;
   }
   .attachment-upload-btn {
@@ -2612,6 +2749,25 @@ function toggleEditAssigneeDropdown() {
     font-size: 0.72rem;
     font-weight: 600;
     cursor: pointer;
+  }
+
+  /* Make Add item and Upload files match ActivityIntern visual style */
+  .task-view-section .ghost.btn-compact,
+  .task-view-modal .attachment-upload-btn {
+    border-style: dashed;
+    border-width: 1px;
+    border-color: rgba(148,163,184,0.18);
+    background: transparent;
+    color: var(--muted);
+    padding: 0.42rem 0.7rem;
+    font-size: 0.95rem;
+    font-weight: 600;
+    border-radius: 0.6rem;
+  }
+
+  .task-view-section .ghost.btn-compact:hover,
+  .task-view-modal .attachment-upload-btn:hover {
+    background: rgba(255,255,255,0.02);
   }
   .hidden-file-input { display: none; }
   .attachment-list {
@@ -2692,5 +2848,7 @@ function toggleEditAssigneeDropdown() {
     cursor: pointer;
   }
   .sup-attach-empty { font-size: 0.8rem; color: var(--muted); margin: 0; }
+
+  .done { text-decoration: line-through; }
 
 </style>
