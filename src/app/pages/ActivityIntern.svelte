@@ -1377,7 +1377,10 @@ let assignedTasksError = '';
       due_date: toInputDate(task.dueDate),
       description: task.description,
       assigned_by: task.owner,
+      // Include checklist using multiple keys to be compatible with backend handlers
       checklist: task.dailyChecklist,
+      dailyChecklist: task.dailyChecklist,
+      daily_checklist: task.dailyChecklist,
       attachments: task.attachments,
       priority: task.priority,
       user_id: task.userId || user?.user_id || '',
@@ -1454,7 +1457,10 @@ let assignedTasksError = '';
       due_date: formState.dueDate || toInputDate(task.dueDate),
       description: formState.description.trim() || task.description,
       assigned_by: formState.assignedBy || task.owner,
+      // Send checklist under multiple keys for compatibility with backend Apps Script
       checklist: cleanedChecklist,
+      dailyChecklist: cleanedChecklist,
+      daily_checklist: cleanedChecklist,
       attachments: cleanedAttachments,
       priority: task.priority || 'medium',
       owner_email: user?.email || '',
@@ -2010,8 +2016,8 @@ let assignedTasksError = '';
           <div class="task-view-section">
             <span>Checklist</span>
             <div class="tracker-checklist-editor">
-              <div class="tracker-checklist-editor-head">
-                <button type="button" on:click={addNewTaskChecklistItem}>+ Add item</button>
+                <div class="tracker-checklist-editor-head">
+                <button type="button" class="attachment-upload-btn" on:click={addNewTaskChecklistItem}>+ Add item</button>
               </div>
 
               {#if addTaskForm.dailyChecklist.length === 0}
@@ -2234,7 +2240,7 @@ let assignedTasksError = '';
                   <div class="tracker-checklist-editor">
                     <div class="tracker-checklist-editor-head">
                       <span>Checklist</span>
-                      <button type="button" on:click={addChecklistItem}>+ Add item</button>
+                      <button type="button" class="attachment-upload-btn" on:click={addChecklistItem}>+ Add item</button>
                     </div>
 
                     {#each trackerEditForm.dailyChecklist as item, index}
@@ -2981,9 +2987,9 @@ let assignedTasksError = '';
       <div class="task-view-section">
         <span>Checklist</span>
         {#if isEditingViewedTask}
-          <div class="tracker-checklist-editor">
+            <div class="tracker-checklist-editor">
             <div class="tracker-checklist-editor-head">
-              <button type="button" on:click={addTaskViewChecklistItem}>+ Add item</button>
+              <button type="button" class="attachment-upload-btn" on:click={addTaskViewChecklistItem}>+ Add item</button>
             </div>
 
             {#if taskViewEditForm.dailyChecklist.length === 0}
@@ -3961,9 +3967,9 @@ let assignedTasksError = '';
 
   .tracker-checklist-editor-head {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.6rem;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.35rem;
   }
 
   .tracker-checklist-editor-head span {
@@ -3974,14 +3980,25 @@ let assignedTasksError = '';
 
   .tracker-checklist-editor-head button,
   .remove-item {
-    border: 1px solid var(--color-border);
-    background: var(--color-soft);
-    color: var(--color-text);
-    border-radius: 0.45rem;
+    border: 1px dashed var(--ims-ref-border);
+    background: transparent;
+    color: var(--color-muted);
+    border-radius: 0.6rem;
     padding: 0.32rem 0.5rem;
     font-size: 0.72rem;
     font-weight: 600;
     cursor: pointer;
+  }
+
+  /* Ensure checklist add button matches attachment upload size exactly */
+  .tracker-checklist-editor-head .attachment-upload-btn {
+    border: 1px dashed var(--ims-ref-border);
+    background: var(--ims-ref-surface2);
+    color: var(--ims-ref-text2);
+    border-radius: 0.45rem;
+    padding: 0.32rem 0.5rem;
+    font-size: 0.72rem;
+    font-weight: 600;
   }
 
   .tracker-checklist-editor-row {

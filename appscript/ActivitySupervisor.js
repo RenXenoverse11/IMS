@@ -45,14 +45,15 @@ function createSupervisorTasks(payload) {
     // Also record a supervisor-level task record in 'supervisor_task' sheet
       var supRow = null;
     try {
-      var supSheet = getOrCreateSheetWithHeaders_('supervisor_task', ['sup_taskid','task','description','due_date','status','assigned_to','created_at','created_by','updated_by']);
+      var supSheet = getOrCreateSheetWithHeaders_('supervisor_task', ['sup_taskid','task','description','due_date','status','assigned_to','daily_checklist','created_at','created_by','updated_by']);
       supRow = {
         sup_taskid: createId_('SUP'),
         task: title,
         description: description,
-          due_date: dueDate,
+        due_date: dueDate,
         status: String(payload.status || 'Pending').trim(),
         assigned_to: JSON.stringify(assignees || []),
+        daily_checklist: JSON.stringify(Array.isArray(payload.dailyChecklist) ? payload.dailyChecklist : (payload.daily_checklist || [])),
         created_at: now,
         created_by: supervisorId,
         updated_by: supervisorId
@@ -86,6 +87,7 @@ function createSupervisorTasks(payload) {
         owner_email: userEmail,
         assigned_by: supervisorId,
         created_at: now,
+        dailyChecklist: Array.isArray(payload.dailyChecklist) ? payload.dailyChecklist : (payload.daily_checklist || []),
         // signal to internal handler that supervisor-level row already created
         skipSupervisorCreate: true,
         status: String(payload.status || 'Pending').trim()
@@ -140,7 +142,8 @@ function createSupervisorTasks(payload) {
         description: supRow.description,
         due_date: supRow.due_date,
         status: String(supRow.status || '').trim(),
-        assigned_student_ids: (function(){ try { return JSON.parse(String(supRow.assigned_to||'[]')) } catch(e){ return []; } })()
+        assigned_student_ids: (function(){ try { return JSON.parse(String(supRow.assigned_to||'[]')) } catch(e){ return []; } })(),
+        dailyChecklist: (function(){ try { return JSON.parse(String(supRow.daily_checklist||'[]')) } catch(e){ return []; } })()
       };
     }
     return response;
@@ -174,13 +177,16 @@ function getSupervisorTasks(payload) {
       }
       var assigned = [];
       try { assigned = JSON.parse(String(r.assigned_to || '[]')) || []; } catch (e) { assigned = []; }
+      var checklist = [];
+      try { checklist = JSON.parse(String(r.daily_checklist || r.dailyChecklist || '[]')) || []; } catch (e) { checklist = []; }
       tasks.push({
         id: String(r.sup_taskid || '').trim(),
         title: String(r.task || '').trim(),
         description: String(r.description || '').trim(),
         due_date: String(r.due_date || '').trim(),
         status: String(r.status || '').trim(),
-        assigned_student_ids: Array.isArray(assigned) ? assigned : []
+        assigned_student_ids: Array.isArray(assigned) ? assigned : [],
+        daily_checklist: checklist
       });
     }
     // Reverse so that the most recently created task (last row in sheet) appears first.
@@ -279,10 +285,89 @@ function updateSupervisorTask(payload) {
     if (payload.due_date !== undefined) obj.due_date = String(payload.due_date || '');
     if (payload.status !== undefined) obj.status = String(payload.status || '');
     if (payload.assigned_student_ids !== undefined) obj.assigned_to = JSON.stringify(payload.assigned_student_ids || []);
+    if (payload.dailyChecklist !== undefined || payload.daily_checklist !== undefined) {
+      try {
+        var dl = payload.dailyChecklist !== undefined ? payload.dailyChecklist : payload.daily_checklist;
+        obj.daily_checklist = JSON.stringify(Array.isArray(dl) ? dl : (typeof dl === 'string' && dl ? JSON.parse(dl) : []));
+      } catch (e) {
+        obj.daily_checklist = JSON.stringify([]);
+      }
+    }
     if (payload.updated_by !== undefined) obj.updated_by = String(payload.updated_by || '');
     if (Object.keys(obj).length === 0) return { ok: false, error: 'No fields to update.' };
 
     updateObjectRow_(sheet, foundRow, obj);
+    // Propagate checklist updates to intern activity_logs so interns see supervisor edits
+    try {
+      // determine new checklist array
+      var newDl = [];
+      if (payload.dailyChecklist !== undefined) newDl = payload.dailyChecklist;
+      else if (payload.daily_checklist !== undefined) newDl = payload.daily_checklist;
+      else if (obj.daily_checklist !== undefined) {
+        try { newDl = JSON.parse(String(obj.daily_checklist || '[]')); } catch (e) { newDl = []; }
+      }
+      newDl = Array.isArray(newDl) ? newDl : [];
+
+      // determine assigned student ids (try payload.assigned_student_ids, payload.assigned_to, or existing row)
+      var assignedList = [];
+      try {
+        if (payload.assigned_student_ids !== undefined) {
+          assignedList = Array.isArray(payload.assigned_student_ids) ? payload.assigned_student_ids : (typeof payload.assigned_student_ids === 'string' ? JSON.parse(payload.assigned_student_ids) : []);
+        } else if (payload.assigned_to !== undefined) {
+          assignedList = Array.isArray(payload.assigned_to) ? payload.assigned_to : (typeof payload.assigned_to === 'string' ? JSON.parse(payload.assigned_to) : []);
+        } else {
+          // fallback to existing row value
+          var assignedColIndex = -1;
+          for (var hi = 0; hi < headers.length; hi++) { if (String(headers[hi] || '').toLowerCase() === 'assigned_to') { assignedColIndex = hi; break; } }
+          if (assignedColIndex !== -1) {
+            var rawAssigned = String(values[foundRow - 1][assignedColIndex] || '[]');
+            assignedList = Array.isArray(rawAssigned) ? rawAssigned : (function(){ try { return JSON.parse(rawAssigned || '[]'); } catch(e){ return []; } })();
+          }
+        }
+      } catch (e) { assignedList = []; }
+
+      // find matching activity_logs rows and update their checklist column
+      try {
+        var actSheet = getSheet_('activity_logs');
+        var actValues = getSheetValues_(actSheet) || [];
+        if (actValues.length > 0) {
+          var actHeaders = actValues[0].map(function(h){ return String(h || '').trim().toLowerCase(); });
+          var actTaskIdx = actHeaders.indexOf('task_name');
+          if (actTaskIdx === -1) actTaskIdx = actHeaders.indexOf('task');
+          var actAssignedByIdx = actHeaders.indexOf('assigned_by');
+          var actUserIdIdx = actHeaders.indexOf('user_id');
+          if (actTaskIdx !== -1 && actAssignedByIdx !== -1) {
+            var supTitle = obj.task !== undefined ? String(obj.task || '').trim() : String(values[foundRow - 1][headers.indexOf('task')] || '').trim();
+            var supCreatedByIdx = -1;
+            for (var hidx = 0; hidx < headers.length; hidx++) { if (String(headers[hidx] || '').toLowerCase() === 'created_by') { supCreatedByIdx = hidx; break; } }
+            var supCreatedBy = supCreatedByIdx !== -1 ? String(values[foundRow - 1][supCreatedByIdx] || '').trim() : '';
+            for (var ar = 1; ar < actValues.length; ar++) {
+              try {
+                var rowTask = String(actValues[ar][actTaskIdx] || '').trim();
+                var rowAssignedBy = String(actValues[ar][actAssignedByIdx] || '').trim();
+                var rowUserId = actUserIdIdx !== -1 ? String(actValues[ar][actUserIdIdx] || '').trim() : '';
+                if (!rowTask) continue;
+                if (String(rowTask).trim().toLowerCase() !== String(supTitle).trim().toLowerCase()) continue;
+                // only update activity rows that were created by the same supervisor
+                if (supCreatedBy && rowAssignedBy !== supCreatedBy) continue;
+                // If assignedList specified, only update rows for those user_ids
+                if (assignedList && assignedList.length > 0) {
+                  if (rowUserId && assignedList.indexOf(rowUserId) === -1) continue;
+                }
+                // update checklist column on activity_logs row
+                updateObjectRow_(actSheet, ar + 1, { checklist: JSON.stringify(newDl) });
+              } catch (e) {
+                // non-fatal per-row
+              }
+            }
+          }
+        }
+      } catch (e) {
+        // non-fatal
+      }
+    } catch (e) {
+      // best-effort, ignore errors
+    }
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err && err.message ? String(err.message) : String(err) };

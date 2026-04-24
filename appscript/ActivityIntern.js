@@ -958,6 +958,39 @@ function updateActivityTask(payload) {
 
 			updateObjectRow_(sheet, i + 1, nextTask);
 
+			// Attempt to update corresponding supervisor_task row(s) so supervisors see checklist changes
+			try {
+				var supSheet = getSheet_('supervisor_task');
+				var supValues = getSheetValues_(supSheet) || [];
+				if (supValues.length > 0) {
+					var supHeaders = supValues[0].map(function(h) { return String(h || '').trim().toLowerCase(); });
+					var taskIdx = supHeaders.indexOf('task');
+					var assignedIdx = supHeaders.indexOf('assigned_to');
+					var dailyChecklistIdx = supHeaders.indexOf('daily_checklist');
+					for (var r = 1; r < supValues.length; r++) {
+						var row = supValues[r] || [];
+						var rowTask = taskIdx !== -1 ? String(row[taskIdx] || '').trim() : '';
+						var assignedJson = assignedIdx !== -1 ? String(row[assignedIdx] || '[]') : '[]';
+						var assignedList = [];
+						try { assignedList = JSON.parse(assignedJson) || []; } catch (e) { assignedList = []; }
+						if (rowTask && rowTask === String(nextTask.task_name || nextTask.task_name || nextTask.task || '')) {
+							for (var ai = 0; ai < assignedList.length; ai++) {
+								if (String(assignedList[ai] || '').trim() === String(nextTask.user_id || '').trim()) {
+									// Found matching supervisor_task row for this activity; update daily_checklist if column exists
+									if (dailyChecklistIdx !== -1) {
+										var checklistJson = JSON.stringify(nextChecklist || []);
+										updateObjectRow_(supSheet, r + 1, { daily_checklist: checklistJson });
+									}
+									break;
+								}
+							}
+						}
+					}
+				}
+			} catch (e) {
+				// Non-fatal: supervisor task update is best-effort
+			}
+
 			return {
 				ok: true,
 				message: 'Task updated.',
@@ -1136,6 +1169,7 @@ function handleCreateActivityTask_(payload) {
 				due_date: dueDate,
 				status: String(payload.status || 'Pending').trim(),
 				assigned_to: JSON.stringify([user_id]),
+				daily_checklist: JSON.stringify(payload.dailyChecklist || payload.checklist || []),
 				created_at: createdAt,
 				created_by: assignedBy,
 				updated_by: assignedBy
