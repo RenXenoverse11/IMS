@@ -134,13 +134,86 @@
     form.lunchBreak ||
     form.reason
   ) {
-    if (
+    // Validate date-related errors in real-time for absence requests
+    if (form.requestType === "Absence" && form.date) {
+      const dateObj = new Date(form.date + "T00:00:00");
+      const dayOfWeek = dateObj.getDay();
+      const daysOff = Array.isArray(internSchedule.days_off) ? internSchedule.days_off : [0, 6];
+      
+      if (daysOff.includes(dayOfWeek)) {
+        const dayName = [
+          "Sunday",
+          "Monday",
+          "Tuesday",
+          "Wednesday",
+          "Thursday",
+          "Friday",
+          "Saturday",
+        ][dayOfWeek];
+        formError = `Absence cannot be requested during day off (${dayName}). Please select a working day.`;
+      } else if (
+        formError &&
+        (formError.includes("cannot be scheduled") ||
+          formError.includes("End time must") ||
+          formError.includes("Overtime must") ||
+          formError.includes("Start time and end") ||
+          formError.includes("work hours") ||
+          formError.includes("day off"))
+      ) {
+        formError = "";
+      }
+    } else if (form.requestType === "Overtime" && form.startTime && form.endTime) {
+      // Validate overtime - check if it overlaps with shift hours
+      const [startHour, startMin] = String(form.startTime).split(":").map(Number);
+      const [endHour, endMin] = String(form.endTime).split(":").map(Number);
+      const startTotalMin = startHour * 60 + startMin;
+      const endTotalMin = endHour * 60 + endMin;
+      
+      // Check if end time is after start time
+      if (endTotalMin <= startTotalMin) {
+        formError = "End time must be after start time.";
+      } else {
+        // Calculate overtime hours (in 0.5 hour increments)
+        const durationMin = endTotalMin - startTotalMin;
+        const lunchBreakMin = Number(form.lunchBreak || 0);
+        const netMin = Math.max(0, durationMin - lunchBreakMin);
+        const overtimeHrs = Math.round(netMin / 30) * 0.5; // Round to nearest 0.5
+        
+        // Check if overtime is at least 30 minutes (0.5 hours)
+        if (overtimeHrs < 0.5) {
+          formError = "Overtime must be at least 30 minutes.";
+        } else {
+          const shiftStart = String(internSchedule.shift_start || "09:00").trim();
+          const shiftEnd = String(internSchedule.shift_end || "17:00").trim();
+          const [shiftStartHour, shiftStartMin] = shiftStart.split(":").map(Number);
+          const [shiftEndHour, shiftEndMin] = shiftEnd.split(":").map(Number);
+          const shiftStartTotalMin = shiftStartHour * 60 + shiftStartMin;
+          const shiftEndTotalMin = shiftEndHour * 60 + shiftEndMin;
+          
+          // Check for overlap: if overtime is within shift hours
+          if (startTotalMin < shiftEndTotalMin && endTotalMin > shiftStartTotalMin) {
+            formError = `Overtime cannot be scheduled during your work hours (${shiftStart} - ${shiftEnd}). Please schedule overtime outside these hours.`;
+          } else if (
+            formError &&
+            (formError.includes("cannot be scheduled") ||
+              formError.includes("End time must") ||
+              formError.includes("Overtime must") ||
+              formError.includes("Start time and end") ||
+              formError.includes("work hours") ||
+              formError.includes("day off"))
+          ) {
+            formError = "";
+          }
+        }
+      }
+    } else if (
       formError &&
       (formError.includes("cannot be scheduled") ||
         formError.includes("End time must") ||
         formError.includes("Overtime must") ||
         formError.includes("Start time and end") ||
-        formError.includes("work hours"))
+        formError.includes("work hours") ||
+        formError.includes("day off"))
     ) {
       formError = "";
     }
@@ -1094,7 +1167,7 @@
             type="date"
             bind:value={form.date}
             min={minDate}
-            class="form-input"
+            class="form-input date-input-clean"
             placeholder="dd/mm/yyyy"
           />
         </div>
@@ -1176,7 +1249,12 @@
         </div>
 
         {#if formError}
-          <div class="alert-error">{formError}</div>
+          <div 
+            class="alert-error" 
+            class:alert-warning={formError.includes("day off") || formError.includes("work hours")}
+          >
+            {formError}
+          </div>
         {/if}
 
         <!-- Submit -->
@@ -2167,6 +2245,12 @@
     color: var(--text3);
     font-family: "DM Sans", sans-serif;
   }
+
+  /* Date Input - Simple, no extra icons */
+  .date-input-clean {
+    cursor: pointer;
+  }
+
   .form-textarea {
     resize: vertical;
     min-height: 110px;
@@ -2262,6 +2346,12 @@
     border-radius: var(--radius-sm);
     padding: 12px;
     color: var(--red);
+  }
+
+  .alert-error.alert-warning {
+    background: var(--amber-dim);
+    border: 1px solid var(--amber);
+    color: var(--amber);
   }
 
   /* ========== MODALS ========== */
