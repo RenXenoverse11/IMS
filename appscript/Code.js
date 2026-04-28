@@ -316,6 +316,24 @@ function dispatchAction_(payload) {
     return { ok: false, error: 'Handler not available: handleDeleteProjSubmission_' };
   }
 
+  // --- Milestones (intern) ---
+  if (action === 'list_milestones') {
+    if (typeof handleListMilestones_ === 'function') return handleListMilestones_(payload);
+    return { ok: false, error: 'Handler not available: handleListMilestones_' };
+  }
+  if (action === 'create_milestone') {
+    if (typeof handleCreateMilestone_ === 'function') return handleCreateMilestone_(payload);
+    return { ok: false, error: 'Handler not available: handleCreateMilestone_' };
+  }
+  if (action === 'update_milestone') {
+    if (typeof handleUpdateMilestone_ === 'function') return handleUpdateMilestone_(payload);
+    return { ok: false, error: 'Handler not available: handleUpdateMilestone_' };
+  }
+  if (action === 'delete_milestone') {
+    if (typeof handleDeleteMilestone_ === 'function') return handleDeleteMilestone_(payload);
+    return { ok: false, error: 'Handler not available: handleDeleteMilestone_' };
+  }
+
   return { ok: false, error: 'Unknown action: ' + action };
 }
 
