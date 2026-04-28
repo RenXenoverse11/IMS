@@ -96,7 +96,7 @@ function handleCreateProjIntern_(payload) {
     projId,
     projName,
     String(payload.priority    || 'Medium').trim(),
-    String(payload.status      || 'Pending').trim(),
+    String(payload.status      || 'Not Started').trim(),
     membersStr,
     String(payload.supervisor  || '').trim(),
     startDate,
@@ -202,6 +202,7 @@ function handleGetProjUsersBootstrap_(payload) {
   var uNameIdx  = findIndex(['fullname','full_name','name']);
   var uEmailIdx = findIndex(['email','e-mail','mail']);
   var uRoleIdx  = findIndex(['role','type','position','userrole']);
+  var uDeptIdx  = findIndex(['department','dept','division']);
 
   if (uIdIdx === -1) return { ok: false, error: 'users sheet missing user id column.' };
 
@@ -213,11 +214,13 @@ function handleGetProjUsersBootstrap_(payload) {
     var nameVal = uNameIdx >= 0 ? String(r[uNameIdx] || '').trim() : '';
     var emailVal = uEmailIdx >= 0 ? String(r[uEmailIdx] || '').trim() : '';
     var roleVal = uRoleIdx >= 0 ? String(r[uRoleIdx] || '').toLowerCase().trim() : '';
+    var deptVal = uDeptIdx >= 0 ? String(r[uDeptIdx] || '').trim() : '';
     userMap[uid] = {
       user_id:   uid,
       full_name: nameVal || emailVal || uid,
       email:     emailVal,
-      role:      roleVal
+      role:      roleVal,
+      department: deptVal
     };
   }
 
@@ -301,13 +304,30 @@ function handleGetProjUsersBootstrap_(payload) {
   }
 
   // Fallback: if no assignment found, return all users by role
-  if (!internSupervisorId && !internsList.length) {
-    for (var fid in userMap) {
-      var fu = userMap[fid];
-      var fr = fu.role;
-      if (fr.indexOf('intern') !== -1 || fr.indexOf('student') !== -1) internsList.push(fu);
-      else if (fr.indexOf('supervisor') !== -1 || fr.indexOf('mentor') !== -1) supervisorsList.push(fu);
+  // Build lists of all interns/supervisors based on role for use as fallback
+  var allInterns = [];
+  var allSupervisors = [];
+  for (var fid in userMap) {
+    var fu = userMap[fid];
+    var fr = String(fu.role || '').toLowerCase();
+    if (fr.indexOf('intern') !== -1 || fr.indexOf('student') !== -1) allInterns.push(fu);
+    else if (fr.indexOf('supervisor') !== -1 || fr.indexOf('mentor') !== -1) allSupervisors.push(fu);
+  }
+
+  // If no scoped co-interns found, prefer interns in the same department as the current user
+  var currentUserDept = internId && userMap[internId] ? String(userMap[internId].department || '').trim() : '';
+  if (!internsList.length) {
+    if (currentUserDept) {
+      var deptMatches = allInterns.filter(function(u){ return String(u.department || '').trim() === currentUserDept; });
+      internsList = deptMatches.length ? deptMatches : allInterns.slice();
+    } else {
+      internsList = allInterns.slice();
     }
+  }
+
+  // If no supervisors were found, fall back to all supervisors
+  if (!supervisorsList.length) {
+    supervisorsList = allSupervisors.slice();
   }
 
   return { ok: true, interns: internsList, supervisors: supervisorsList };

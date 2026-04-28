@@ -290,6 +290,32 @@ function dispatchAction_(payload) {
     return { ok: false, error: 'Handler not available: handleGetProjUsersBootstrap_' };
   }
 
+  // ── Project Submissions & Folders ────────────────────────────────────────
+  if (action === 'list_proj_submissions') {
+    if (typeof handleListProjSubmissions_ === 'function') return handleListProjSubmissions_(payload);
+    return { ok: false, error: 'Handler not available: handleListProjSubmissions_' };
+  }
+  if (action === 'create_proj_folder') {
+    if (typeof handleCreateProjFolder_ === 'function') return handleCreateProjFolder_(payload);
+    return { ok: false, error: 'Handler not available: handleCreateProjFolder_' };
+  }
+  if (action === 'update_proj_folder') {
+    if (typeof handleUpdateProjFolder_ === 'function') return handleUpdateProjFolder_(payload);
+    return { ok: false, error: 'Handler not available: handleUpdateProjFolder_' };
+  }
+  if (action === 'delete_proj_folder') {
+    if (typeof handleDeleteProjFolder_ === 'function') return handleDeleteProjFolder_(payload);
+    return { ok: false, error: 'Handler not available: handleDeleteProjFolder_' };
+  }
+  if (action === 'create_proj_submission') {
+    if (typeof handleCreateProjSubmission_ === 'function') return handleCreateProjSubmission_(payload);
+    return { ok: false, error: 'Handler not available: handleCreateProjSubmission_' };
+  }
+  if (action === 'delete_proj_submission') {
+    if (typeof handleDeleteProjSubmission_ === 'function') return handleDeleteProjSubmission_(payload);
+    return { ok: false, error: 'Handler not available: handleDeleteProjSubmission_' };
+  }
+
   return { ok: false, error: 'Unknown action: ' + action };
 }
 
