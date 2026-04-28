@@ -39,6 +39,7 @@
   let inlineEditId = null;
   let inlineForm = {};
   let showInlineMembersPanel = false;
+  let showInlineSupervisorPanel = false;
 
   // Delete modal
   let showDeleteModal   = false;
@@ -51,6 +52,7 @@
   // Populated from backend on mount
   let SUPERVISOR_OPTIONS = [];
   let MEMBER_OPTIONS     = [];
+  let showSupervisorsPanel = false;
 
   const PRIORITY_COLORS = {
     'Low': { bg: '#f0f9ff', text: '#0369a1', border: '#bae6fd' },
@@ -82,7 +84,7 @@
     title: '',
     description: '',
     members: [],
-    supervisor: '',
+    supervisor: [],
     timeline_start: '',
     timeline_end: '',
     status: 'Not Started',
@@ -90,7 +92,7 @@
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   function resetForm() {
-    form = { priority_level: 'Low', title: '', description: '', members: [], supervisor: '', timeline_start: '', timeline_end: '', status: 'Not Started' };
+    form = { priority_level: 'Low', title: '', description: '', members: [], supervisor: [], timeline_start: '', timeline_end: '', status: 'Not Started' };
     editingId = null;
     formError = '';
     formSuccess = '';
@@ -171,13 +173,18 @@
     isLoading = true;
     try {
       const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
-      if (!uid) return;
+      if (!uid) {
+        try { console.warn('loadBootstrap: no user_id - currentUser:', currentUser); } catch(e) {}
+        return;
+      }
 
       // Fetch user lists and projects in parallel
       const [bootstrapRes, projectsRes] = await Promise.all([
         dispatchAction('get_proj_users_bootstrap', { user_id: uid }),
         dispatchAction('list_proj_intern', { user_id: uid })
       ]);
+
+      try { console.log('loadBootstrap -> uid=', uid, 'bootstrapRes=', bootstrapRes, 'projectsRes=', projectsRes); } catch(e) {}
 
       if (bootstrapRes?.ok) {
         SUPERVISOR_OPTIONS = (bootstrapRes.supervisors || []).map(u => ({
@@ -195,6 +202,9 @@
       if (projectsRes?.ok) {
         projects = (projectsRes.projects || []).map(normalizeProject);
       }
+
+      // Folders are loaded lazily when a project is opened — just ensure the property exists
+      projects = projects.map(p => ({ ...p, folders: p.folders || null }));
     } catch (e) {
       console.error('loadBootstrap error', e);
     } finally {
@@ -211,14 +221,14 @@
       priority_level: p.priority     || 'Medium',
       status:         p.status       || 'Pending',
       members:        p.members      ? p.members.split(',').map(s => s.trim()).filter(Boolean) : [],
-      supervisor:     p.supervisor   || '',
+      supervisors:    p.supervisor   ? p.supervisor.split(',').map(s => s.trim()).filter(Boolean) : [],
       timeline_start: p.start_date   || '',
       timeline_end:   p.end_date     || '',
       deadline:       p.end_date     || '',
       created_at:     p.created_at   || '',
       created_by:     p.created_by   || '',
       archived:       false,
-      folders:        [],
+      folders:        null,           // null = not yet loaded; [] = loaded and empty
       progress_logs:  [],
       milestones:     []
     };
@@ -251,7 +261,7 @@
         projects = projects.map(p =>
           p.id === editingId
             ? { ...p, title: form.title, description: form.description, priority_level: form.priority_level,
-                status: form.status, members: [...(form.members || [])], supervisor: form.supervisor,
+                status: form.status, members: [...(form.members || [])], supervisors: [...(form.supervisor || [])],
                 timeline_start: form.timeline_start, timeline_end: form.timeline_end, deadline: form.timeline_end }
             : p
         );
@@ -276,7 +286,7 @@
           priority:    form.priority_level,
           status:      form.status,
           members:     form.members.join(','),
-          supervisor:  form.supervisor,
+          supervisor:  (Array.isArray(form.supervisor) ? form.supervisor.join(',') : String(form.supervisor || '')),
           start_date:  form.timeline_start,
           end_date:    form.timeline_end,
           created_by:  uid
@@ -304,13 +314,14 @@
       title:          p.title || '',
       description:    p.description || '',
       members:        Array.isArray(p.members) ? [...p.members] : [],
-      supervisor:     p.supervisor || '',
+      supervisor:     Array.isArray(p.supervisors) ? [...p.supervisors] : [],
       timeline_start: p.timeline_start || '',
       timeline_end:   p.timeline_end || p.deadline || '',
       status:         p.status || 'Not Started',
     };
     inlineEditId = p.id;
     showInlineMembersPanel = false;
+    showInlineSupervisorPanel = false;
   }
 
   function cancelInlineEdit() {
@@ -340,7 +351,7 @@
       if (!res?.ok) { formError = res?.error || 'Update failed.'; return; }
       projects = projects.map(proj => proj.id === p.id
         ? { ...proj, title: inlineForm.title, description: inlineForm.description, priority_level: inlineForm.priority_level,
-            status: inlineForm.status, members: inlineForm.members, supervisor: inlineForm.supervisor,
+            status: inlineForm.status, members: inlineForm.members, supervisors: inlineForm.supervisor,
             timeline_start: inlineForm.timeline_start, timeline_end: inlineForm.timeline_end, deadline: inlineForm.timeline_end }
         : proj);
       cancelInlineEdit();
@@ -354,6 +365,11 @@
   function toggleInlineMember(val) {
     const arr = inlineForm.members || [];
     inlineForm.members = arr.includes(val) ? arr.filter(x => x !== val) : [...arr, val];
+  }
+
+  function toggleInlineSupervisor(val) {
+    const arr = inlineForm.supervisor || [];
+    inlineForm.supervisor = arr.includes(val) ? arr.filter(x => x !== val) : [...arr, val];
   }
 
   function openDeleteModal(p)  { projectToDelete = p; showDeleteModal = true;  }
@@ -396,6 +412,10 @@
     } else {
       viewingProjectId  = p.id;
       viewingProjectTab = 'Details';
+      // Load folders if not yet fetched
+      if (!p.folders || p.folders === null) {
+        loadProjectFolders(p.id);
+      }
     }
   }
 
@@ -411,17 +431,58 @@
     form.members = list;
   }
 
+  function toggleSupervisor(name) {
+    const list = Array.isArray(form.supervisor) ? [...form.supervisor] : [];
+    const idx = list.indexOf(name);
+    if (idx === -1) list.push(name);
+    else list.splice(idx, 1);
+    form.supervisor = list;
+  }
+
   // ── Folder-based Submissions ───────────────────────────────────────────────
-  let expandedFolderIds = new Set();
+  let expandedFolderIds  = new Set();
   let activeLinkFolderId = null;
-  let viewingLinkUrl = '';
-  let viewingLinkLabel = '';
-  let renamingFolderId = null;
+  let viewingLinkUrl     = '';
+  let viewingLinkLabel   = '';
+  let renamingFolderId   = null;
   let renamingFolderName = '';
-  let pendingUpload = { projectId: null, folderId: null, file: null, name: '', type: 'Document' };
-  let showMembersPanel = false;
+  let pendingUpload      = { projectId: null, folderId: null, file: null, name: '', type: 'Document' };
+  let showMembersPanel   = false;
+  let isLoadingFolders   = false;
+  let isSavingFolder     = false;
+  let isUploadingFile    = false;
 
   const FILE_TYPE_OPTIONS = ['Document', 'Powerpoint', 'PDF', 'Word'];
+
+  // Map file extension → kind category
+  function extToKind_(ext) {
+    const e = String(ext || '').toLowerCase().replace('.', '');
+    if (e === 'pdf')  return 'PDF';
+    if (['ppt','pptx'].includes(e)) return 'Powerpoint';
+    if (['doc','docx'].includes(e)) return 'Document';
+    return 'Document';
+  }
+
+  // Get MIME type from extension
+  function extToMime_(ext) {
+    const e = String(ext || '').toLowerCase().replace('.', '');
+    const map = {
+      pdf: 'application/pdf',
+      doc:  'application/msword',
+      docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      ppt:  'application/vnd.ms-powerpoint',
+      pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      xls:  'application/vnd.ms-excel',
+      xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      png:  'image/png',
+      jpg:  'image/jpeg',
+      jpeg: 'image/jpeg',
+      gif:  'image/gif',
+      html: 'text/html',
+      txt:  'text/plain',
+    };
+    return map[e] || 'application/octet-stream';
+  }
 
   // Progress logs
   let activeLogPanelProjectId = null;
@@ -495,43 +556,119 @@
     expandedFolderIds = new Set(expandedFolderIds);
   }
 
-  function addFolder(projectId) {
-    const folderId = `folder-${Date.now()}`;
-    const newFolder = { id: folderId, name: 'New Folder', submissions: [] };
-    projects = projects.map(p => p.id === projectId ? { ...p, folders: [ ...(p.folders || []), newFolder ] } : p);
-    // auto-expand and start renaming
-    expandedFolderIds.add(folderId);
-    expandedFolderIds = new Set(expandedFolderIds);
-    renamingFolderId = folderId;
-    renamingFolderName = 'New Folder';
+  // Load folders + submissions for a project from the backend
+  async function loadProjectFolders(projectId) {
+    const projId = String(projects.find(p => p.id === projectId)?.proj_id || projectId);
+    isLoadingFolders = true;
+    try {
+      const res = await dispatchAction('list_proj_submissions', { proj_id: projId });
+      if (res?.ok) {
+        const folders = (res.folders || []).map(f => ({
+          id:          f.folder_id,
+          folder_id:   f.folder_id,
+          name:        f.folder_name,
+          gdrive_link: f.gdrive_link,
+          created_by:  f.created_by,
+          submissions: (f.submissions || []).map(normalizeSubmission_)
+        }));
+        projects = projects.map(p => p.id === projectId ? { ...p, folders } : p);
+      }
+    } catch (e) {
+      console.error('loadProjectFolders error', e);
+    } finally {
+      isLoadingFolders = false;
+    }
+  }
+
+  function normalizeSubmission_(s) {
+    const isFile = s.kind !== 'link';
+    return {
+      id:            s.submission_id,
+      submission_id: s.submission_id,
+      kind:          isFile ? 'file' : 'link',
+      // file fields
+      name:          s.file_name || '',
+      file_type:     s.file_type || '',
+      file_size:     s.file_size || '',
+      uploaded_at:   s.uploaded_at || '',
+      drive_url:     isFile ? (s.link_url || '') : '',   // link_url stores the Drive file URL for files
+      // link fields
+      title:         !isFile ? (s.link_label || s.link_url || '') : '',
+      url:           !isFile ? (s.link_url || '') : '',
+      added_at:      !isFile ? (s.uploaded_at || '') : '',
+    };
+  }
+
+  async function addFolder(projectId) {
+    const uid    = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    const projId = String(projects.find(p => p.id === projectId)?.proj_id || projectId);
+    isSavingFolder = true;
+    try {
+      const res = await dispatchAction('create_proj_folder', {
+        proj_id: projId, folder_name: 'New Folder', user_id: uid
+      });
+      if (!res?.ok) { formError = res?.error || 'Failed to create folder.'; return; }
+      const newFolder = {
+        id: res.folder_id, folder_id: res.folder_id,
+        name: 'New Folder', gdrive_link: res.gdrive_link || '',
+        submissions: []
+      };
+      projects = projects.map(p => p.id === projectId
+        ? { ...p, folders: [...(p.folders || []), newFolder] } : p);
+      expandedFolderIds.add(res.folder_id);
+      expandedFolderIds = new Set(expandedFolderIds);
+      renamingFolderId   = res.folder_id;
+      renamingFolderName = 'New Folder';
+    } catch (e) {
+      formError = e?.message || 'Failed to create folder.';
+    } finally {
+      isSavingFolder = false;
+    }
   }
 
   function startRenaming(folderId, currentName) {
-    renamingFolderId = folderId;
+    renamingFolderId   = folderId;
     renamingFolderName = currentName;
   }
 
-  function confirmRename(projectId) {
+  async function confirmRename(projectId) {
     if (!renamingFolderId) return;
-    const newName = String(renamingFolderName || '').trim() || 'New Folder';
-    projects = projects.map(p => p.id === projectId ? {
-      ...p,
-      folders: (p.folders || []).map(f => f.id === renamingFolderId ? { ...f, name: newName } : f)
-    } : p);
-    renamingFolderId = null;
+    const newName  = String(renamingFolderName || '').trim() || 'New Folder';
+    const uid      = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    const savedId  = renamingFolderId;
+    renamingFolderId   = null;
     renamingFolderName = '';
+    // Optimistic UI update
+    projects = projects.map(p => p.id === projectId ? {
+      ...p, folders: (p.folders || []).map(f => f.id === savedId ? { ...f, name: newName } : f)
+    } : p);
+    try {
+      const res = await dispatchAction('update_proj_folder', {
+        folder_id: savedId, folder_name: newName, user_id: uid
+      });
+      if (!res?.ok) { formError = res?.error || 'Rename failed.'; }
+    } catch (e) {
+      formError = e?.message || 'Rename failed.';
+    }
   }
 
-  function deleteFolder(projectId, folderId) {
+  async function deleteFolder(projectId, folderId) {
+    if (activeLinkFolderId === folderId) activeLinkFolderId = null;
+    if (pendingUpload.folderId === folderId) cancelPendingUpload();
+    // Optimistic UI
     projects = projects.map(p => p.id === projectId ? {
       ...p, folders: (p.folders || []).filter(f => f.id !== folderId)
     } : p);
     expandedFolderIds.delete(folderId);
     expandedFolderIds = new Set(expandedFolderIds);
-    if (activeLinkFolderId === folderId) activeLinkFolderId = null;
-    if (pendingUpload.folderId === folderId) cancelPendingUpload();
-    formSuccess = 'Folder deleted.';
-    setTimeout(() => { formSuccess = ''; }, 2000);
+    try {
+      const res = await dispatchAction('delete_proj_folder', { folder_id: folderId });
+      if (!res?.ok) { formError = res?.error || 'Delete folder failed.'; return; }
+      formSuccess = 'Folder deleted.';
+      setTimeout(() => { formSuccess = ''; }, 2000);
+    } catch (e) {
+      formError = e?.message || 'Delete folder failed.';
+    }
   }
 
   function toggleLinkPanel(folderId) {
@@ -557,95 +694,171 @@
     const file = ev.target.files && ev.target.files[0];
     if (!file) return;
     const defaultName = file.name.replace(/\.[^/.]+$/, '');
-    pendingUpload = { projectId, folderId, file, name: defaultName, type: 'Document' };
+    const ext = (file.name.match(/\.([^.]+)$/) || [])[1] || '';
+    pendingUpload = { projectId, folderId, file, name: defaultName, type: extToKind_(ext), ext };
     ev.target.value = '';
   }
 
   function cancelPendingUpload() {
-    pendingUpload = { projectId: null, folderId: null, file: null, name: '', type: 'Document' };
+    pendingUpload = { projectId: null, folderId: null, file: null, name: '', type: 'Document', ext: '' };
     formError = '';
   }
 
-  function confirmUpload(projectId, folderId) {
+  async function confirmUpload(projectId, folderId) {
     if (!pendingUpload || pendingUpload.projectId !== projectId || pendingUpload.folderId !== folderId || !pendingUpload.file) return;
-    const file = pendingUpload.file;
-    const chosenName = String(pendingUpload.name || file.name).trim() || file.name;
-    const chosenType = pendingUpload.type || 'Document';
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result;
+    const file       = pendingUpload.file;
+    const chosenName = (String(pendingUpload.name || '').trim() || file.name.replace(/\.[^/.]+$/, '')) + (pendingUpload.ext ? '.' + pendingUpload.ext : '');
+    const chosenKind = pendingUpload.type || 'Document';
+    const ext        = pendingUpload.ext || (file.name.match(/\.([^.]+)$/) || [])[1] || '';
+    const mimeType   = extToMime_(ext);
+    const fileSizeMb = (file.size / (1024 * 1024)).toFixed(3);
+    const projId     = String(projects.find(p => p.id === projectId)?.proj_id || projectId);
+    const uid        = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+
+    isUploadingFile = true;
+    formError = '';
+    try {
+      // Read as base64
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload  = () => {
+          // result is a dataUrl: data:<mime>;base64,<data>
+          const dataUrl = reader.result;
+          const b64     = dataUrl.split(',')[1] || '';
+          resolve(b64);
+        };
+        reader.onerror = () => reject(new Error('File read failed'));
+        reader.readAsDataURL(file);
+      });
+
+      const res = await dispatchAction('create_proj_submission', {
+        proj_id:    projId,
+        folder_id:  folderId,
+        user_id:    uid,
+        kind:       'file',
+        file_name:  chosenName,
+        file_type:  ext,
+        file_kind:  chosenKind,
+        file_size:  fileSizeMb,
+        base64_data: base64,
+        mime_type:  mimeType
+      });
+      if (!res?.ok) { formError = res?.error || 'Upload failed.'; return; }
+
       const submission = {
-        id: `sub-${Date.now()}`,
-        kind: 'file',
-        name: chosenName,
-        file_type: chosenType,
-        uploaded_at: new Date().toISOString().slice(0, 10),
-        dataUrl,
+        id:            res.submission_id,
+        submission_id: res.submission_id,
+        kind:          'file',
+        name:          chosenName,
+        file_type:     ext,
+        file_size:     (String(fileSizeMb || '').trim() && !/\s*MB$/i.test(String(fileSizeMb || '')))
+                        ? String(fileSizeMb) + ' MB' : String(fileSizeMb || ''),
+        uploaded_at:   res.uploaded_at || new Date().toISOString().slice(0, 10),
+        drive_url:     res.drive_url || ''
       };
       projects = projects.map(p => p.id === projectId ? {
         ...p,
-        folders: (p.folders || []).map(f => f.id === folderId ? { ...f, submissions: [ ...(f.submissions || []), submission ] } : f),
-        updated_at: new Date().toISOString()
+        folders: (p.folders || []).map(f => f.id === folderId
+          ? { ...f, submissions: [...(f.submissions || []), submission] } : f)
       } : p);
-      formSuccess = 'File uploaded.';
-      setTimeout(() => { formSuccess = ''; }, 2000);
+      formSuccess = 'File uploaded successfully.';
+      setTimeout(() => { formSuccess = ''; }, 3000);
       cancelPendingUpload();
-    };
-    reader.readAsDataURL(file);
+    } catch (e) {
+      formError = e?.message || 'Upload failed.';
+    } finally {
+      isUploadingFile = false;
+    }
   }
 
-  function addLinkSubmission(projectId, folderId) {
+  async function addLinkSubmission(projectId, folderId) {
     if (!String(viewingLinkUrl || '').trim()) { formError = 'Link URL is required.'; return; }
-    activeLinkFolderId = null;
-    const submission = {
-      id: `sub-${Date.now()}`,
-      kind: 'link',
-      title: viewingLinkLabel || viewingLinkUrl,
-      url: viewingLinkUrl,
-      added_at: new Date().toISOString(),
-    };
-    projects = projects.map(p => p.id === projectId ? {
-      ...p,
-      folders: (p.folders || []).map(f => f.id === folderId ? { ...f, submissions: [ ...(f.submissions || []), submission ] } : f),
-      updated_at: new Date().toISOString()
-    } : p);
-    viewingLinkUrl = '';
-    viewingLinkLabel = '';
-    formSuccess = 'Link added.';
-    setTimeout(() => { formSuccess = ''; }, 2000);
+    const projId = String(projects.find(p => p.id === projectId)?.proj_id || projectId);
+    const uid    = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    formError = '';
+    try {
+      const res = await dispatchAction('create_proj_submission', {
+        proj_id:    projId,
+        folder_id:  folderId,
+        user_id:    uid,
+        kind:       'link',
+        link_label: viewingLinkLabel,
+        link_url:   viewingLinkUrl
+      });
+      if (!res?.ok) { formError = res?.error || 'Failed to save link.'; return; }
+
+      const submission = {
+        id:            res.submission_id,
+        submission_id: res.submission_id,
+        kind:          'link',
+        title:         viewingLinkLabel || viewingLinkUrl,
+        url:           viewingLinkUrl,
+        added_at:      res.uploaded_at || new Date().toISOString()
+      };
+      projects = projects.map(p => p.id === projectId ? {
+        ...p,
+        folders: (p.folders || []).map(f => f.id === folderId
+          ? { ...f, submissions: [...(f.submissions || []), submission] } : f)
+      } : p);
+      viewingLinkUrl     = '';
+      viewingLinkLabel   = '';
+      activeLinkFolderId = null;
+      formSuccess = 'Link added.';
+      setTimeout(() => { formSuccess = ''; }, 2000);
+    } catch (e) {
+      formError = e?.message || 'Failed to save link.';
+    }
   }
 
   function viewSubmission(sub) {
     if (!sub) return;
-    if (sub.kind === 'file' && sub.dataUrl) {
-      window.open(sub.dataUrl, '_blank');
-    } else if (sub.kind === 'link' && sub.url) {
-      window.open(sub.url, '_blank');
+    const url = sub.kind === 'file' ? (sub.drive_url || '') : (sub.url || '');
+    if (!url) return;
+    // Try to extract a Drive file id and open a reliable view URL
+    if (sub.kind === 'file') {
+      const m = String(url || '').match(/\/d\/([a-zA-Z0-9_-]+)/) || String(url || '').match(/[?&]id=([a-zA-Z0-9_-]+)/);
+      const fid = m ? m[1] : null;
+      if (fid) {
+        const viewUrl = 'https://drive.google.com/file/d/' + fid + '/view?usp=sharing';
+        window.open(viewUrl, '_blank');
+        return;
+      }
     }
+    window.open(url, '_blank');
   }
 
   function downloadSubmission(sub) {
     if (!sub) return;
-    if (sub.kind === 'file' && sub.dataUrl) {
-      const a = document.createElement('a');
-      a.href = sub.dataUrl;
-      a.download = sub.name || 'file';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    } else if (sub.kind === 'link' && sub.url) {
-      window.open(sub.url, '_blank');
+    const url = sub.kind === 'file' ? (sub.drive_url || '') : (sub.url || '');
+    if (!url) return;
+    // For Drive files, open a direct download link using the file id
+    if (sub.kind === 'file') {
+      const m = String(url || '').match(/\/d\/([a-zA-Z0-9_-]+)/) || String(url || '').match(/[?&]id=([a-zA-Z0-9_-]+)/);
+      const fid = m ? m[1] : null;
+      if (fid) {
+        const dl = 'https://drive.google.com/uc?export=download&id=' + fid;
+        window.open(dl, '_blank');
+        return;
+      }
     }
+    window.open(url, '_blank');
   }
 
-  function deleteSubmission(projectId, folderId, subId) {
+  async function deleteSubmission(projectId, folderId, subId) {
+    // Optimistic UI
     projects = projects.map(p => p.id === projectId ? {
       ...p,
-      folders: (p.folders || []).map(f => f.id === folderId ? { ...f, submissions: (f.submissions || []).filter(s => s.id !== subId) } : f),
-      updated_at: new Date().toISOString()
+      folders: (p.folders || []).map(f => f.id === folderId
+        ? { ...f, submissions: (f.submissions || []).filter(s => s.id !== subId) } : f)
     } : p);
-    formSuccess = 'Submission removed.';
-    setTimeout(() => { formSuccess = ''; }, 2000);
+    try {
+      const res = await dispatchAction('delete_proj_submission', { submission_id: subId });
+      if (!res?.ok) { formError = res?.error || 'Delete submission failed.'; return; }
+      formSuccess = 'Submission removed.';
+      setTimeout(() => { formSuccess = ''; }, 2000);
+    } catch (e) {
+      formError = e?.message || 'Delete submission failed.';
+    }
   }
 
   async function archiveProject(p) {
@@ -842,7 +1055,7 @@
                     <div class="proj-detail-card">
                       <div class="proj-detail-tabs">
                         <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Details'} on:click={() => viewingProjectTab = 'Details'}>Details</button>
-                        <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Submissions'} on:click={() => viewingProjectTab = 'Submissions'}>Submissions</button>
+                        <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Submissions'} on:click={() => { viewingProjectTab = 'Submissions'; if (!p.folders) loadProjectFolders(p.id); }}>Submissions</button>
                         <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Milestones'} on:click={() => viewingProjectTab = 'Milestones'}>Milestones</button>
                         <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Feedback'} on:click={() => viewingProjectTab = 'Feedback'}>Feedback</button>
                       </div>
@@ -878,11 +1091,19 @@
                               {/if}
                             </div>
                             <div class="ief-group">
-                              <label class="ief-label" for="ief-sup-{p.id}">Supervisor</label>
-                              <select id="ief-sup-{p.id}" class="ief-input" bind:value={inlineForm.supervisor}>
-                                <option value="">Select supervisor</option>
-                                {#each SUPERVISOR_OPTIONS as s}<option value={s.value}>{s.label}</option>{/each}
-                              </select>
+                              <label class="ief-label">Supervisor</label>
+                              <div class="members-input ief-input" on:click={() => showInlineSupervisorPanel = !showInlineSupervisorPanel} role="button" tabindex="0">
+                                <div>{(inlineForm.supervisor && inlineForm.supervisor.length) ? inlineForm.supervisor.map(id => SUPERVISOR_OPTIONS.find(o => o.value === id)?.label || id).join(', ') : 'Select supervisor(s)'}</div>
+                                <div class="muted">{(inlineForm.supervisor || []).length}</div>
+                              </div>
+                              {#if showInlineSupervisorPanel}
+                                <div class="members-panel" style="margin-top:6px">
+                                  {#each SUPERVISOR_OPTIONS as s}
+                                    <label class="members-item"><input type="checkbox" checked={(inlineForm.supervisor || []).includes(s.value)} on:change={() => toggleInlineSupervisor(s.value)} /> <span class="members-name">{s.label}</span></label>
+                                  {/each}
+                                  {#if SUPERVISOR_OPTIONS.length === 0}<span class="muted" style="font-size:12px;padding:4px 8px">No supervisors found</span>{/if}
+                                </div>
+                              {/if}
                             </div>
                           </div>
                           <div class="ief-row-2">
@@ -950,7 +1171,7 @@
                             </div>
                             <div class="pdr-group">
                               <label class="pdr-label">Supervisor</label>
-                              <div class="pdr-box">{SUPERVISOR_OPTIONS.find(o => o.value === p.supervisor)?.label || p.supervisor || '—'}</div>
+                              <div class="pdr-box">{(p.supervisors && p.supervisors.length) ? p.supervisors.map(id => SUPERVISOR_OPTIONS.find(o => o.value === id)?.label || id).join(', ') : (p.supervisor || '—')}</div>
                             </div>
                           </div>
 
@@ -992,12 +1213,21 @@
                     {:else if viewingProjectTab === 'Submissions'}
                       <!-- Folders top bar -->
                       <div class="sub-action-bar">
-                        <button class="sub-action-btn" on:click={() => addFolder(p.id)}>
-                          <FolderOpen size={13} /> New Folder
+                        <button class="sub-action-btn" disabled={isSavingFolder} on:click={() => addFolder(p.id)}>
+                          {#if isSavingFolder}<Loader2 size={13} class="spin" />{:else}<FolderOpen size={13} />{/if} New Folder
                         </button>
+                        {#if p.folders !== null && !isLoadingFolders}
+                          <button class="sub-action-btn" title="Refresh folders" on:click={() => loadProjectFolders(p.id)}>
+                            🔄
+                          </button>
+                        {/if}
                       </div>
 
-                      {#if !p.folders || p.folders.length === 0}
+                      {#if isLoadingFolders}
+                        <div class="proj-detail-empty" style="padding:1rem 1.25rem">
+                          <Loader2 size={18} class="spin" /> Loading folders…
+                        </div>
+                      {:else if !p.folders || p.folders.length === 0}
                         <div class="proj-detail-empty" style="padding:1rem 1.25rem">No folders yet. Click <strong>New Folder</strong> to get started.</div>
                       {:else}
                         <div class="folder-list">
@@ -1062,12 +1292,14 @@
                                           <select class="sub-input" bind:value={pendingUpload.type}>
                                             {#each FILE_TYPE_OPTIONS as t}<option value={t}>{t}</option>{/each}
                                           </select>
-                                          <div class="submission-info">Selected: {pendingUpload.file ? pendingUpload.file.name : ''}</div>
+                                          <div class="submission-info">Selected: {pendingUpload.file ? pendingUpload.file.name : ''} ({pendingUpload.file ? (pendingUpload.file.size / (1024*1024)).toFixed(2) + ' MB' : ''})</div>
                                         </div>
                                       </div>
                                       <div class="submission-actions">
-                                        <button class="sub-action-btn" on:click={() => confirmUpload(p.id, folder.id)}>Upload</button>
-                                        <button class="sub-cancel-btn" on:click={cancelPendingUpload}>Cancel</button>
+                                        <button class="sub-action-btn" disabled={isUploadingFile} on:click={() => confirmUpload(p.id, folder.id)}>
+                                          {#if isUploadingFile}<Loader2 size={13} class="spin" /> Uploading…{:else}Upload{/if}
+                                        </button>
+                                        <button class="sub-cancel-btn" disabled={isUploadingFile} on:click={cancelPendingUpload}>Cancel</button>
                                       </div>
                                     </div>
                                   {/if}
@@ -1082,13 +1314,12 @@
                                               <div class="sub-file-icon">📄</div>
                                               <div class="submission-meta">
                                                 <div class="submission-name">{s.name}</div>
-                                                <div class="submission-info">Type: {s.file_type || 'Document'}</div>
                                                 <div class="submission-info">Uploaded: {formatDate(s.uploaded_at)}</div>
                                               </div>
                                             </div>
                                             <div class="submission-actions">
-                                              <button class="icon-btn" title="View" on:click={() => viewSubmission(s)}><Eye size={14} /></button>
-                                              <button class="icon-btn" title="Download" on:click={() => downloadSubmission(s)}><Download size={14} /></button>
+                                              <button class="icon-btn" title="View in Drive" on:click={() => viewSubmission(s)} disabled={!s.drive_url}><Eye size={14} /></button>
+                                              <button class="icon-btn" title="Open in Drive" on:click={() => downloadSubmission(s)} disabled={!s.drive_url}><Download size={14} /></button>
                                               <button class="icon-btn" title="Delete" on:click={() => deleteSubmission(p.id, folder.id, s.id)}><Trash2 size={14} /></button>
                                             </div>
                                           </div>
@@ -1227,13 +1458,19 @@
       </div>
 
       <div class="form-group">
-        <label class="form-label" for="proj-supervisor">Supervisor</label>
-        <select id="proj-supervisor" class="form-input" bind:value={form.supervisor}>
-          <option value="">Select supervisor</option>
-          {#each SUPERVISOR_OPTIONS as s}
-            <option value={s.value}>{s.label}</option>
-          {/each}
-        </select>
+        <label class="form-label">Supervisor</label>
+        <div class="members-input form-input" on:click={() => showSupervisorsPanel = !showSupervisorsPanel} role="button" tabindex="0">
+          <div>{(form.supervisor && form.supervisor.length) ? form.supervisor.map(id => SUPERVISOR_OPTIONS.find(o => o.value === id)?.label || id).join(', ') : 'Select supervisor(s)'}</div>
+          <div class="muted">{(form.supervisor || []).length}</div>
+        </div>
+        {#if showSupervisorsPanel}
+          <div class="members-panel" style="margin-top:8px">
+            {#each SUPERVISOR_OPTIONS as s}
+              <label class="members-item"><input type="checkbox" checked={(form.supervisor || []).includes(s.value)} on:change={() => toggleSupervisor(s.value)} /> <span class="members-name">{s.label}</span></label>
+            {/each}
+            {#if SUPERVISOR_OPTIONS.length === 0}<span class="muted" style="font-size:12px;padding:4px 8px">No supervisors found</span>{/if}
+          </div>
+        {/if}
       </div>
 
       <div class="row-2">
