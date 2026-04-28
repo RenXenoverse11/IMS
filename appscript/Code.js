@@ -2350,103 +2350,128 @@ function handleUpdateRequestStatus_(payload) {
     return { ok: false, error: 'request_id, status, and supervisor_user_id are required.' };
   }
 
-  var supervisorRecord = findUserRecordByUserId_(supervisorUserId);
-  if (!supervisorRecord) {
-    return { ok: false, error: 'Supervisor not found.' };
+  var userRecord = findUserRecordByUserId_(supervisorUserId);
+  if (!userRecord) {
+    return { ok: false, error: 'User not found.' };
   }
 
-  if (String(supervisorRecord.user.role || '').trim().toLowerCase() !== 'supervisor') {
-    return { ok: false, error: 'Only supervisors can update request status.' };
-  }
+  var userRole = String(userRecord.user.role || '').trim().toLowerCase();
+  var isSupervisor = userRole === 'supervisor';
+  var isIntern = userRole === 'intern';
 
+  // Get the request sheet
   var sheet = getRequestsSheet_();
   var rows = getSheetValues_(sheet);
   var headers = getHeaders_(sheet);
   var requestIdColIndex = findColumnIndex_(headers, 'request_id');
+  var userIdColIndex = findColumnIndex_(headers, 'user_id');
   var updateColIndex = findColumnIndex_(headers, 'status');
   var rejectionRemarksColIndex = findColumnIndex_(headers, 'rejection_remarks');
-  var userIdColIndex = findColumnIndex_(headers, 'user_id');
   var requestTypeColIndex = findColumnIndex_(headers, 'request_type');
   var requesterNameColIndex = findColumnIndex_(headers, 'requester_name');
   var requestDateColIndex = findColumnIndex_(headers, 'request_date');
 
-  for (var i = 1; i < rows.length; i++) {
-    if (String(rows[i][requestIdColIndex - 1] || '').trim() === requestId) {
-      var studentUserId = String(rows[i][userIdColIndex - 1] || '').trim();
-      if (!isStudentAssignedToSupervisor_(supervisorUserId, studentUserId)) {
-        return { ok: false, error: 'You are not assigned to this student request.' };
-      }
+  // Find the request
+  var requestRowIndex = -1;
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i][requestIdColIndex] || '').trim() === requestId) {
+      requestRowIndex = i;
+      break;
+    }
+  }
+  
+  if (requestRowIndex === -1) {
+    return { ok: false, error: 'Request not found.' };
+  }
+  
+  var studentUserId = String(rows[requestRowIndex][userIdColIndex] || '').trim();
+  
+  // Permission checks
+  if (isSupervisor) {
+    // Supervisors can approve/reject
+    if (newStatus !== 'Approved' && newStatus !== 'Rejected' && newStatus !== 'Archived') {
+      return { ok: false, error: 'Invalid status for supervisor.' };
+    }
+    // Check if supervisor is assigned to this student
+    if (!isStudentAssignedToSupervisor_(supervisorUserId, studentUserId)) {
+      return { ok: false, error: 'You are not assigned to this student request.' };
+    }
+  } else if (isIntern) {
+    // Interns can only archive/recover their own requests
+    if ((newStatus !== 'Archived' && newStatus !== 'Pending') || studentUserId !== supervisorUserId) {
+      return { ok: false, error: 'You can only archive or recover your own requests.' };
+    }
+  } else {
+    return { ok: false, error: 'Invalid user role.' };
+  }
 
-      sheet.getRange(i + 1, updateColIndex, 1, 1).setValue(newStatus);
-      
-      // Store rejection remarks if rejecting
-      if (rejectionRemarksColIndex > 0 && newStatus.toLowerCase() === 'rejected' && rejectionRemarks) {
-        sheet.getRange(i + 1, rejectionRemarksColIndex, 1, 1).setValue(rejectionRemarks);
-      }
+  // Update the request status
+  sheet.getRange(requestRowIndex + 1, updateColIndex, 1, 1).setValue(newStatus);
+  
+  // Store rejection remarks if rejecting
+  if (rejectionRemarksColIndex > 0 && newStatus.toLowerCase() === 'rejected' && rejectionRemarks) {
+    sheet.getRange(requestRowIndex + 1, rejectionRemarksColIndex, 1, 1).setValue(rejectionRemarks);
+  }
 
-      // Auto-extend estimated_end_date if approving an absence request
-      if (newStatus.toLowerCase() === 'approved') {
-        var requestType = String(rows[i][requestTypeColIndex - 1] || '').trim();
-        if (requestType.toLowerCase() === 'absence' && studentUserId) {
-          try {
-            // Get the current student profile
-            var profileSheet = getStudentOjtProfileSheet_();
-            var profileRows = getSheetValues_(profileSheet);
-            var profileHeaders = getHeaders_(profileSheet);
-            var profileUserIdColIndex = findColumnIndex_(profileHeaders, 'user_id');
-            var profileEstimatedEndDateColIndex = findColumnIndex_(profileHeaders, 'estimated_end_date');
-            
-            if (profileUserIdColIndex > 0 && profileEstimatedEndDateColIndex > 0) {
-              var currentEstimatedEndDate = '';
-              var profileRowIndex = -1;
-              
-              // Find the student's profile
-              for (var p = 1; p < profileRows.length; p++) {
-                if (String(profileRows[p][profileUserIdColIndex - 1] || '').trim() === studentUserId) {
-                  profileRowIndex = p;
-                  currentEstimatedEndDate = String(profileRows[p][profileEstimatedEndDateColIndex - 1] || '').trim();
-                  break;
-                }
-              }
-              
-              // If profile found, extend the end date by 1 business day (the absence day)
-              if (profileRowIndex > -1 && currentEstimatedEndDate) {
-                var newEstimatedEndDate = extendDateByBusinessDays_(currentEstimatedEndDate, 1);
-                profileSheet.getRange(profileRowIndex + 1, profileEstimatedEndDateColIndex).setValue(newEstimatedEndDate);
-              }
+  // Auto-extend estimated_end_date if approving an absence request
+  if (newStatus.toLowerCase() === 'approved') {
+    var requestType = String(rows[requestRowIndex][requestTypeColIndex] || '').trim();
+    if (requestType.toLowerCase() === 'absence' && studentUserId) {
+      try {
+        // Get the current student profile
+        var profileSheet = getStudentOjtProfileSheet_();
+        var profileRows = getSheetValues_(profileSheet);
+        var profileHeaders = getHeaders_(profileSheet);
+        var profileUserIdColIndex = findColumnIndex_(profileHeaders, 'user_id');
+        var profileEstimatedEndDateColIndex = findColumnIndex_(profileHeaders, 'estimated_end_date');
+        
+        if (profileUserIdColIndex > 0 && profileEstimatedEndDateColIndex > 0) {
+          var currentEstimatedEndDate = '';
+          var profileRowIndex = -1;
+          
+          // Find the student's profile
+          for (var p = 0; p < profileRows.length; p++) {
+            if (String(profileRows[p][profileUserIdColIndex] || '').trim() === studentUserId) {
+              profileRowIndex = p;
+              currentEstimatedEndDate = String(profileRows[p][profileEstimatedEndDateColIndex] || '').trim();
+              break;
             }
-          } catch (profileErr) {
-            Logger.log('Warning: Could not auto-extend estimated_end_date: ' + (profileErr && profileErr.message ? profileErr.message : String(profileErr)));
-            // Continue anyway - notification should still be sent
+          }
+          
+          // If profile found, extend the end date by 1 business day (the absence day)
+          if (profileRowIndex > -1 && currentEstimatedEndDate) {
+            var newEstimatedEndDate = extendDateByBusinessDays_(currentEstimatedEndDate, 1);
+            profileSheet.getRange(profileRowIndex + 1, profileEstimatedEndDateColIndex).setValue(newEstimatedEndDate);
           }
         }
+      } catch (profileErr) {
+        Logger.log('Warning: Could not auto-extend estimated_end_date: ' + (profileErr && profileErr.message ? profileErr.message : String(profileErr)));
+        // Continue anyway - notification should still be sent
       }
-
-      // Notify the student who created the request
-      var requestType = String(rows[i][requestTypeColIndex - 1] || '').trim();
-      if (studentUserId) {
-        var notifType = newStatus.toLowerCase() === 'approved' ? 'approval' : 'rejection';
-        var notifMessage = 'Your ' + requestType.toLowerCase() + ' request has been ' + newStatus.toLowerCase() + '.';
-        if (newStatus.toLowerCase() === 'rejected' && rejectionRemarks) {
-          notifMessage += ' Remarks: ' + rejectionRemarks;
-        }
-        if (newStatus.toLowerCase() === 'approved' && requestType.toLowerCase() === 'absence') {
-          notifMessage += ' Your internship end date has been automatically extended by 1 day.';
-        }
-        createNotification_(
-          studentUserId,
-          requestType + ' Request ' + newStatus,
-          notifMessage,
-          notifType,
-          requestId
-        );
-      }
-
-      return { ok: true, message: 'Request status updated.' };
     }
   }
 
-  return { ok: false, error: 'Request not found.' };
+  // Notify the student who created the request (only for supervisors)
+  if (isSupervisor && studentUserId) {
+    var requestType = String(rows[requestRowIndex][requestTypeColIndex] || '').trim();
+    var notifType = newStatus.toLowerCase() === 'approved' ? 'approval' : 'rejection';
+    var notifMessage = 'Your ' + requestType.toLowerCase() + ' request has been ' + newStatus.toLowerCase() + '.';
+    if (newStatus.toLowerCase() === 'rejected' && rejectionRemarks) {
+      notifMessage += ' Remarks: ' + rejectionRemarks;
+    }
+    if (newStatus.toLowerCase() === 'approved' && requestType.toLowerCase() === 'absence') {
+      notifMessage += ' Your internship end date has been automatically extended by 1 day.';
+    }
+    createNotification_(
+      studentUserId,
+      requestType + ' Request ' + newStatus,
+      notifMessage,
+      notifType,
+      requestId
+    );
+  }
+
+  return { ok: true, message: 'Request status updated.' };
 }
 
 function handleDeleteRequest_(payload) {

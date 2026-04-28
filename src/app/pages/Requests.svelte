@@ -786,11 +786,17 @@
           }
         }
         
-        await callBackend("update_request_status", {
+        const payload = {
           request_id: requestId,
           status: "Archived",
-          supervisor_user_id: String(currentUser?.user_id || "").trim(),
-        });
+        };
+        
+        // Add supervisor_user_id for both supervisors and interns
+        if (currentUser?.user_id) {
+          payload.supervisor_user_id = String(currentUser.user_id).trim();
+        }
+        
+        await callBackend("update_request_status", payload);
         archivedCount++;
       }
       selectedRequests.clear();
@@ -798,9 +804,11 @@
       await loadRequests();
       formSuccess = `${archivedCount} request(s) archived.`;
       setTimeout(() => (formSuccess = ""), 3000);
+      showBulkActions = false;
     } catch (err) {
       console.error("Archive requests error:", err);
       formError = "Failed to archive requests.";
+      setTimeout(() => (formError = ""), 3000);
     } finally {
       isArchiving = false;
     }
@@ -811,20 +819,28 @@
     isArchiving = true;
     try {
       for (const requestId of selectedRequests) {
-        await callBackend("update_request_status", {
+        const payload = {
           request_id: requestId,
           status: "Pending",
-          supervisor_user_id: String(currentUser?.user_id || "").trim(),
-        });
+        };
+        
+        // Add supervisor_user_id for both supervisors and interns
+        if (currentUser?.user_id) {
+          payload.supervisor_user_id = String(currentUser.user_id).trim();
+        }
+        
+        await callBackend("update_request_status", payload);
       }
       selectedRequests.clear();
       selectAllChecked = false;
       await loadRequests();
       formSuccess = `${selectedRequests.size} request(s) recovered.`;
       setTimeout(() => (formSuccess = ""), 3000);
+      showBulkActions = false;
     } catch (err) {
       console.error("Recover requests error:", err);
       formError = "Failed to recover requests.";
+      setTimeout(() => (formError = ""), 3000);
     } finally {
       isArchiving = false;
     }
@@ -1104,11 +1120,11 @@
                 class:request-card-approved={statusTone === "approved"}
                 class:request-card-rejected={statusTone === "rejected"}
                 class:request-card-selected={selectedRequests.has(request.id)}
-                on:click={() => { if (isSupervisor && showBulkActions) toggleRequestSelection(request.id); }}
-                role={isSupervisor && showBulkActions ? "button" : "article"}
-                tabindex={isSupervisor && showBulkActions ? 0 : -1}
+                on:click={() => { if (showBulkActions) toggleRequestSelection(request.id); }}
+                role={showBulkActions ? "button" : "article"}
+                tabindex={showBulkActions ? 0 : -1}
               >
-                {#if isSupervisor && showBulkActions}
+                {#if showBulkActions && (request.status === "Approved" || request.status === "Rejected")}
                   <div class="request-card-checkbox">
                     <input 
                       type="checkbox" 
@@ -1198,13 +1214,6 @@
                       on:click={() => openDeleteModal(request)}
                     >
                       <Trash2 size={12} /> Delete
-                    </button>
-                  {:else if !isSupervisor && (request.status === "Approved" || request.status === "Rejected") && String(request?.status || "").toLowerCase() !== "archived"}
-                    <button
-                      class="btn-archive"
-                      on:click={() => { selectedRequests.clear(); selectedRequests.add(request.id); archiveSelectedRequests(); }}
-                    >
-                      <Archive size={12} /> Archive
                     </button>
                   {/if}
                 </div>
