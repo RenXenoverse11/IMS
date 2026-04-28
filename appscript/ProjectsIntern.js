@@ -6,7 +6,14 @@ var PROJ_INTERN_HEADERS_ = [
   'created_at', 'created_by', 'updated_by'
 ];
 
+var MILESTONE_SHEET_ = 'milestone_intern';
+// Added `done` column to track completion state
+var MILESTONE_HEADERS_ = [
+  'milestone_id', 'proj_id', 'milestone', 'date', 'done',
+  'created_at', 'created_by', 'updated_by'
+];
 
+// Utility functions for managing sheets and data transformations
 function projInternSheet_() {
   return getOrCreateSheetWithHeaders_(PROJ_INTERN_SHEET_, PROJ_INTERN_HEADERS_);
 }
@@ -25,6 +32,7 @@ function projInternNextId_() {
   return 'PROJ_' + String(lastId + 1).padStart(4, '0');
 }
 
+// Transforms a row from the proj_intern sheet into a project object
 function projRowToObj_(row) {
   return {
     proj_id:     String(row[0]  || ''),
@@ -39,6 +47,38 @@ function projRowToObj_(row) {
     created_at:  row[9]  ? String(row[9])  : '',
     created_by:  String(row[10] || ''),
     updated_by:  String(row[11] || '')
+  };
+}
+
+// Similar utility functions for milestones
+function milestoneSheet_() {
+  return getOrCreateSheetWithHeaders_(MILESTONE_SHEET_, MILESTONE_HEADERS_);
+}
+
+function milestoneNextId_() {
+  var sheet = milestoneSheet_();
+  var data  = sheet.getDataRange().getValues();
+  var lastId = 0;
+  for (var i = 1; i < data.length; i++) {
+    var val = String(data[i][0] || '');
+    if (/^Miles_\d+$/.test(val)) {
+      var n = parseInt(val.replace('Miles_', ''), 10);
+      if (!isNaN(n) && n > lastId) lastId = n;
+    }
+  }
+  return 'Miles_' + String(lastId + 1).padStart(4, '0');
+}
+
+function milestoneRowToObj_(row) {
+  return {
+    milestone_id: String(row[0] || ''),
+    proj_id:      String(row[1] || ''),
+    milestone:    String(row[2] || ''),
+    date:         row[3] ? Utilities.formatDate(new Date(row[3]), Session.getScriptTimeZone(), 'yyyy-MM-dd') : '',
+    done:         (function(v){ v = String(v || '').toLowerCase(); return v === 'true' || v === '1' || v === 'yes'; })(row[4]),
+    created_at:   String(row[5] || ''),
+    created_by:   String(row[6] || ''),
+    updated_by:   String(row[7] || '')
   };
 }
 
@@ -331,4 +371,71 @@ function handleGetProjUsersBootstrap_(payload) {
   }
 
   return { ok: true, interns: internsList, supervisors: supervisorsList };
+}
+
+// ── Milestones (CRUD) ─────────────────────────────────────────────────────
+function handleListMilestones_(payload) {
+  var projId = String(payload.proj_id || '').trim();
+  if (!projId) return { ok: false, error: 'proj_id is required.' };
+  var sheet = milestoneSheet_();
+  var data  = sheet.getDataRange().getValues();
+  var items = [];
+  for (var i = 1; i < data.length; i++) {
+    if (!String(data[i][0] || '').trim()) continue;
+    var obj = milestoneRowToObj_(data[i]);
+    if (obj.proj_id === projId) items.push(obj);
+  }
+  return { ok: true, milestones: items };
+}
+
+function handleCreateMilestone_(payload) {
+  var projId = String(payload.proj_id || '').trim();
+  var text   = String(payload.milestone || '').trim();
+  var date   = String(payload.date || '').trim();
+  var userId = String(payload.user_id || '').trim();
+  if (!projId) return { ok: false, error: 'proj_id is required.' };
+  if (!text) return { ok: false, error: 'milestone is required.' };
+  if (!userId) return { ok: false, error: 'user_id is required.' };
+
+  var sheet = milestoneSheet_();
+  var id    = milestoneNextId_();
+  var now   = formatTimestamp_(new Date());
+
+  var doneVal = payload.done ? 'TRUE' : 'FALSE';
+  var row = [ id, projId, text, date || '', doneVal, now, userId, userId ];
+  sheet.appendRow(row);
+  return { ok: true, milestone_id: id, created_at: now };
+}
+
+function handleDeleteMilestone_(payload) {
+  var id = String(payload.milestone_id || '').trim();
+  if (!id) return { ok: false, error: 'milestone_id is required.' };
+  var sheet = milestoneSheet_();
+  var data  = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0] || '').trim() === id) { sheet.deleteRow(i + 1); return { ok: true, milestone_id: id }; }
+  }
+  return { ok: false, error: 'Milestone not found: ' + id };
+}
+
+function handleUpdateMilestone_(payload) {
+  var id = String(payload.milestone_id || '').trim();
+  var text = payload.milestone !== undefined ? String(payload.milestone || '').trim() : undefined;
+  var date = payload.date !== undefined ? String(payload.date || '').trim() : undefined;
+  var userId = String(payload.user_id || '').trim();
+  if (!id) return { ok: false, error: 'milestone_id is required.' };
+  if (!userId) return { ok: false, error: 'user_id is required.' };
+
+  var sheet = milestoneSheet_();
+  var data  = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0] || '').trim() === id) {
+      if (text !== undefined) sheet.getRange(i + 1, 3).setValue(text);
+      if (date !== undefined) sheet.getRange(i + 1, 4).setValue(date);
+      if (payload.done !== undefined) sheet.getRange(i + 1, 5).setValue(payload.done ? 'TRUE' : 'FALSE');
+      sheet.getRange(i + 1, 8).setValue(userId);
+      return { ok: true, milestone_id: id };
+    }
+  }
+  return { ok: false, error: 'Milestone not found: ' + id };
 }

@@ -131,6 +131,56 @@ function handleListProjSubmissions_(payload) {
   for (var j = 1; j < sData.length; j++) {
     if (!String(sData[j][0] || '').trim()) continue;
     var sub = submissionRowToObj_(sData[j]);
+    // If this is a file submission but link_url is missing, try to locate
+    // the file inside the stored folder link and persist the file URL.
+    if (sub.kind !== 'link' && !sub.link_url && sub.gdrive) {
+      try {
+        var folderIdFromLink = extractDriveFolderId_(sub.gdrive);
+        if (folderIdFromLink) {
+          var df = DriveApp.getFolderById(folderIdFromLink);
+          var foundFile = null;
+          // Try exact name
+          try {
+            var files = df.getFilesByName(sub.file_name || '');
+            if (files && files.hasNext()) foundFile = files.next();
+          } catch (e) { /* ignore */ }
+
+          // Fallback: search by partial match or use most recent file
+          if (!foundFile) {
+            try {
+              var it = df.getFiles();
+              var baseName = (sub.file_name || '').replace(/\.[^.]+$/, '').toLowerCase();
+              var bestMatch = null;
+              var bestScore = 0;
+              var recentFile = null;
+              var recentTime = 0;
+              while (it.hasNext()) {
+                var f2 = it.next();
+                var fname = String(f2.getName() || '').toLowerCase();
+                if (baseName && fname.indexOf(baseName) !== -1) {
+                  var score = 100 - fname.indexOf(baseName);
+                  if (score > bestScore) { bestScore = score; bestMatch = f2; }
+                }
+                try { var created = f2.getDateCreated ? f2.getDateCreated().getTime() : 0; } catch (e) { var created = 0; }
+                if (created > recentTime) { recentTime = created; recentFile = f2; }
+              }
+              if (bestMatch) foundFile = bestMatch;
+              else if (recentFile) foundFile = recentFile;
+            } catch (e) { /* ignore */ }
+          }
+
+          if (foundFile) {
+            try { foundFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (e) {}
+            sub.link_url = foundFile.getUrl();
+            // Persist back to sheet so subsequent reads are immediate
+            try { sSheet.getRange(j + 1, 10).setValue(sub.link_url); } catch (e) {}
+          }
+        }
+      } catch (e) {
+        // swallow — best-effort only
+      }
+    }
+
     if (sub.proj_id === projId && folderMap[sub.folder_id]) {
       folderMap[sub.folder_id].submissions.push(sub);
     }
@@ -289,8 +339,14 @@ function handleCreateProjSubmission_(payload) {
           if (driveFolderId) {
             var driveFolder = DriveApp.getFolderById(driveFolderId);
             var driveFile   = driveFolder.createFile(blob);
-            driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-            driveFileUrl = driveFile.getUrl();
+            try { driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (e) {}
+            // Normalize to a canonical viewer URL
+            try {
+              var createdId = driveFile.getId();
+              driveFileUrl = 'https://drive.google.com/file/d/' + createdId + '/view?usp=sharing';
+            } catch (e) {
+              driveFileUrl = driveFile.getUrl();
+            }
           }
         }
 
@@ -298,8 +354,13 @@ function handleCreateProjSubmission_(payload) {
           // Fallback: upload to IMS root folder
           var root      = getOrCreateImsProjectsFolder_();
           var driveFile = root.createFile(blob);
-          driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-          driveFileUrl = driveFile.getUrl();
+          try { driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (e) {}
+          try {
+            var createdId2 = driveFile.getId();
+            driveFileUrl = 'https://drive.google.com/file/d/' + createdId2 + '/view?usp=sharing';
+          } catch (e) {
+            driveFileUrl = driveFile.getUrl();
+          }
         }
       } catch (e) {
         // non-fatal — record saved without a Drive URL
@@ -363,4 +424,75 @@ function handleDeleteProjSubmission_(payload) {
   }
 
   return { ok: false, error: 'Submission not found: ' + submissionId };
+}
+
+// ── Repair / fetch Drive URL for a single submission ───────────────────────
+function handleGetSubmissionDriveUrl_(payload) {
+  var submissionId = String(payload.submission_id || '').trim();
+  if (!submissionId) return { ok: false, error: 'submission_id is required.' };
+
+  var sSheet = submissionInternSheet_();
+  var data   = sSheet.getDataRange().getValues();
+
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0] || '').trim() === submissionId) {
+      var row = data[i];
+      var existing = String(row[9] || '').trim(); // link_url col
+      if (existing) return { ok: true, drive_url: existing };
+
+      var gdrive = String(row[3] || '').trim();
+      var fileName = String(row[5] || '').trim();
+      if (!gdrive) return { ok: false, error: 'No gdrive folder link stored for this submission.' };
+
+      try {
+        var folderIdFromLink = extractDriveFolderId_(gdrive);
+        if (!folderIdFromLink) return { ok: false, error: 'Invalid gdrive folder link.' };
+        var df = DriveApp.getFolderById(folderIdFromLink);
+
+        // Try exact name
+        var foundFile = null;
+        try {
+          var files = df.getFilesByName(fileName || '');
+          if (files && files.hasNext()) foundFile = files.next();
+        } catch (e) {}
+
+        // Fallback: partial name / most recent
+        if (!foundFile) {
+          try {
+            var it = df.getFiles();
+            var baseName = (fileName || '').replace(/\.[^.]+$/, '').toLowerCase();
+            var bestMatch = null;
+            var bestScore = 0;
+            var recentFile = null;
+            var recentTime = 0;
+            while (it.hasNext()) {
+              var f2 = it.next();
+              var fname = String(f2.getName() || '').toLowerCase();
+              if (baseName && fname.indexOf(baseName) !== -1) {
+                var score = 100 - fname.indexOf(baseName);
+                if (score > bestScore) { bestScore = score; bestMatch = f2; }
+              }
+              try { var created = f2.getDateCreated ? f2.getDateCreated().getTime() : 0; } catch (e) { var created = 0; }
+              if (created > recentTime) { recentTime = created; recentFile = f2; }
+            }
+            if (bestMatch) foundFile = bestMatch;
+            else if (recentFile) foundFile = recentFile;
+          } catch (e) {}
+        }
+
+        if (foundFile) {
+          try { foundFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (e) {}
+          var url = foundFile.getUrl();
+          try { sSheet.getRange(i + 1, 10).setValue(url); } catch (e) {}
+          return { ok: true, drive_url: url };
+        }
+      } catch (e) {
+        return { ok: false, error: String(e) };
+      }
+
+      return { ok: false, error: 'File not found in folder.' };
+    }
+  }
+
+  return { ok: false, error: 'Submission not found.' };
 }

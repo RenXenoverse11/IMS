@@ -203,8 +203,33 @@
         projects = (projectsRes.projects || []).map(normalizeProject);
       }
 
-      // Folders are loaded lazily when a project is opened — just ensure the property exists
-      projects = projects.map(p => ({ ...p, folders: p.folders || null }));
+      // Folders and milestones are loaded lazily when a project is opened — ensure properties exist
+      projects = projects.map(p => {
+        // try to restore cached milestones from localStorage as a fallback
+        let cached = null;
+        try { cached = localStorage.getItem('projects.milestones.' + String(p.id)); } catch (e) { cached = null; }
+        let milestones = p.milestones;
+        if ((!Array.isArray(milestones) || milestones.length === 0) && cached) {
+          try { const parsed = JSON.parse(cached); if (Array.isArray(parsed)) milestones = parsed; } catch (e) { /* ignore */ }
+        }
+        return { ...p, folders: p.folders || null, milestones };
+      });
+
+      // Restore last-viewed project (so Details stay visible after a page refresh)
+      try {
+        const saved = localStorage.getItem('projects.viewingProjectId');
+        if (saved) {
+          const found = projects.find(x => x.id === saved);
+          if (found) {
+            viewingProjectId = saved;
+            viewingProjectTab = 'Details';
+            if (!found.folders || found.folders === null) loadProjectFolders(saved);
+            if (!found.milestones || found.milestones === null || (Array.isArray(found.milestones) && found.milestones.length === 0)) loadProjectMilestones(saved);
+          }
+        }
+      } catch (e) {
+        // ignore storage errors
+      }
     } catch (e) {
       console.error('loadBootstrap error', e);
     } finally {
@@ -230,7 +255,7 @@
       archived:       false,
       folders:        null,           // null = not yet loaded; [] = loaded and empty
       progress_logs:  [],
-      milestones:     []
+      milestones:     null
     };
   }
 
@@ -409,12 +434,18 @@
   function viewProject(p) {
     if (viewingProjectId === p.id) {
       viewingProjectId = null; // toggle off
+      try { localStorage.removeItem('projects.viewingProjectId'); } catch (e) {}
     } else {
       viewingProjectId  = p.id;
       viewingProjectTab = 'Details';
+      try { localStorage.setItem('projects.viewingProjectId', String(p.id)); } catch (e) {}
       // Load folders if not yet fetched
       if (!p.folders || p.folders === null) {
         loadProjectFolders(p.id);
+      }
+      // Load milestones if not yet fetched
+      if (!p.milestones || p.milestones === null) {
+        loadProjectMilestones(p.id);
       }
     }
   }
@@ -577,6 +608,138 @@
       console.error('loadProjectFolders error', e);
     } finally {
       isLoadingFolders = false;
+    }
+  }
+
+  // Load milestones for a project
+  async function loadProjectMilestones(projectId) {
+    const projId = String(projects.find(p => p.id === projectId)?.proj_id || projectId);
+    try {
+      const res = await dispatchAction('list_milestones', { proj_id: projId });
+      if (res?.ok) {
+        const list = (res.milestones || []).map(m => ({ id: m.milestone_id, milestone: m.milestone, date: m.date, done: Boolean(m.done), created_at: m.created_at, created_by: m.created_by }));
+        projects = projects.map(p => p.id === projectId ? { ...p, milestones: list } : p);
+        try { localStorage.setItem('projects.milestones.' + String(projectId), JSON.stringify(list)); } catch (e) {}
+      } else {
+        projects = projects.map(p => p.id === projectId ? { ...p, milestones: [] } : p);
+        try { localStorage.setItem('projects.milestones.' + String(projectId), JSON.stringify([])); } catch (e) {}
+      }
+    } catch (e) {
+      console.error('loadProjectMilestones error', e);
+      // fall back to cached value if available
+      let cached = null;
+      try { cached = localStorage.getItem('projects.milestones.' + String(projectId)); } catch (ee) { cached = null; }
+      if (cached) {
+        try { const parsed = JSON.parse(cached); projects = projects.map(p => p.id === projectId ? { ...p, milestones: Array.isArray(parsed) ? parsed : [] } : p); } catch (ee) { projects = projects.map(p => p.id === projectId ? { ...p, milestones: [] } : p); }
+      } else {
+        projects = projects.map(p => p.id === projectId ? { ...p, milestones: [] } : p);
+      }
+    }
+  }
+
+  // Local inputs for new milestone per project
+  let newMilestoneInputs = {};
+  let editingMilestoneId = null;
+  let editingMilestoneInputs = {};
+  let showAddMilestoneFor = {};
+
+  function toggleAddMilestone(projectId) {
+    const init = newMilestoneInputs[projectId] || { milestone: '', date: '' };
+    newMilestoneInputs = { ...newMilestoneInputs, [projectId]: init };
+    showAddMilestoneFor = { ...showAddMilestoneFor, [projectId]: !Boolean(showAddMilestoneFor[projectId]) };
+  }
+
+  async function createMilestone(projectId) {
+    formError = '';
+    const proj = projects.find(p => p.id === projectId);
+    if (!proj) return;
+    const projId = String(proj.proj_id || projectId);
+    const inputs = newMilestoneInputs[projectId] || { milestone: '', date: '' };
+    const text = String(inputs.milestone || '').trim();
+    const date = String(inputs.date || '').trim();
+    if (!text) { formError = 'Milestone text is required.'; return; }
+    const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    try {
+      const res = await dispatchAction('create_milestone', { proj_id: projId, milestone: text, date: date, done: false, user_id: uid });
+      if (!res?.ok) { formError = res?.error || 'Failed to create milestone.'; console.warn('createMilestone failed', res); return; }
+      const item = { id: res.milestone_id, milestone: text, date: date, created_at: res.created_at, created_by: uid, done: false };
+      projects = projects.map(p => p.id === projectId ? { ...p, milestones: [ ...(p.milestones || []), item ] } : p);
+      // save to cache
+      try {
+        const key = 'projects.milestones.' + String(projectId);
+        const cur = JSON.parse(localStorage.getItem(key) || '[]');
+        cur.push(item);
+        localStorage.setItem(key, JSON.stringify(cur));
+      } catch (e) {}
+      newMilestoneInputs = { ...newMilestoneInputs, [projectId]: { milestone: '', date: '' } };
+      showAddMilestoneFor = { ...showAddMilestoneFor, [projectId]: false };
+      formSuccess = 'Milestone added.';
+      setTimeout(() => { formSuccess = ''; }, 2000);
+    } catch (e) {
+      console.error('createMilestone error', e);
+      formError = e?.message || 'Failed to create milestone.';
+    }
+  }
+
+  async function deleteMilestone(projectId, milestoneId) {
+    if (!milestoneId) return;
+    // Optimistic UI: remove
+    projects = projects.map(p => p.id === projectId ? { ...p, milestones: (p.milestones || []).filter(m => m.id !== milestoneId) } : p);
+    // update cache
+    try {
+      const key = 'projects.milestones.' + String(projectId);
+      const cur = JSON.parse(localStorage.getItem(key) || '[]');
+      const updated = (cur || []).filter(m => m.id !== milestoneId);
+      localStorage.setItem(key, JSON.stringify(updated));
+    } catch (e) {}
+    try {
+      const res = await dispatchAction('delete_milestone', { milestone_id: milestoneId });
+      if (!res?.ok) { formError = res?.error || 'Failed to delete milestone.'; return; }
+      formSuccess = 'Milestone deleted.';
+      setTimeout(() => { formSuccess = ''; }, 1500);
+    } catch (e) {
+      formError = e?.message || 'Failed to delete milestone.';
+    }
+  }
+
+  function startEditMilestone(projectId, m) {
+    editingMilestoneId = m.id;
+    editingMilestoneInputs = { ...editingMilestoneInputs, [m.id]: { milestone: m.milestone || '', date: m.date || '', done: Boolean(m.done) } };
+  }
+
+  function cancelEditMilestone() {
+    editingMilestoneId = null;
+  }
+
+  async function saveEditedMilestone(projectId, milestoneId) {
+    if (!milestoneId) return;
+    const inputs = editingMilestoneInputs[milestoneId] || { milestone: '', date: '' };
+    const text = String(inputs.milestone || '').trim();
+    const date = String(inputs.date || '').trim();
+    if (!text) { formError = 'Milestone text is required.'; return; }
+    const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    try {
+      const res = await dispatchAction('update_milestone', { milestone_id: milestoneId, milestone: text, date: date, done: Boolean(inputs.done), user_id: uid });
+      if (!res?.ok) { formError = res?.error || 'Failed to update milestone.'; return; }
+      // refresh from server to ensure we reflect persisted `done` state
+      try {
+        await loadProjectMilestones(projectId);
+      } catch (e) {
+        // fallback to local update if reload fails
+        projects = projects.map(p => p.id === projectId ? { ...p, milestones: (p.milestones || []).map(mm => mm.id === milestoneId ? { ...mm, milestone: text, date: date, done: Boolean(inputs.done) } : mm) } : p);
+      }
+      // update cache (best-effort)
+      try {
+        const key = 'projects.milestones.' + String(projectId);
+        const cur = JSON.parse(localStorage.getItem(key) || '[]');
+        const updated = (cur || []).map(mm => mm.id === milestoneId ? { ...mm, milestone: text, date: date, done: Boolean(inputs.done) } : mm);
+        localStorage.setItem(key, JSON.stringify(updated));
+      } catch (e) {}
+      editingMilestoneId = null;
+      formSuccess = 'Milestone updated.';
+      setTimeout(() => { formSuccess = ''; }, 1500);
+    } catch (e) {
+      formError = e?.message || 'Failed to update milestone.';
     }
   }
 
@@ -813,9 +976,27 @@
     }
   }
 
-  function viewSubmission(sub) {
+  async function viewSubmission(sub) {
     if (!sub) return;
-    const url = sub.kind === 'file' ? (sub.drive_url || '') : (sub.url || '');
+    let url = sub.kind === 'file' ? (sub.drive_url || '') : (sub.url || '');
+
+    // If file and no stored url, ask server to locate/repair it
+    if (sub.kind === 'file' && !url && sub.gdrive) {
+      try {
+        const res = await dispatchAction('get_submission_drive_url', {
+          submission_id: sub.submission_id,
+          folder_id: sub.folder_id || '',
+          file_name: sub.name || '',
+          gdrive: sub.gdrive || ''
+        });
+        if (res?.ok && res.drive_url) {
+          url = res.drive_url;
+          // update local submission object so subsequent clicks don't call server again
+          sub.drive_url = url;
+        }
+      } catch (e) {}
+    }
+
     if (!url) return;
     // Try to extract a Drive file id and open a reliable view URL
     if (sub.kind === 'file') {
@@ -830,9 +1011,26 @@
     window.open(url, '_blank');
   }
 
-  function downloadSubmission(sub) {
+  async function downloadSubmission(sub) {
     if (!sub) return;
-    const url = sub.kind === 'file' ? (sub.drive_url || '') : (sub.url || '');
+    let url = sub.kind === 'file' ? (sub.drive_url || '') : (sub.url || '');
+
+    // If file and no stored url, ask server to locate/repair it
+    if (sub.kind === 'file' && !url && sub.gdrive) {
+      try {
+        const res = await dispatchAction('get_submission_drive_url', {
+          submission_id: sub.submission_id,
+          folder_id: sub.folder_id || '',
+          file_name: sub.name || '',
+          gdrive: sub.gdrive || ''
+        });
+        if (res?.ok && res.drive_url) {
+          url = res.drive_url;
+          sub.drive_url = url;
+        }
+      } catch (e) {}
+    }
+
     if (!url) return;
     // For Drive files, open a direct download link using the file id
     if (sub.kind === 'file') {
@@ -1059,7 +1257,7 @@
                       <div class="proj-detail-tabs">
                         <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Details'} on:click={() => viewingProjectTab = 'Details'}>Details</button>
                         <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Submissions'} on:click={() => { viewingProjectTab = 'Submissions'; if (!p.folders) loadProjectFolders(p.id); }}>Submissions</button>
-                        <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Milestones'} on:click={() => viewingProjectTab = 'Milestones'}>Milestones</button>
+                        <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Milestones'} on:click={() => { viewingProjectTab = 'Milestones'; if (!p.milestones || p.milestones === null) loadProjectMilestones(p.id); }}>Milestones</button>
                         <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Feedback'} on:click={() => viewingProjectTab = 'Feedback'}>Feedback</button>
                       </div>
                       <div class="proj-detail-body">
@@ -1188,6 +1386,8 @@
                               <div class="pdr-box">{(STATUS_META[p.status] || {}).label || p.status || '—'}</div>
                             </div>
                           </div>
+
+                          
                           <div class="pdr-row-2">
                             <div class="pdr-group">
                               <label class="pdr-label">Timeline (Start)</label>
@@ -1219,6 +1419,7 @@
                         <button class="sub-action-btn" disabled={isSavingFolder} on:click={() => addFolder(p.id)}>
                           {#if isSavingFolder}<Loader2 size={13} class="spin" />{:else}<FolderOpen size={13} />{/if} New Folder
                         </button>
+                        <!-- Add Milestone moved to Milestones tab -->
                         {#if p.folders !== null && !isLoadingFolders}
                           <button class="sub-action-btn" title="Refresh folders" on:click={() => loadProjectFolders(p.id)}>
                             🔄
@@ -1233,6 +1434,8 @@
                       {:else if !p.folders || p.folders.length === 0}
                         <div class="proj-detail-empty" style="padding:1rem 1.25rem">No folders yet. Click <strong>New Folder</strong> to get started.</div>
                       {:else}
+                        
+
                         <div class="folder-list">
                           {#each p.folders as folder (folder.id)}
                             <div class="folder-block">
@@ -1352,25 +1555,53 @@
                       {/if}
                     <!-- Progress Logs tab removed; progress is shown inline in Details -->
                     {:else if viewingProjectTab === 'Milestones'}
+                      <div style="margin-bottom:8px">
+                        <div style="display:flex;gap:8px;align-items:center">
+                          <button class="add-milestone-btn" on:click={() => toggleAddMilestone(p.id)}>
+                            <span class="icon">➕</span> Add Milestone
+                          </button>
+                        </div>
+                        {#if showAddMilestoneFor[p.id]}
+                          <div class="add-milestone-bar" style="padding:0.5rem 0.75rem; display:flex; gap:8px; align-items:center; margin-top:8px">
+                            <input type="text" placeholder="Milestone" value={newMilestoneInputs[p.id]?.milestone || ''} on:input={(e) => { newMilestoneInputs = { ...newMilestoneInputs, [p.id]: { ...(newMilestoneInputs[p.id] || {}), milestone: e.target.value } }; }} class="input" />
+                            <input type="date" value={newMilestoneInputs[p.id]?.date || ''} on:input={(e) => { newMilestoneInputs = { ...newMilestoneInputs, [p.id]: { ...(newMilestoneInputs[p.id] || {}), date: e.target.value } }; }} class="input" style="width:170px" />
+                            <button class="sub-action-btn" on:click={() => createMilestone(p.id)}>Save</button>
+                            <button class="sub-cancel-btn" on:click={() => { showAddMilestoneFor = { ...showAddMilestoneFor, [p.id]: false }; }}>Cancel</button>
+                          </div>
+                        {/if}
+                      </div>
                       {#if p.milestones && p.milestones.length > 0}
                         <div class="milestone-list">
                           {#each p.milestones as m}
-                            <div class="milestone-row">
-                              <div class="milestone-left">
-                                <div class="milestone-icon">{m.status === 'done' ? '✔' : (m.status === 'in-progress' ? '🟡' : '⬜')}</div>
-                                <div class="milestone-title">{m.title}</div>
+                            {#if editingMilestoneId === m.id}
+                              <div class="milestone-row editing">
+                                <div style="flex:1;display:flex;gap:8px;align-items:center">
+                                  <input type="checkbox" style="width:18px;height:18px" checked={editingMilestoneInputs[m.id]?.done} on:change={(e) => { editingMilestoneInputs = { ...editingMilestoneInputs, [m.id]: { ...(editingMilestoneInputs[m.id] || {}), done: e.target.checked } }; }} />
+                                  <input class="input" type="text" value={editingMilestoneInputs[m.id]?.milestone || ''} on:input={(e) => { editingMilestoneInputs = { ...editingMilestoneInputs, [m.id]: { ...(editingMilestoneInputs[m.id] || {}), milestone: e.target.value } }; }} />
+                                  <input class="input" type="date" value={editingMilestoneInputs[m.id]?.date || ''} on:input={(e) => { editingMilestoneInputs = { ...editingMilestoneInputs, [m.id]: { ...(editingMilestoneInputs[m.id] || {}), date: e.target.value } }; }} style="width:170px" />
+                                </div>
+                                <div style="display:flex;gap:6px;margin-left:12px">
+                                  <button class="sub-action-btn" on:click={() => saveEditedMilestone(p.id, m.id)}>Save</button>
+                                  <button class="sub-cancel-btn" on:click={cancelEditMilestone}>Cancel</button>
+                                </div>
                               </div>
-                              <div class="milestone-due">Due: <span class="muted">{formatDate(m.due)}</span></div>
-                            </div>
+                            {:else}
+                              <div class="milestone-row">
+                                  <div style="display:flex;align-items:center;gap:12px;flex:1">
+                                    <input type="checkbox" disabled style="width:18px;height:18px;margin-right:8px" checked={Boolean(m.done)} />
+                                    <div class="milestone-text" style="flex:1">{m.milestone}</div>
+                                    <div class="milestone-due">| Due: <span class="muted">{formatDate(m.date)}</span></div>
+                                  </div>
+                                  <div style="margin-left:12px;display:flex;gap:6px">
+                                    <button class="sub-action-btn" on:click={() => startEditMilestone(p.id, m)}>Edit</button>
+                                    <button class="sub-cancel-btn" on:click={() => deleteMilestone(p.id, m.id)}>Delete</button>
+                                  </div>
+                              </div>
+                            {/if}
                           {/each}
                         </div>
                       {:else}
-                        <div class="proj-detail-empty">
-                          No milestones defined yet.
-                          <div style="margin-top:8px">
-                            <button class="sub-action-btn" on:click={() => addSampleMilestones(p.id)}>Add sample milestones</button>
-                          </div>
-                        </div>
+                        <div class="proj-detail-empty">No milestones defined yet.</div>
                       {/if}
                     {:else if viewingProjectTab === 'Feedback'}
                       <div class="proj-detail-empty">No feedback available.</div>
@@ -1729,6 +1960,16 @@
   .sub-error { font-size:0.82rem; color:#ef4444; }
 
   .submissions-list { display:flex; flex-direction:column; gap:0.6rem; padding:0.75rem 1.25rem 1rem; }
+
+  /* Milestones add bar styling */
+  .add-milestone-bar { background: var(--color-surface); border:1px solid var(--color-border); padding:0.6rem; border-radius:8px; align-items:center; }
+  .add-milestone-bar .input { padding:0.45rem 0.75rem; border-radius:6px; border:1px solid var(--color-border); background:var(--color-surface); color:var(--color-heading); font-size:0.87rem; font-family:inherit; }
+  .add-milestone-btn { display:inline-flex; align-items:center; gap:0.5rem; padding:0.4rem 0.9rem; border-radius:8px; background:transparent; border:1px solid var(--color-border); color:var(--color-heading); font-size:0.87rem; font-family:inherit; }
+  .add-milestone-btn .icon { color:#7c3aed; }
+  .add-milestone-bar .btn-primary { background:linear-gradient(90deg,#7c3aed,#6d28d9); color:#fff; border:none; font-size:0.87rem; font-family:inherit; }
+
+  /* Milestone text to match Details labels */
+  .milestone-text { font-size: 0.88rem; font-family: inherit; color: var(--color-text); }
 
   .submission-card {
     display:flex; justify-content:space-between; align-items:center;
