@@ -1,6 +1,7 @@
 // ProjectsSupervisor.js - supervisor-specific helpers for projects
 
-var PROJ_SUPERVISOR_SHEET_ = 'poj_supervisor';
+var PROJ_SUPERVISOR_SHEET_ = 'proj_supervisor';
+var PROJ_SUPERVISOR_SHEET_LEGACY_ = 'poj_supervisor';
 var PROJ_SUPERVISOR_HEADERS_ = [
   'projsupervisor_id', 'proj_id', 'proj_name', 'priority', 'status', 'members',
   'supervisor', 'start_date', 'end_date', 'description',
@@ -46,6 +47,24 @@ function formatSupervisorSheetDate_(value) {
 }
 
 function projSupervisorSheet_() {
+  var spreadsheet = getSpreadsheet_();
+  var primary = spreadsheet.getSheetByName(PROJ_SUPERVISOR_SHEET_);
+  if (primary) {
+    return getOrCreateSheetWithHeaders_(PROJ_SUPERVISOR_SHEET_, PROJ_SUPERVISOR_HEADERS_);
+  }
+
+  var legacy = spreadsheet.getSheetByName(PROJ_SUPERVISOR_SHEET_LEGACY_);
+  if (legacy) {
+    try {
+      legacy.setName(PROJ_SUPERVISOR_SHEET_);
+      return getOrCreateSheetWithHeaders_(PROJ_SUPERVISOR_SHEET_, PROJ_SUPERVISOR_HEADERS_);
+    } catch (e) {
+      // If rename fails (e.g., duplicate name conflict), keep using legacy sheet.
+      ensureSheetColumns_(legacy, PROJ_SUPERVISOR_HEADERS_);
+      return legacy;
+    }
+  }
+
   return getOrCreateSheetWithHeaders_(PROJ_SUPERVISOR_SHEET_, PROJ_SUPERVISOR_HEADERS_);
 }
 
@@ -114,6 +133,59 @@ function readSupervisorProjectRows_(supervisorUserId) {
       created_by_name: ownerName,
       owner_name: ownerName,
       archived: String(obj.status || '').trim().toLowerCase() === 'archived'
+    });
+  }
+
+  return projects;
+}
+
+function readSupervisorProjectsFromInternSheet_(supervisorUserId, existingProjIds) {
+  var supervisorTokens = buildSupervisorLookupTokens_(supervisorUserId);
+  var existing = existingProjIds || {};
+  var ownerNameCache = {};
+  var projects = [];
+
+  var sheet = getOrCreateSheetWithHeaders_('proj_intern', [
+    'proj_id', 'proj_name', 'priority', 'status', 'members', 'supervisor',
+    'start_date', 'end_date', 'description',
+    'created_at', 'created_by', 'updated_by'
+  ]);
+  var rows = getSheetValues_(sheet);
+
+  for (var i = 1; i < rows.length; i++) {
+    var row = rows[i];
+    var projId = String(row[0] || '').trim();
+    if (!projId || existing[projId]) continue;
+
+    var supervisors = splitProjectCsvValues_(row[5]);
+    if (!matchesAnyToken_(supervisors, supervisorTokens)) continue;
+
+    var createdBy = String(row[10] || '').trim();
+    var ownerName = resolveProjectOwnerName_(createdBy, ownerNameCache);
+    var startDate = row[6] ? formatSupervisorSheetDate_(row[6]) : '';
+    var endDate = row[7] ? formatSupervisorSheetDate_(row[7]) : '';
+    var status = String(row[3] || '').trim() || 'Not Started';
+
+    projects.push({
+      id: projId,
+      proj_id: projId,
+      title: String(row[1] || '').trim(),
+      proj_name: String(row[1] || '').trim(),
+      description: String(row[8] || '').trim(),
+      priority_level: String(row[2] || '').trim() || 'Low',
+      priority: String(row[2] || '').trim() || 'Low',
+      status: status,
+      members: splitProjectCsvValues_(row[4]),
+      supervisor: supervisors,
+      supervisors: supervisors,
+      timeline_start: startDate,
+      timeline_end: endDate,
+      deadline: endDate,
+      created_at: String(row[9] || '').trim(),
+      created_by: createdBy,
+      created_by_name: ownerName,
+      owner_name: ownerName,
+      archived: status.toLowerCase() === 'archived'
     });
   }
 
@@ -248,8 +320,16 @@ function deleteSupervisorProjectMirror_(projId) {
 function handleListProjSupervisor_(payload) {
   var supervisorUserId = String(payload.supervisor_user_id || '').trim();
   if (!supervisorUserId) return { ok: false, error: 'supervisor_user_id is required.' };
+  var mirrorProjects = readSupervisorProjectRows_(supervisorUserId);
+  var seenProjIds = {};
+  for (var i = 0; i < mirrorProjects.length; i++) {
+    var pid = String(mirrorProjects[i].proj_id || mirrorProjects[i].id || '').trim();
+    if (pid) seenProjIds[pid] = true;
+  }
 
-  return { ok: true, projects: readSupervisorProjectRows_(supervisorUserId) };
+  // Fallback for legacy or unsynced rows: read directly from proj_intern.
+  var fallbackProjects = readSupervisorProjectsFromInternSheet_(supervisorUserId, seenProjIds);
+  return { ok: true, projects: mirrorProjects.concat(fallbackProjects) };
 }
 
 function projBootstrapNormalizeText_(value) {

@@ -3722,7 +3722,7 @@ function createId_(prefix) {
 
   // Add supervisor task ID sequence generator (SUP_0001...)
   config['SUP'] = { sheet: 'supervisor_task', col: 'sup_taskid', digits: 4, label: 'SUP' };
-  config['PSP'] = { sheet: 'poj_supervisor', col: 'projsupervisor_id', digits: 4, label: 'PSP' };
+  config['PSP'] = { sheet: 'proj_supervisor', col: 'projsupervisor_id', digits: 4, label: 'PROJSUP' };
 
   var settings = config[prefix];
   if (settings) {
