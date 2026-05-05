@@ -1629,7 +1629,8 @@
             </button>
           </div>
         </div>
-      </section>
+      {/each}
+    </div>
     {/if}
   {/if}
 </section>

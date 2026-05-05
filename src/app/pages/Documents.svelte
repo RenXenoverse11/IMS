@@ -29,6 +29,7 @@
   let shareRole = 'Viewer';
   let copiedId = null;
   let uploadToFolder = '/';
+  let folderSearchQuery = '';
   let newFolderName = '';
   let isCreatingFolder = false;
   let showRenameFolderModal = false;
@@ -49,13 +50,33 @@
   let currentUser = null;
   let isSupervisor = false;
   let isGroupView = true;
+  let documentFilter = 'all'; // 'all', 'my', 'shared', 'folders'
+  let selectedFolder = null; // For folder filter
+  
+  // Bulk Selection State
+  let showBulkActions = false;
+  let selectedDocuments = new Set();
+  let selectAllChecked = false;
 
   const AUTH_SESSION_STORAGE_KEY = 'ims-auth-session-user';
 
   $: filteredDocuments = documents.filter((doc) => {
     const matchesSearch = doc.name.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesFolder = currentFolder === '/' || doc.folder === currentFolder;
-    return matchesSearch && matchesFolder;
+    
+    // Apply document filter
+    let matchesFilter = true;
+    if (documentFilter === 'my') {
+      matchesFilter = doc.created_by === userId || doc.user_id === userId;
+    } else if (documentFilter === 'shared') {
+      const isSharedWithMe = Array.isArray(doc.sharedWith) && doc.sharedWith.some(s => s.email === currentUser?.email || s.id === userId);
+      matchesFilter = isSharedWithMe && doc.created_by !== userId;
+    } else if (documentFilter === 'folders') {
+      // When filtering by folders, show documents from the selected folder
+      matchesFilter = selectedFolder ? doc.folder === selectedFolder : true;
+    }
+    
+    return matchesSearch && matchesFolder && matchesFilter;
   });
 
   $: folderDocuments = documents.filter(doc => doc.folder === currentFolder);
@@ -357,6 +378,11 @@
     pendingFilePreview = null;
   }
 
+  function closeUploadModal() {
+    showUploadModal = false;
+    folderSearchQuery = '';
+  }
+
   async function addLink() {
     if (newLinkName.trim() && newLinkUrl.trim()) {
       if (isAddingLink) return;
@@ -588,6 +614,45 @@
     }
   }
 
+  function toggleBulkActions() {
+    showBulkActions = !showBulkActions;
+    if (!showBulkActions) {
+      selectedDocuments.clear();
+      selectAllChecked = false;
+    }
+  }
+
+  function toggleDocumentSelection(doc) {
+    if (selectedDocuments.has(doc.id)) {
+      selectedDocuments.delete(doc.id);
+    } else {
+      selectedDocuments.add(doc.id);
+    }
+    selectedDocuments = selectedDocuments; // trigger reactivity
+    updateSelectAllStatus();
+  }
+
+  function toggleSelectAll() {
+    if (selectAllChecked) {
+      // Deselect all
+      selectedDocuments.clear();
+      selectAllChecked = false;
+    } else {
+      // Select all visible documents
+      filteredDocuments.forEach(doc => selectedDocuments.add(doc.id));
+      selectAllChecked = true;
+    }
+    selectedDocuments = selectedDocuments; // trigger reactivity
+  }
+
+  function updateSelectAllStatus() {
+    if (filteredDocuments.length === 0) {
+      selectAllChecked = false;
+    } else {
+      selectAllChecked = filteredDocuments.every(doc => selectedDocuments.has(doc.id));
+    }
+  }
+
   function openRenameFolderModal(folderName) {
     folderToRename = folderName;
     renameFolderInputValue = folderName;
@@ -694,18 +759,6 @@
       </div>
     </div>
     <div class="action-bar">
-      <button class="btn btn-ghost" on:click={openLinkModal_}>
-        <Link2 size={14} />
-        <span>Add Link</span>
-      </button>
-      <button class="btn btn-ghost" on:click={() => (showCreateFolderModal = true)}>
-        <Folder size={14} />
-        <span>Create Folder</span>
-      </button>
-      <button class="btn btn-primary" on:click={openUploadModal_}>
-        <Upload size={14} />
-        <span>Upload Document</span>
-      </button>
     </div>
   </div>
 
@@ -779,48 +832,6 @@
         </div>
       </div>
 
-      <div class="section-header">
-        <span class="section-title">Folders</span>
-        <span class="section-link">Manage folders</span>
-      </div>
-
-      <div class="folders-grid">
-        {#each folderStructure.root.subfolders as folder (folder)}
-          {@const folderPath = '/' + folder}
-          {@const docCount = documents.filter((d) => d.folder === folderPath).length}
-          <div class="folder-card-wrap">
-            <button class="folder-card" class:active={currentFolder === folderPath} on:click={() => (currentFolder = folderPath)}>
-              <div class="folder-icon-wrap">
-                {#if currentFolder === folderPath}
-                  <FolderOpen size={18} />
-                {:else}
-                  <Folder size={18} />
-                {/if}
-              </div>
-              <div class="folder-info">
-                <div class="folder-name">{folder}</div>
-                <div class="folder-count">{docCount} items</div>
-              </div>
-            </button>
-            {#if isSupervisor}
-              <div class="folder-actions">
-                <button class="folder-action-btn rename-btn" title="Rename folder" on:click={() => openRenameFolderModal(folder)}>✎</button>
-                <button
-                  class="folder-action-btn delete-btn"
-                  title="Delete folder"
-                  on:click={() => {
-                    folderToDelete = folder;
-                    showDeleteFolderConfirm = true;
-                  }}
-                >
-                  🗑
-                </button>
-              </div>
-            {/if}
-          </div>
-        {/each}
-      </div>
-
       <div class="bottom-area">
         <div>
           <div class="search-filter-bar">
@@ -832,15 +843,97 @@
 
           <div class="docs-panel">
             <div class="docs-panel-header">
-              <span class="docs-panel-title">Group Shared Documents</span>
-              <span class="docs-count">{filteredDocuments.length} items</span>
+              <div class="filter-tabs">
+                <button 
+                  class="filter-tab" 
+                  class:active={documentFilter === 'all'}
+                  on:click={() => documentFilter = 'all'}
+                >
+                  All Documents
+                </button>
+                <button 
+                  class="filter-tab" 
+                  class:active={documentFilter === 'my'}
+                  on:click={() => documentFilter = 'my'}
+                >
+                  My Documents
+                </button>
+                <button 
+                  class="filter-tab" 
+                  class:active={documentFilter === 'shared'}
+                  on:click={() => documentFilter = 'shared'}
+                >
+                  Shared with Me
+                </button>
+                <button 
+                  class="filter-tab" 
+                  class:active={documentFilter === 'folders'}
+                  on:click={() => documentFilter = 'folders'}
+                >
+                  Folders
+                </button>
+              </div>
+              <div class="header-controls">
+                <span class="docs-count">{filteredDocuments.length} items</span>
+                <button class="btn btn-ghost" on:click={() => (showCreateFolderModal = true)}>
+                  <Folder size={14} />
+                  <span>Create Folder</span>
+                </button>
+                <button class="btn btn-primary" on:click={openUploadModal_}>
+                  <Upload size={14} />
+                  <span>Upload Document</span>
+                </button>
+                <button 
+                  class="select-btn"
+                  on:click={toggleBulkActions}
+                >
+                  {showBulkActions ? 'Cancel' : 'Select'}
+                </button>
+              </div>
             </div>
 
+            {#if documentFilter === 'folders'}
+              <div class="folder-filter-selector">
+                <div class="folder-selector-grid">
+                  {#each folderStructure.root.subfolders as folder (folder)}
+                    <button
+                      class="folder-selector-btn"
+                      class:active={selectedFolder === folder}
+                      on:click={() => selectedFolder = selectedFolder === folder ? null : folder}
+                    >
+                      <span class="folder-selector-name">{folder}</span>
+                    </button>
+                  {/each}
+                </div>
+                {#if folderStructure.root.subfolders.length === 0}
+                  <p class="no-folders-message">No folders available</p>
+                {/if}
+              </div>
+            {/if}
+
             {#if filteredDocuments.length > 0}
+              {#if showBulkActions && filteredDocuments.length > 0}
+                <div class="select-all-row" on:click={toggleSelectAll} role="button" tabindex="0">
+                  <input
+                    type="checkbox"
+                    bind:checked={selectAllChecked}
+                    on:change={toggleSelectAll}
+                    on:click={(e) => e.stopPropagation()}
+                    class="select-all-checkbox"
+                  />
+                  <span>Select All</span>
+                </div>
+              {/if}
+
               <div class="table-wrapper">
                 <table class="documents-table">
                   <thead>
                     <tr>
+                      {#if showBulkActions}
+                        <th class="col-checkbox">
+                          <input type="checkbox" class="table-checkbox" disabled />
+                        </th>
+                      {/if}
                       <th>Name</th>
                       <th>Uploaded By</th>
                       <th>Type</th>
@@ -851,7 +944,17 @@
                   </thead>
                   <tbody>
                     {#each filteredDocuments as doc (doc.id)}
-                      <tr class="table-row">
+                      <tr class="table-row" class:row-selected={showBulkActions && selectedDocuments.has(doc.id)}>
+                        {#if showBulkActions}
+                          <td class="col-checkbox">
+                            <input
+                              type="checkbox"
+                              checked={selectedDocuments.has(doc.id)}
+                              on:change={() => toggleDocumentSelection(doc)}
+                              class="table-checkbox"
+                            />
+                          </td>
+                        {/if}
                         <td class="col-name">
                           <div class="file-info">
                             <div class="file-icon">
@@ -915,17 +1018,7 @@
                   <FileText size={28} />
                 </div>
                 <div class="empty-title">No documents yet</div>
-                <div class="empty-sub">Start by uploading a document or adding a link to an external resource</div>
-                <div class="empty-actions">
-                  <button class="btn btn-ghost empty-btn" on:click={() => (showLinkModal = true)}>
-                    <Link2 size={13} />
-                    Add Link
-                  </button>
-                  <button class="btn btn-primary empty-btn" on:click={openUploadModal_}>
-                    <Upload size={13} />
-                    Upload Document
-                  </button>
-                </div>
+                <div class="empty-sub">Upload a document or add a link to get started</div>
               </div>
             {/if}
           </div>
@@ -938,34 +1031,51 @@
   {#if showUploadModal}
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <!-- svelte-ignore a11y-no-static-element-interactions -->
-    <div class="modal-overlay" on:click={() => (showUploadModal = false)}>
+    <div class="modal-overlay" on:click={closeUploadModal}>
       <div class="modal" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
           <h2>Upload Document</h2>
-          <button class="close-btn" on:click={() => (showUploadModal = false)}>×</button>
+          <button class="close-btn" on:click={closeUploadModal}>×</button>
         </div>
 
         <div class="modal-body">
-          <!-- Folder Selection Tabs -->
+          <!-- Folder Selection with Search -->
           <div class="form-group">
             <span class="label-heading">Select Folder</span>
-            <div class="folder-tabs">
-              {#each folderStructure.root.subfolders as folder (folder)}
+            
+            <!-- Search Box -->
+            {#if folderStructure.root.subfolders.length > 4}
+              <div class="folder-search-wrapper">
+                <Search size={16} class="search-icon" />
+                <input
+                  type="text"
+                  class="folder-search-input"
+                  placeholder="Search folders..."
+                  bind:value={folderSearchQuery}
+                />
+              </div>
+            {/if}
+            
+            <!-- Folder Grid -->
+            <div class="folder-grid">
+              {#each folderStructure.root.subfolders.filter(f => f.toLowerCase().includes(folderSearchQuery.toLowerCase())) as folder (folder)}
                 {@const folderPath = '/' + folder}
                 <button
                   type="button"
-                  class="folder-tab"
+                  class="folder-card"
                   class:active={uploadToFolder === folderPath}
                   on:click|stopPropagation={() => (uploadToFolder = folderPath)}
+                  title={folder}
                 >
-                  <Folder size={16} />
-                  <span>{folder}</span>
+                  <Folder size={20} />
+                  <span class="folder-name">{folder}</span>
                 </button>
               {/each}
             </div>
-            <div class="selected-folder-text">
-              Selected: {uploadToFolder.substring(1)}
-            </div>
+
+            {#if folderStructure.root.subfolders.filter(f => f.toLowerCase().includes(folderSearchQuery.toLowerCase())).length === 0}
+              <div class="no-folders-message">No folders match your search</div>
+            {/if}
           </div>
 
           <!-- Upload Area -->
@@ -987,7 +1097,7 @@
         </div>
 
         <div class="modal-footer">
-          <button class="btn btn-secondary" on:click={() => (showUploadModal = false)}>Cancel</button>
+          <button class="btn btn-secondary" on:click={closeUploadModal}>Cancel</button>
         </div>
       </div>
     </div>
@@ -1590,6 +1700,93 @@
     background: linear-gradient(135deg, #0f6cbd 0%, #0ea5e9 100%);
     color: white;
     border-color: transparent;
+  }
+
+  /* Folder Grid Layout */
+  .folder-search-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0 0.75rem;
+    background: #f8f9fa;
+    border: 1px solid #e0e6ed;
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    height: 2.5rem;
+  }
+
+  .search-icon {
+    color: #9ca3af;
+    flex-shrink: 0;
+  }
+
+  .folder-search-input {
+    flex: 1;
+    border: none;
+    background: transparent;
+    outline: none;
+    font-size: 0.9rem;
+    color: #1f2937;
+    padding: 0;
+    height: 100%;
+  }
+
+  .folder-search-input::placeholder {
+    color: #9ca3af;
+  }
+
+  .folder-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 0.8rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .folder-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    padding: 1.2rem 1rem;
+    background: #f8f9fa;
+    border: 2px solid #e0e6ed;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: #4f657f;
+    transition: all 0.2s ease;
+    text-align: center;
+  }
+
+  .folder-card:hover {
+    border-color: #0f6cbd;
+    color: #0f6cbd;
+    background: #e0efff;
+    transform: translateY(-2px);
+  }
+
+  .folder-card.active {
+    background: linear-gradient(135deg, #0f6cbd 0%, #0ea5e9 100%);
+    color: white;
+    border-color: transparent;
+    box-shadow: 0 4px 12px rgba(15, 108, 189, 0.3);
+  }
+
+  .folder-card .folder-name {
+    word-break: break-word;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
+  .no-folders-message {
+    text-align: center;
+    padding: 1.5rem 1rem;
+    color: #9ca3af;
+    font-size: 0.9rem;
   }
 
   .selected-folder-text {
@@ -2274,10 +2471,61 @@
   :global(.dark) .copy-btn,
   :global(.dark) .share-link-box input,
   :global(.dark) .form-group input,
-  :global(.dark) .form-group select {
+  :global(.dark) .form-group select,
+  :global(.dark) .folder-search-input,
+  :global(.dark) .folder-card {
     background: #1a2c45;
     border-color: #334b6b;
     color: #e2e8f0;
+  }
+
+  :global(.dark) .folder-search-wrapper {
+    background: #0f1e30;
+    border-color: #334b6b;
+  }
+
+  :global(.dark) .folder-card {
+    background: #0f1e30;
+    border-color: #334b6b;
+    color: #b7c8dd;
+  }
+
+  :global(.dark) .folder-card:hover {
+    border-color: #5bb1ff;
+    color: #5bb1ff;
+    background: rgba(91, 177, 255, 0.1);
+  }
+
+  :global(.dark) .folder-card.active {
+    background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
+    border-color: transparent;
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);
+  }
+
+  :global(.dark) .no-folders-message {
+    color: #6b7280;
+  }
+
+  :global(.dark) .folder-filter-selector {
+    background: rgba(15, 23, 42, 0.8);
+    border-bottom-color: rgba(71, 85, 105, 0.4);
+  }
+
+  :global(.dark) .folder-selector-btn {
+    border-color: rgba(71, 85, 105, 0.5);
+    color: #94a3b8;
+  }
+
+  :global(.dark) .folder-selector-btn:hover {
+    border-color: rgba(59, 130, 246, 0.6);
+    background: rgba(59, 130, 246, 0.15);
+    color: #cbd5e1;
+  }
+
+  :global(.dark) .folder-selector-btn.active {
+    border-color: #3b82f6;
+    background: rgba(59, 130, 246, 0.25);
+    color: #60a5fa;
   }
 
   :global(.dark) .form-group input:focus,
@@ -2729,6 +2977,30 @@
     margin-bottom: 32px;
   }
 
+  .folder-breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.75rem 1rem;
+    background: rgba(59, 130, 246, 0.08);
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    border-radius: 10px;
+    margin-bottom: 1.5rem;
+    font-size: 0.9rem;
+  }
+
+  .breadcrumb-item {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: transparent;
+    border: none;
+    color: #3b82f6;
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.2s ease;
+  }
+
   .folder-card-wrap {
     position: relative;
   }
@@ -2768,7 +3040,6 @@
     transform: translateY(-2px);
   }
 
-  .folder-card:hover::before,
   .folder-card.active::before {
     opacity: 1;
   }
@@ -2804,12 +3075,8 @@
     right: 8px;
     display: flex;
     gap: 6px;
-    opacity: 0;
-    transition: opacity 0.2s ease;
-  }
-
-  .folder-card-wrap:hover .folder-actions {
     opacity: 1;
+    transition: opacity 0.2s ease;
   }
 
   .folder-action-btn {
@@ -2885,54 +3152,101 @@
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
   }
 
-  .filter-chips {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-  }
-
-  .chip {
-    padding: 6px 14px;
-    border-radius: 20px;
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    color: #64748b;
-  }
-
-  .chip:hover {
-    background: rgba(255, 255, 255, 0.09);
-    color: #94a3b8;
-  }
-
-  .chip.active {
-    background: rgba(37, 99, 235, 0.2);
-    border-color: rgba(59, 130, 246, 0.4);
-    color: #60a5fa;
-  }
-
-  .docs-panel {
-    background: rgba(255, 255, 255, 0.02);
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    border-radius: 14px;
-    overflow: hidden;
-  }
-
   .docs-panel-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 16px 22px;
+    padding: 0;
     border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    gap: 16px;
   }
 
-  .docs-panel-title {
-    font-size: 14px;
+  .filter-tabs {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 12px 22px;
+    flex: 1;
+    border-bottom: none;
+    margin-bottom: 0;
+    align-items: center;
+    border-right: 1px solid rgba(255, 255, 255, 0.07);
+  }
+
+  .filter-tab {
+    padding: 8px 16px;
+    border: none;
+    background: transparent;
+    color: #94a3b8;
+    font-size: 13px;
     font-weight: 500;
-    color: #e2e8f0;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+    font-family: inherit;
+  }
+
+  .filter-tab:hover {
+    color: #cbd5e1;
+  }
+
+  .filter-tab.active {
+    color: #3b82f6;
+    border-bottom-color: #3b82f6;
+  }
+
+  .folder-filter-selector {
+    padding: 12px 22px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    background: rgba(15, 23, 42, 0.5);
+  }
+
+  .folder-selector-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .folder-selector-btn {
+    padding: 8px 12px;
+    border: 1px solid rgba(148, 163, 184, 0.3);
+    background: transparent;
+    color: #94a3b8;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-family: inherit;
+    text-align: center;
+  }
+
+  .folder-selector-btn:hover {
+    border-color: rgba(59, 130, 246, 0.5);
+    color: #cbd5e1;
+    background: rgba(59, 130, 246, 0.1);
+  }
+
+  .folder-selector-btn.active {
+    border-color: #3b82f6;
+    background: rgba(59, 130, 246, 0.2);
+    color: #3b82f6;
+  }
+
+  .folder-selector-name {
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .header-controls {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 22px;
+    flex-shrink: 0;
   }
 
   .docs-count {
@@ -2940,7 +3254,70 @@
     color: #475569;
     background: rgba(255, 255, 255, 0.06);
     border-radius: 6px;
-    padding: 2px 8px;
+    padding: 4px 10px;
+    white-space: nowrap;
+    font-weight: 500;
+  }
+
+  .select-btn {
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+  }
+
+  .select-btn:hover {
+    opacity: 0.9;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+  }
+
+  /* Select All Row */
+  .select-all-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    font-size: 12px;
+    font-weight: 600;
+    color: #cbd5e1;
+    cursor: pointer;
+    transition: all 0.2s;
+    user-select: none;
+  }
+
+  .select-all-row:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #e2e8f0;
+  }
+
+  .select-all-checkbox {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+  }
+
+  .col-checkbox {
+    width: 40px;
+    padding: 12px 8px;
+    text-align: center;
+  }
+
+  .table-checkbox {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+  }
+
+  .table-row.row-selected {
+    background: rgba(59, 130, 246, 0.1);
   }
 
   .table-wrapper {
