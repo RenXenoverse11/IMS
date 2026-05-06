@@ -2,7 +2,7 @@
 // @ts-nocheck
   import { onMount, onDestroy } from 'svelte';
   import { getCurrentUser, subscribeToCurrentUser, callApiAction } from '../lib/auth.js';
-  import { FolderOpen, Clock3, Tag, Users2, CalendarDays, Loader2, Grid, Archive, RotateCcw, Eye, ExternalLink, Link2, Download, Trash2, Pencil } from 'lucide-svelte';
+  import { FolderOpen, Clock3, Tag, Users2, CalendarDays, Loader2, Grid, Archive, RotateCcw, Eye, Download, Trash2 } from 'lucide-svelte';
 
   export let currentUser = null;
 
@@ -520,11 +520,51 @@
   function buildUserMap(list) {
     const map = {};
     (Array.isArray(list) ? list : []).forEach(u => {
-      const id = String(u?.user_id || u?.id || u?.UserId || u?.userId || u?.email || '').trim();
-      const name = String(u?.full_name || u?.name || u?.fullName || u?.displayName || u?.email || id).trim();
+      const id = getUserId(u);
+      const name = getDisplayName(u);
       if (id) map[id] = name;
     });
     return map;
+  }
+
+  const ICONS = {
+    folder: String.fromCodePoint(0x1F4C1),
+    file: String.fromCodePoint(0x1F4C4),
+    link: String.fromCodePoint(0x1F517),
+    chevronRight: String.fromCodePoint(0x25B8),
+    chevronDown: String.fromCodePoint(0x25BE),
+    emDash: String.fromCodePoint(0x2014)
+  };
+
+  function getUserId(user) {
+    return String(user?.user_id || user?.id || user?.UserId || user?.userId || user?.email || '').trim();
+  }
+
+  function getDisplayName(user) {
+    if (!user || typeof user !== 'object') return '';
+    const firstName = String(user?.first_name || user?.firstName || '').trim();
+    const lastName = String(user?.last_name || user?.lastName || '').trim();
+    const fullName = [firstName, lastName].filter(Boolean).join(' ').trim();
+    return String(
+      user?.full_name ||
+      user?.name ||
+      user?.fullName ||
+      user?.displayName ||
+      fullName ||
+      user?.email ||
+      user?.user_id ||
+      user?.id ||
+      ''
+    ).trim();
+  }
+
+  function resolveUserName(userId) {
+    const key = String(userId || '').trim();
+    if (!key) return ICONS.emDash;
+    if (userMap[key]) return userMap[key];
+    const found = (Array.isArray(users) ? users : []).find((u) => getUserId(u) === key);
+    if (found) return getDisplayName(found);
+    return key;
   }
   let supervisorLabel = 'your supervisor account';
   let actionMessage = '';
@@ -662,7 +702,7 @@
 
   function teamLabel(project) {
     const count = splitList(project?.members).length;
-    if (!count) return 'â€”';
+    if (!count) return ICONS.emDash;
     return `${count} ${count === 1 ? 'member' : 'members'}`;
   }
 
@@ -720,15 +760,35 @@
       const supervisorId = String(currentUser?.user_id || getCurrentUser()?.user_id || '').trim();
       if (!supervisorId) {
         allProjects = [];
+        users = [];
+        userMap = {};
         return;
       }
 
-      const result = await callApiAction('list_proj_supervisor', {
-        supervisor_user_id: supervisorId
-      });
+      users = [];
+      userMap = {};
+
+      const [projectsResult, bootstrapResult] = await Promise.allSettled([
+        callApiAction('list_proj_supervisor', { supervisor_user_id: supervisorId }),
+        callApiAction('get_proj_users_bootstrap', { user_id: supervisorId })
+      ]);
+
+      const result = projectsResult.status === 'fulfilled' ? projectsResult.value : null;
+      const boot = bootstrapResult.status === 'fulfilled' ? bootstrapResult.value : null;
+
+      if (boot?.ok) {
+        const list = Array.isArray(boot.users) ? boot.users : [...(boot.interns || []), ...(boot.supervisors || [])];
+        users = Array.isArray(list) ? list : [];
+        userMap = buildUserMap(users);
+      }
+
+      if (projectsResult.status === 'rejected') {
+        throw projectsResult.reason instanceof Error
+          ? projectsResult.reason
+          : new Error(String(projectsResult.reason || 'Unable to load supervisor projects.'));
+      }
 
       allProjects = (result?.projects || []).map(normalizeProject).sort(sortProjects);
-      // restore last-viewed collapsed project if present
       try {
         const saved = localStorage.getItem('projects.viewingProjectId');
         if (saved) {
@@ -739,24 +799,14 @@
             if (!found.folders || found.folders === null) loadProjectFolders(saved);
             if (!found.milestones || found.milestones === null) loadProjectMilestones(saved);
           }
-
-          // fetch bootstrap users to resolve member/supervisor IDs to names
-          try {
-            const boot = await callApiAction('get_proj_users_bootstrap', { user_id: supervisorId });
-            if (boot?.ok) {
-              const list = Array.isArray(boot.users) ? boot.users : [...(boot.interns || []), ...(boot.supervisors || [])];
-              users = list;
-              userMap = buildUserMap(list);
-            }
-          } catch (e) {
-            console.warn('loadProjects: failed to load bootstrap users', e);
-          }
-          }
-          } catch (e) {
+        }
+      } catch (e) {
         // ignore storage errors
       }
     } catch (error) {
       allProjects = [];
+      users = [];
+      userMap = {};
       loadError = error?.message || 'Unable to load supervisor projects.';
     } finally {
       isLoading = false;
@@ -1287,7 +1337,7 @@
             <div class="proj-table-row" class:proj-row-active={isViewing}>
               <span class="proj-col-name proj-name-cell">{p.title}</span>
               <span class="proj-col-priority" data-label="Priority">
-                <span class={"proj-priority-pill priority-" + pl.toLowerCase()}>{pl || '—'}</span>
+                <span class={"proj-priority-pill priority-" + pl.toLowerCase()}>{pl || ICONS.emDash}</span>
               </span>
               <span class="proj-col-status" data-label="Status">
                 <span class={"proj-status-pill " + sm.cls}>{sm.label}</span>
@@ -1295,9 +1345,9 @@
               <span class="proj-col-due proj-col-timeline" data-label="Timeline" class:deadline-past={past}>
                 {p.timeline_start || p.timeline_end
                   ? (p.timeline_start && p.timeline_end
-                      ? `${formatDate(p.timeline_start)} — ${formatDate(p.timeline_end)}`
+                      ? `${formatDate(p.timeline_start)} ${ICONS.emDash} ${formatDate(p.timeline_end)}`
                       : formatDate(p.timeline_start || p.timeline_end))
-                  : (p.deadline ? formatDate(p.deadline) : '—')}
+                  : (p.deadline ? formatDate(p.deadline) : ICONS.emDash)}
               </span>
               <span class="proj-col-actions proj-actions-cell" data-label="Actions">
                 <button class="icon-btn" class:icon-btn-active={isViewing} title="View" aria-label="View" on:click={() => viewProject(p)}>
@@ -1318,16 +1368,16 @@
                     </div>
                     <div class="proj-detail-body">
                       {#if viewingProjectTab === 'Details'}
-                        <div class="proj-detail-read">
+                          <div class="proj-detail-read">
                           <div class="pdr-group">
                             <div class="pdr-label">Project Title</div>
-                            <div class="pdr-box title">{p.title || 'â€”'}</div>
+                            <div class="pdr-box title">{p.title || ICONS.emDash}</div>
                           </div>
 
                           <div class="detail-row-full">
                             <div class="detail-label">Description</div>
                             <div class="pdr-box pdr-box-desc" class:collapsed={p.description && p.description.length > 220 && expandedDescriptionId !== p.id}>
-                              {p.description || 'â€”'}
+                              {p.description || ICONS.emDash}
                             </div>
                             {#if p.description && p.description.length > 220}
                               <div style="margin-top:6px">
@@ -1339,11 +1389,11 @@
                           <div class="pdr-row-2">
                             <div class="pdr-group">
                               <div class="pdr-label">Members</div>
-                              <div class="pdr-box">{(p.members && p.members.length) ? p.members.map(m => (userMap[String(m).trim()] || m)).join(', ') : 'â€”'}</div>
+                              <div class="pdr-box">{(p.members && p.members.length) ? p.members.map(m => resolveUserName(m)).join(', ') : ICONS.emDash}</div>
                             </div>
                             <div class="pdr-group">
                               <div class="pdr-label">Supervisor</div>
-                              <div class="pdr-box">{(p.supervisors && p.supervisors.length) ? p.supervisors.map(s => (userMap[String(s).trim()] || s)).join(', ') : 'â€”'}</div>
+                              <div class="pdr-box">{(p.supervisors && p.supervisors.length) ? p.supervisors.map(s => resolveUserName(s)).join(', ') : ICONS.emDash}</div>
                             </div>
                           </div>
 
@@ -1354,18 +1404,18 @@
                             </div>
                             <div class="pdr-group">
                               <div class="pdr-label">Status</div>
-                              <div class="pdr-box">{(STATUS_META[p.status] || {}).label || p.status || 'â€”'}</div>
+                              <div class="pdr-box">{(STATUS_META[p.status] || {}).label || p.status || ICONS.emDash}</div>
                             </div>
                           </div>
 
                           <div class="pdr-row-2">
                             <div class="pdr-group">
                               <div class="pdr-label">Timeline (Start)</div>
-                              <div class="pdr-box">{p.timeline_start ? formatDate(p.timeline_start) : 'â€”'}</div>
+                              <div class="pdr-box">{p.timeline_start ? formatDate(p.timeline_start) : ICONS.emDash}</div>
                             </div>
                             <div class="pdr-group">
                               <div class="pdr-label">Timeline (End)</div>
-                              <div class="pdr-box">{p.timeline_end ? formatDate(p.timeline_end) : 'â€”'}</div>
+                              <div class="pdr-box">{p.timeline_end ? formatDate(p.timeline_end) : ICONS.emDash}</div>
                             </div>
                           </div>
 
@@ -1378,7 +1428,7 @@
                       {:else if viewingProjectTab === 'Submissions'}
                         {#if isLoadingFolders}
                           <div class="proj-detail-empty" style="padding:1rem 1.25rem">
-                            <Loader2 size={18} class="spin" /> Loading foldersâ€¦
+                            <Loader2 size={18} class="spin" /> Loading folders...
                           </div>
                         {:else if !p.folders || p.folders.length === 0}
                           <div class="proj-detail-empty" style="padding:1rem 1.25rem">No folders yet.</div>
@@ -1386,30 +1436,18 @@
                           <div class="folder-list">
                             {#each p.folders as folder (folder.id)}
                               <div class="folder-block">
-                                <div class="folder-header" role="button" tabindex="0" on:click={() => { if (renamingFolderId !== folder.id) toggleFolder(folder.id); }} on:keydown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && renamingFolderId !== folder.id) toggleFolder(folder.id); }}>
-                                  <span class="folder-chevron">{expandedFolderIds.has(folder.id) ? 'â–¾' : 'â–¸'}</span>
-                                  <span class="folder-icon">ðŸ“</span>
-                                  {#if renamingFolderId === folder.id}
-                                    <input
-                                      class="folder-rename-input"
-                                      bind:value={renamingFolderName}
-                                      on:click|stopPropagation
-                                      on:keydown={(e) => { if (e.key === 'Enter') confirmRename(p.id); if (e.key === 'Escape') { renamingFolderId = null; } }}
-                                    />
-                                    <button class="folder-rename-confirm" on:click|stopPropagation={() => confirmRename(p.id)}>âœ“</button>
-                                  {:else}
-                                    <span class="folder-name">{folder.name}</span>
-                                    <button class="folder-action-btn" title="Rename" on:click|stopPropagation={() => startRenaming(folder.id, folder.name)}><Pencil size={12} /></button>
-                                    <button class="folder-action-btn folder-delete-btn" title="Delete folder" on:click|stopPropagation={() => deleteFolder(p.id, folder.id)}><Trash2 size={12} /></button>
-                                  {/if}
+                                <div class="folder-header" role="button" tabindex="0" on:click={() => toggleFolder(folder.id)} on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleFolder(folder.id); }}>
+                                  <span class="folder-chevron">{expandedFolderIds.has(folder.id) ? ICONS.chevronDown : ICONS.chevronRight}</span>
+                                  <span class="folder-icon">{ICONS.folder}</span>
+                                  <span class="folder-name">{folder.name}</span>
                                 </div>
 
                                 {#if expandedFolderIds.has(folder.id)}
                                   <div class="folder-content">
-                                        {#if pendingUpload.projectId === p.id && pendingUpload.folderId === folder.id && pendingUpload.file}
+                                    {#if pendingUpload.projectId === p.id && pendingUpload.folderId === folder.id && pendingUpload.file}
                                       <div class="submission-card pending-upload" style="margin:0.5rem 0.75rem;">
                                         <div class="submission-card-left">
-                                          <div class="sub-file-icon">ðŸ“„</div>
+                                          <div class="sub-file-icon">{ICONS.file}</div>
                                           <div class="submission-meta">
                                             <input class="sub-input" bind:value={pendingUpload.name} placeholder="File name" />
                                             <select class="sub-input" bind:value={pendingUpload.type}>
@@ -1420,7 +1458,7 @@
                                         </div>
                                         <div class="submission-actions">
                                           <button class="sub-action-btn" disabled={isUploadingFile} on:click={() => confirmUpload(p.id, folder.id)}>
-                                            {#if isUploadingFile}<Loader2 size={13} class="spin" /> Uploadingâ€¦{:else}Upload{/if}
+                                            {#if isUploadingFile}<Loader2 size={13} class="spin" /> Uploading...{:else}Upload{/if}
                                           </button>
                                           <button class="sub-cancel-btn" disabled={isUploadingFile} on:click={cancelPendingUpload}>Cancel</button>
                                         </div>
@@ -1433,7 +1471,7 @@
                                           {#if s.kind === 'file'}
                                             <div class="submission-card">
                                               <div class="submission-card-left">
-                                                <div class="sub-file-icon">ðŸ“„</div>
+                                                <div class="sub-file-icon">{ICONS.file}</div>
                                                 <div class="submission-meta">
                                                   <div class="submission-name">{s.name}</div>
                                                   <div class="submission-info">Uploaded: {s.uploaded_at ? formatDate(s.uploaded_at) : ''}</div>
@@ -1447,7 +1485,7 @@
                                           {:else}
                                             <div class="submission-card link-card">
                                               <div class="link-card-body">
-                                                <div class="link-card-title">ðŸ”— {s.title}</div>
+                                                <div class="link-card-title">{ICONS.link} {s.title}</div>
                                                 <div class="link-card-url">{s.url}</div>
                                                 <div class="submission-info">Added: {s.added_at ? formatDate(s.added_at) : ''}</div>
                                               </div>
@@ -1476,7 +1514,7 @@
                                   <span class={"ms-icon " + (STATUS_META[m.status]?.cls || STATUS_META['Not Started'].cls)}></span>
                                   <span class="ms-title">{m.milestone}</span>
                                   {#if m.date}<span class="ms-due">Due: {formatDate(m.date)}</span>{/if}
-                                  <span class="ms-chevron">{expandedMilestoneIds.has(m.id) ? 'â–²' : 'â–¼'}</span>
+                                  <span class="ms-chevron">{expandedMilestoneIds.has(m.id) ? ICONS.chevronDown : ICONS.chevronRight}</span>
                                 </div>
 
                                 {#if expandedMilestoneIds.has(m.id)}
@@ -1487,7 +1525,7 @@
                                         <ul class="ms-linked-list">
                                           {#each parseMilestoneFiles(m) as lf}
                                             <li class="ms-linked-item">
-                                              <span>ðŸ“„ {lf.name}</span>
+                                              <span>{ICONS.file} {lf.name}</span>
                                               {#if lf.drive_url}<a href={lf.drive_url} target="_blank" rel="noopener" class="ms-open-link">Open</a>{/if}
                                             </li>
                                           {/each}
@@ -1496,6 +1534,11 @@
                                     {:else}
                                       <div class="ms-no-links">No linked files yet.</div>
                                     {/if}
+                                    <div class="ms-actions">
+                                      <span class={"proj-status-pill " + (STATUS_META[m.status]?.cls || STATUS_META['Not Started'].cls)}>
+                                        {STATUS_META[m.status]?.label || STATUS_META['Not Started'].label}
+                                      </span>
+                                    </div>
                                   </div>
                                 {/if}
                               </div>
@@ -1515,7 +1558,7 @@
                           </div>
 
                           {#if feedbackLoading[p.id]}
-                            <div class="proj-detail-empty">Loading feedbackâ€¦</div>
+                            <div class="proj-detail-empty">Loading feedback...</div>
                           {:else if !(feedbackMap[p.id] || []).length}
                             <div class="proj-detail-empty">No feedback yet.</div>
                           {:else}
@@ -1526,7 +1569,7 @@
                                     <div class="feedback-card-top">
                                       <div style="display:flex;gap:8px;align-items:center">
                                         <div class="fb-role-badge">{f.commenter_role || 'User'}</div>
-                                        <div class="fb-meta">{f.commenter_name || f.commenter} â€¢ {humanizeTime(f.created_at)}</div>
+                                        <div class="fb-meta">{f.commenter_name || f.commenter} {'\u2022'} {humanizeTime(f.created_at)}</div>
                                       </div>
                                     </div>
                                     <div class="fb-comment-text">{f.comment_text}</div>
@@ -1547,7 +1590,7 @@
                                     <div class="feedback-reply">
                                       <div style="display:flex;gap:8px;align-items:center">
                                         <div class="fb-role-badge">{child.commenter_role || 'User'}</div>
-                                        <div class="fb-meta">{child.commenter_name || child.commenter} â€¢ {humanizeTime(child.created_at)}</div>
+                                        <div class="fb-meta">{child.commenter_name || child.commenter} {'\u2022'} {humanizeTime(child.created_at)}</div>
                                       </div>
                                       <div class="fb-comment-text">{child.comment_text}</div>
                                     </div>
@@ -2227,11 +2270,6 @@
 
   .submissions-list { display:flex; flex-direction:column; gap:0.6rem; padding:0.75rem 1.25rem 1rem; }
 
-  .add-milestone-bar { background: var(--color-surface); border:1px solid var(--color-border); padding:0.6rem; border-radius:8px; align-items:center; }
-  .add-milestone-bar .input { padding:0.45rem 0.75rem; border-radius:6px; border:1px solid var(--color-border); background:var(--color-surface); color:var(--color-heading); font-size:0.87rem; font-family:inherit; }
-  .add-milestone-btn { display:inline-flex; align-items:center; gap:0.5rem; padding:0.4rem 0.9rem; border-radius:8px; background:transparent; border:1px solid var(--color-border); color:var(--color-heading); font-size:0.87rem; font-family:inherit; }
-  .add-milestone-btn .icon { color:#7c3aed; }
-
   .status-select {
     appearance: none; -webkit-appearance: none; -moz-appearance: none;
     padding:0.12rem 0.6rem; border-radius:0.45rem; border:1px solid var(--color-border);
@@ -2315,9 +2353,6 @@
     color:var(--color-sidebar-text); border-radius:4px; display:flex; align-items:center;
     opacity:0; transition:opacity 0.15s;
   }
-  .folder-header:hover .folder-action-btn { opacity:1; }
-  .folder-delete-btn:hover { color:#ef4444; }
-
   .folder-content { border-top:1px solid var(--color-border,#e2e8f0); }
   :global(.dark) .folder-content { border-top-color:rgba(255,255,255,0.08); }
 
