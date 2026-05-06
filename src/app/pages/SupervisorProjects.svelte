@@ -1,4 +1,4 @@
-<script>
+﻿<script>
 // @ts-nocheck
   import { onMount, onDestroy } from 'svelte';
   import { getCurrentUser, subscribeToCurrentUser, callApiAction } from '../lib/auth.js';
@@ -662,7 +662,7 @@
 
   function teamLabel(project) {
     const count = splitList(project?.members).length;
-    if (!count) return '—';
+    if (!count) return 'â€”';
     return `${count} ${count === 1 ? 'member' : 'members'}`;
   }
 
@@ -1043,15 +1043,15 @@
   <section class="quick-panel">
     <div class="quick-head">
       <div class="view-controls">
-        <button class="btn btn-ghost" class:active={activeView === 'Overview'} on:click={() => activeView = 'Overview'}>
+        <button type="button" class="btn btn-ghost" class:active={activeView === 'Overview'} on:click={() => activeView = 'Overview'}>
           <Grid size={14} />
           <span>Overview</span>
         </button>
-        <button class="btn btn-ghost" class:active={activeView === 'Projects'} on:click={() => activeView = 'Projects'}>
+        <button type="button" class="btn btn-ghost" class:active={activeView === 'Projects'} on:click={() => activeView = 'Projects'}>
           <FolderOpen size={14} />
           <span>Projects</span>
         </button>
-        <button class="btn btn-ghost" class:active={activeView === 'Archive'} on:click={() => activeView = 'Archive'}>
+        <button type="button" class="btn btn-ghost" class:active={activeView === 'Archive'} on:click={() => activeView = 'Archive'}>
           <Archive size={14} />
           <span>Archive</span>
         </button>
@@ -1270,64 +1270,45 @@
         <div class="empty-sub">Try a different search, priority, or status.</div>
       </div>
     {:else}
-    <div class="table-wrap">
-      <table class="projects-table">
-        <thead>
-          <tr>
-            <th>Project Title</th>
-            <th>Description</th>
-            <th>DueDate</th>
-            <th>Priority</th>
-            <th>Status</th>
-            <th>Team</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
+    <section class="proj-table-panel supervisor-projects-list">
+      <header class="proj-table-header">
+        <span class="proj-col-name">Project Name</span>
+        <span class="proj-col-priority">Priority</span>
+        <span class="proj-col-status">Status</span>
+        <span class="proj-col-due">Timeline</span>
+        <span class="proj-col-actions">Actions</span>
+      </header>
+      <div class="proj-table-body">
           {#each filteredProjects as p (p.id)}
             {@const sm = getStatusMeta(p.status)}
-            {@const past = isDeadlinePast(p.deadline)}
-            {@const near = !past && isDeadlineNear(p.deadline)}
-            <tr class:proj-row-active={viewingProjectId === p.id}>
-              <td class="col-title">{p.title}</td>
-              <td class="col-desc">{p.description || '—'}</td>
-              <td>
-                <span
-                  class="deadline-cell"
-                  class:deadline-past={past}
-                  class:deadline-near={near}
-                >
-                  <CalendarDays size={11} />
-                  {formatDate(p.deadline)}
-                  {#if past}
-                    <span class="deadline-tag">Overdue</span>
-                  {:else if near}
-                    <span class="deadline-tag near">Soon</span>
-                  {/if}
-                </span>
-              </td>
-              <td>
-                <span
-                  class="priority-badge"
-                  style="background:{pc.bg};color:{pc.text};border-color:{pc.border}"
-                >
-                  {normalizePriorityLabel(p.priority_level)}
-                </span>
-              </td>
-              <td><span class={"status-badge " + sm.cls}>{sm.label}</span></td>
-              <td class="col-team">{teamLabel(p)}</td>
-              <td class="col-actions">
-                <button class="icon-btn" title="Open project" aria-label="Open project" on:click={() => viewProject(p)}>
+            {@const past = isDeadlinePast(p.timeline_end || p.deadline)}
+            {@const pl = normalizePriorityLabel(p.priority_level)}
+            {@const isViewing = viewingProjectId === p.id}
+            <div class="proj-table-row" class:proj-row-active={isViewing}>
+              <span class="proj-col-name proj-name-cell">{p.title}</span>
+              <span class="proj-col-priority" data-label="Priority">
+                <span class={"proj-priority-pill priority-" + pl.toLowerCase()}>{pl || '—'}</span>
+              </span>
+              <span class="proj-col-status" data-label="Status">
+                <span class={"proj-status-pill " + sm.cls}>{sm.label}</span>
+              </span>
+              <span class="proj-col-due proj-col-timeline" data-label="Timeline" class:deadline-past={past}>
+                {p.timeline_start || p.timeline_end
+                  ? (p.timeline_start && p.timeline_end
+                      ? `${formatDate(p.timeline_start)} — ${formatDate(p.timeline_end)}`
+                      : formatDate(p.timeline_start || p.timeline_end))
+                  : (p.deadline ? formatDate(p.deadline) : '—')}
+              </span>
+              <span class="proj-col-actions proj-actions-cell" data-label="Actions">
+                <button class="icon-btn" class:icon-btn-active={isViewing} title="View" aria-label="View" on:click={() => viewProject(p)}>
                   <Eye size={16} />
                 </button>
-                <button class="sub-action-btn" on:click={() => archiveProject(p)}>
-                  <Archive size={12} /> Archive
+                <button class="icon-btn archive" title="Archive" aria-label="Archive" on:click={() => archiveProject(p)}>
+                  <Archive size={16} />
                 </button>
-              </td>
-            </tr>
+              </span>
+            </div>
             {#if viewingProjectId === p.id}
-              <tr class="proj-details-row">
-                <td colspan="7">
                   <div class="proj-detail-card">
                     <div class="proj-detail-tabs">
                       <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Details'} on:click={() => viewingProjectTab = 'Details'}>Details</button>
@@ -1340,13 +1321,13 @@
                         <div class="proj-detail-read">
                           <div class="pdr-group">
                             <div class="pdr-label">Project Title</div>
-                            <div class="pdr-box title">{p.title || '—'}</div>
+                            <div class="pdr-box title">{p.title || 'â€”'}</div>
                           </div>
 
                           <div class="detail-row-full">
                             <div class="detail-label">Description</div>
                             <div class="pdr-box pdr-box-desc" class:collapsed={p.description && p.description.length > 220 && expandedDescriptionId !== p.id}>
-                              {p.description || '—'}
+                              {p.description || 'â€”'}
                             </div>
                             {#if p.description && p.description.length > 220}
                               <div style="margin-top:6px">
@@ -1358,11 +1339,11 @@
                           <div class="pdr-row-2">
                             <div class="pdr-group">
                               <div class="pdr-label">Members</div>
-                              <div class="pdr-box">{(p.members && p.members.length) ? p.members.map(m => (userMap[String(m).trim()] || m)).join(', ') : '—'}</div>
+                              <div class="pdr-box">{(p.members && p.members.length) ? p.members.map(m => (userMap[String(m).trim()] || m)).join(', ') : 'â€”'}</div>
                             </div>
                             <div class="pdr-group">
                               <div class="pdr-label">Supervisor</div>
-                              <div class="pdr-box">{(p.supervisors && p.supervisors.length) ? p.supervisors.map(s => (userMap[String(s).trim()] || s)).join(', ') : '—'}</div>
+                              <div class="pdr-box">{(p.supervisors && p.supervisors.length) ? p.supervisors.map(s => (userMap[String(s).trim()] || s)).join(', ') : 'â€”'}</div>
                             </div>
                           </div>
 
@@ -1373,18 +1354,18 @@
                             </div>
                             <div class="pdr-group">
                               <div class="pdr-label">Status</div>
-                              <div class="pdr-box">{(STATUS_META[p.status] || {}).label || p.status || '—'}</div>
+                              <div class="pdr-box">{(STATUS_META[p.status] || {}).label || p.status || 'â€”'}</div>
                             </div>
                           </div>
 
                           <div class="pdr-row-2">
                             <div class="pdr-group">
                               <div class="pdr-label">Timeline (Start)</div>
-                              <div class="pdr-box">{p.timeline_start ? formatDate(p.timeline_start) : '—'}</div>
+                              <div class="pdr-box">{p.timeline_start ? formatDate(p.timeline_start) : 'â€”'}</div>
                             </div>
                             <div class="pdr-group">
                               <div class="pdr-label">Timeline (End)</div>
-                              <div class="pdr-box">{p.timeline_end ? formatDate(p.timeline_end) : '—'}</div>
+                              <div class="pdr-box">{p.timeline_end ? formatDate(p.timeline_end) : 'â€”'}</div>
                             </div>
                           </div>
 
@@ -1397,7 +1378,7 @@
                       {:else if viewingProjectTab === 'Submissions'}
                         {#if isLoadingFolders}
                           <div class="proj-detail-empty" style="padding:1rem 1.25rem">
-                            <Loader2 size={18} class="spin" /> Loading folders…
+                            <Loader2 size={18} class="spin" /> Loading foldersâ€¦
                           </div>
                         {:else if !p.folders || p.folders.length === 0}
                           <div class="proj-detail-empty" style="padding:1rem 1.25rem">No folders yet.</div>
@@ -1406,8 +1387,8 @@
                             {#each p.folders as folder (folder.id)}
                               <div class="folder-block">
                                 <div class="folder-header" role="button" tabindex="0" on:click={() => { if (renamingFolderId !== folder.id) toggleFolder(folder.id); }} on:keydown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && renamingFolderId !== folder.id) toggleFolder(folder.id); }}>
-                                  <span class="folder-chevron">{expandedFolderIds.has(folder.id) ? '▾' : '▸'}</span>
-                                  <span class="folder-icon">📁</span>
+                                  <span class="folder-chevron">{expandedFolderIds.has(folder.id) ? 'â–¾' : 'â–¸'}</span>
+                                  <span class="folder-icon">ðŸ“</span>
                                   {#if renamingFolderId === folder.id}
                                     <input
                                       class="folder-rename-input"
@@ -1415,7 +1396,7 @@
                                       on:click|stopPropagation
                                       on:keydown={(e) => { if (e.key === 'Enter') confirmRename(p.id); if (e.key === 'Escape') { renamingFolderId = null; } }}
                                     />
-                                    <button class="folder-rename-confirm" on:click|stopPropagation={() => confirmRename(p.id)}>✓</button>
+                                    <button class="folder-rename-confirm" on:click|stopPropagation={() => confirmRename(p.id)}>âœ“</button>
                                   {:else}
                                     <span class="folder-name">{folder.name}</span>
                                     <button class="folder-action-btn" title="Rename" on:click|stopPropagation={() => startRenaming(folder.id, folder.name)}><Pencil size={12} /></button>
@@ -1428,7 +1409,7 @@
                                         {#if pendingUpload.projectId === p.id && pendingUpload.folderId === folder.id && pendingUpload.file}
                                       <div class="submission-card pending-upload" style="margin:0.5rem 0.75rem;">
                                         <div class="submission-card-left">
-                                          <div class="sub-file-icon">📄</div>
+                                          <div class="sub-file-icon">ðŸ“„</div>
                                           <div class="submission-meta">
                                             <input class="sub-input" bind:value={pendingUpload.name} placeholder="File name" />
                                             <select class="sub-input" bind:value={pendingUpload.type}>
@@ -1439,7 +1420,7 @@
                                         </div>
                                         <div class="submission-actions">
                                           <button class="sub-action-btn" disabled={isUploadingFile} on:click={() => confirmUpload(p.id, folder.id)}>
-                                            {#if isUploadingFile}<Loader2 size={13} class="spin" /> Uploading…{:else}Upload{/if}
+                                            {#if isUploadingFile}<Loader2 size={13} class="spin" /> Uploadingâ€¦{:else}Upload{/if}
                                           </button>
                                           <button class="sub-cancel-btn" disabled={isUploadingFile} on:click={cancelPendingUpload}>Cancel</button>
                                         </div>
@@ -1452,7 +1433,7 @@
                                           {#if s.kind === 'file'}
                                             <div class="submission-card">
                                               <div class="submission-card-left">
-                                                <div class="sub-file-icon">📄</div>
+                                                <div class="sub-file-icon">ðŸ“„</div>
                                                 <div class="submission-meta">
                                                   <div class="submission-name">{s.name}</div>
                                                   <div class="submission-info">Uploaded: {s.uploaded_at ? formatDate(s.uploaded_at) : ''}</div>
@@ -1466,7 +1447,7 @@
                                           {:else}
                                             <div class="submission-card link-card">
                                               <div class="link-card-body">
-                                                <div class="link-card-title">🔗 {s.title}</div>
+                                                <div class="link-card-title">ðŸ”— {s.title}</div>
                                                 <div class="link-card-url">{s.url}</div>
                                                 <div class="submission-info">Added: {s.added_at ? formatDate(s.added_at) : ''}</div>
                                               </div>
@@ -1495,7 +1476,7 @@
                                   <span class={"ms-icon " + (STATUS_META[m.status]?.cls || STATUS_META['Not Started'].cls)}></span>
                                   <span class="ms-title">{m.milestone}</span>
                                   {#if m.date}<span class="ms-due">Due: {formatDate(m.date)}</span>{/if}
-                                  <span class="ms-chevron">{expandedMilestoneIds.has(m.id) ? '▲' : '▼'}</span>
+                                  <span class="ms-chevron">{expandedMilestoneIds.has(m.id) ? 'â–²' : 'â–¼'}</span>
                                 </div>
 
                                 {#if expandedMilestoneIds.has(m.id)}
@@ -1506,7 +1487,7 @@
                                         <ul class="ms-linked-list">
                                           {#each parseMilestoneFiles(m) as lf}
                                             <li class="ms-linked-item">
-                                              <span>📄 {lf.name}</span>
+                                              <span>ðŸ“„ {lf.name}</span>
                                               {#if lf.drive_url}<a href={lf.drive_url} target="_blank" rel="noopener" class="ms-open-link">Open</a>{/if}
                                             </li>
                                           {/each}
@@ -1534,7 +1515,7 @@
                           </div>
 
                           {#if feedbackLoading[p.id]}
-                            <div class="proj-detail-empty">Loading feedback…</div>
+                            <div class="proj-detail-empty">Loading feedbackâ€¦</div>
                           {:else if !(feedbackMap[p.id] || []).length}
                             <div class="proj-detail-empty">No feedback yet.</div>
                           {:else}
@@ -1545,7 +1526,7 @@
                                     <div class="feedback-card-top">
                                       <div style="display:flex;gap:8px;align-items:center">
                                         <div class="fb-role-badge">{f.commenter_role || 'User'}</div>
-                                        <div class="fb-meta">{f.commenter_name || f.commenter} • {humanizeTime(f.created_at)}</div>
+                                        <div class="fb-meta">{f.commenter_name || f.commenter} â€¢ {humanizeTime(f.created_at)}</div>
                                       </div>
                                     </div>
                                     <div class="fb-comment-text">{f.comment_text}</div>
@@ -1566,7 +1547,7 @@
                                     <div class="feedback-reply">
                                       <div style="display:flex;gap:8px;align-items:center">
                                         <div class="fb-role-badge">{child.commenter_role || 'User'}</div>
-                                        <div class="fb-meta">{child.commenter_name || child.commenter} • {humanizeTime(child.created_at)}</div>
+                                        <div class="fb-meta">{child.commenter_name || child.commenter} â€¢ {humanizeTime(child.created_at)}</div>
                                       </div>
                                       <div class="fb-comment-text">{child.comment_text}</div>
                                     </div>
@@ -1579,13 +1560,10 @@
                       {/if}
                     </div>
                   </div>
-                </td>
-              </tr>
             {/if}
           {/each}
-        </tbody>
-      </table>
-    </div>
+      </div>
+    </section>
 
     <div class="projects-cards-mobile">
       {#each filteredProjects as p (p.id)}
@@ -1661,9 +1639,9 @@
   .tone-green { background: rgba(22, 163, 74, 0.12); color: #16a34a; }
   .tone-violet { background: rgba(124, 58, 237, 0.14); color: #7c3aed; }
 
-  .quick-panel { background: transparent !important; padding: 0; border-radius: 0; border: none !important; box-shadow: none !important; display: flex; align-items: center; justify-content: space-between; }
-  .quick-head { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 0.75rem; flex-wrap: nowrap; }
-  .view-controls { display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; }
+  .quick-panel { background: transparent !important; padding: 0; border-radius: 0; border: none !important; box-shadow: none !important; display: flex; align-items: center; justify-content: space-between; position: relative; isolation: isolate; }
+  .quick-head { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 0.75rem; flex-wrap: nowrap; position: relative; z-index: 2; }
+  .view-controls { display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; position: relative; z-index: 3; }
   .view-controls .btn {
     display: inline-flex;
     align-items: center;
@@ -1677,6 +1655,8 @@
     line-height: 1;
     color: var(--color-sidebar-text);
     cursor: pointer;
+    position: relative;
+    z-index: 4;
   }
   .view-controls .btn.active { background: var(--color-soft); color: var(--color-heading); border-color: var(--color-border); }
   .quick-actions { display: flex; gap: 0.5rem; align-items: center; margin-left: auto; flex-wrap: nowrap; }
@@ -1710,46 +1690,6 @@
   }
   :global(body.dark) .alert-success { background: #052e16; border-color: #166534; color: #4ade80; }
   :global(body.dark) .alert-error { background: #2d0a0a; border-color: #7f1d1d; color: #f87171; }
-
-  .table-wrap {
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: 10px;
-    overflow: auto;
-  }
-  .projects-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
-  .projects-table thead tr { background: var(--color-soft); }
-  .projects-table th {
-    padding: 10px 14px;
-    text-align: left;
-    font-size: 0.78rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: .06em;
-    color: var(--color-sidebar-text);
-    border-bottom: 1px solid var(--color-border);
-    white-space: nowrap;
-  }
-  .projects-table td {
-    padding: 10px 14px;
-    vertical-align: middle;
-    border-bottom: 1px solid var(--color-border);
-    color: var(--color-text);
-  }
-  .projects-table tbody tr:last-child td { border-bottom: none; }
-  .projects-table tbody tr:hover { background: var(--color-soft); }
-  .col-title { font-weight: 600; min-width: 140px; font-size: 0.88rem; }
-  .col-desc { color: var(--color-sidebar-text); max-width: 220px; font-size: 0.78rem; }
-  .col-team {
-    white-space: nowrap;
-    font-weight: 500;
-    color: #2563eb;
-  }
-  .col-actions {
-    white-space: nowrap;
-    text-align: center;
-  }
-  .projects-table th:last-child { text-align: center; }
 
   .icon-btn {
     display: inline-flex;
@@ -1929,6 +1869,22 @@
   .proj-priority-pill.priority-medium { background: rgba(16,185,129,0.08); color: #10b981; border-color: rgba(16,185,129,0.12); }
   .proj-priority-pill.priority-high { background: rgba(239,68,68,0.08); color: #ef4444; border-color: rgba(239,68,68,0.12); }
 
+  .priority-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    width: fit-content;
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px solid;
+    font-size: 10.5px;
+    font-weight: 700;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+  :global(body.dark) .priority-badge { filter: brightness(.9) saturate(.95); }
+
   .sub-action-btn {
     display: inline-flex;
     align-items: center;
@@ -1981,6 +1937,47 @@
   }
   .proj-table-row:hover { border-color: var(--color-accent); box-shadow: 0 8px 22px -20px rgba(15,23,42,.35); }
   .proj-name-cell { font-size: 0.88rem; font-weight: 600; color: var(--color-heading); }
+  .supervisor-projects-list .proj-table-header,
+  .supervisor-projects-list .proj-table-row {
+    grid-template-columns: minmax(0,1fr) 7.5rem 7.5rem 12rem 6.5rem;
+  }
+  .supervisor-projects-list .proj-col-priority,
+  .supervisor-projects-list .proj-col-status,
+  .supervisor-projects-list .proj-col-due,
+  .supervisor-projects-list .proj-col-actions {
+    justify-self: center;
+    text-align: center;
+  }
+  .proj-col-timeline {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 220px;
+    font-size: 0.83rem;
+    color: var(--color-sidebar-text);
+  }
+  .proj-actions-cell {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.55rem;
+  }
+  .supervisor-projects-list .icon-btn {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    background: var(--color-surface-muted);
+    color: var(--color-sidebar-text);
+    margin: 0;
+  }
+  .supervisor-projects-list .icon-btn:hover,
+  .supervisor-projects-list .icon-btn-active {
+    background: rgba(59,130,246,0.12) !important;
+    border-color: #3b82f6 !important;
+    color: #3b82f6 !important;
+  }
   .proj-arc-title { font-size: 0.88rem; font-weight: 600; color: var(--color-heading); }
   .proj-arc-meta { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.35rem; color: var(--color-sidebar-text); font-size: 0.77rem; }
   .proj-arc-date { font-weight: 700; color: var(--color-heading); }
@@ -2003,7 +2000,7 @@
   .sub-action-btn:hover { background: var(--color-soft); border-color: var(--color-accent); }
   :global(body.dark) .sub-action-btn { background: #161c27; border-color: #ffffff10; }
 
-  .projects-cards-mobile { display: grid; grid-template-columns: 1fr; gap: 12px; }
+  .projects-cards-mobile { display: none; grid-template-columns: 1fr; gap: 12px; }
   .project-card {
     background: var(--color-surface);
     border: 1px solid var(--color-border);
@@ -2091,6 +2088,7 @@
     .stat-cards { grid-template-columns: 1fr; gap: 10px; }
     .stat-card { padding: 16px; }
     .ov-top-grid { grid-template-columns: 1fr; }
+    .projects-cards-mobile { display: grid; }
     .quick-actions { width: 100%; flex-wrap: wrap; gap: 0.5rem; }
     .quick-actions > * { width: 100%; }
     .quick-actions .search-wrap,
@@ -2159,7 +2157,7 @@
   .muted { color:var(--color-sidebar-text); font-weight:500; }
   .detail-value.timeline { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-  /* ── Inline Edit Form (Details tab) ────────────────── */
+  /* â”€â”€ Inline Edit Form (Details tab) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   .inline-edit-form { padding: 1rem 1.25rem; display: flex; flex-direction: column; gap: 0.75rem; }
   .ief-group { display: flex; flex-direction: column; gap: 0.3rem; }
   .ief-label { font-size: 0.8rem; font-weight: 600; color: var(--color-sidebar-text); }
@@ -2174,7 +2172,7 @@
   .ief-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
   .ief-actions { display: flex; justify-content: flex-end; gap: 0.5rem; padding-top: 0.25rem; }
 
-  /* ── Details Read View ──────────────────────────────── */
+  /* â”€â”€ Details Read View â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   .proj-detail-read { padding: 0.75rem 1.25rem; display: flex; flex-direction: column; gap: 0.75rem; }
   .pdr-header { display: flex; justify-content: flex-end; margin-bottom: 0; }
   .pdr-group { display: flex; flex-direction: column; gap: 0.3rem; }
