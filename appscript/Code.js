@@ -2131,8 +2131,12 @@ function handleCreateRequest_(payload) {
       return { ok: false, error: 'Start time and end time are required for overtime requests.' };
     }
 
+    // Get user's schedule to check their days_off
+    var scheduleResult = handleGetInternSchedule_({ intern_user_id: userId });
+    var userDaysOff = scheduleResult.ok && scheduleResult.schedule ? scheduleResult.schedule.days_off : [0, 6];
+
     // Check if overtime overlaps with default work schedule
-    var overlapError = checkOvertimeScheduleOverlap_(requestDate, startTime, endTime);
+    var overlapError = checkOvertimeScheduleOverlap_(requestDate, startTime, endTime, userDaysOff);
     if (overlapError) {
       return { ok: false, error: overlapError };
     }
@@ -3083,14 +3087,34 @@ function sendStudentRequestStatusEmail_(studentUserId, requestDetails) {
 }
 
 // Validates that overtime doesn't overlap with default work schedule (Mon-Fri, 9am-5pm)
-function checkOvertimeScheduleOverlap_(requestDate, startTime, endTime) {
+function checkOvertimeScheduleOverlap_(requestDate, startTime, endTime, daysOff) {
   // Parse the date to check what day of week it is
   var dateObj = new Date(requestDate + 'T00:00:00');
   var dayOfWeek = dateObj.getDay(); // 0=Sunday, 1=Monday, ..., 5=Friday, 6=Saturday
 
+  // Parse days_off if it's a string (JSON array)
+  var daysOffArray = [];
+  if (daysOff) {
+    if (typeof daysOff === 'string') {
+      try {
+        daysOffArray = JSON.parse(daysOff);
+      } catch (e) {
+        daysOffArray = [];
+      }
+    } else if (Array.isArray(daysOff)) {
+      daysOffArray = daysOff;
+    }
+  }
+
+  // Check if the requested date is a day-off for the user
+  if (daysOffArray.indexOf(dayOfWeek) !== -1) {
+    // It's a day-off, allow overtime at any time
+    return '';
+  }
+
   // Check if the requested date is a work day (Monday-Friday)
   if (DEFAULT_WORK_DAYS_.indexOf(dayOfWeek) === -1) {
-    // It's a weekend, no conflict with default work schedule
+    // It's a weekend (and not explicitly a work day), no conflict with default work schedule
     return '';
   }
 
