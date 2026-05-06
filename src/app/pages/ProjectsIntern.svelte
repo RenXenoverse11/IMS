@@ -46,6 +46,8 @@
   let showDeleteModal   = false;
   let projectToDelete   = null;
   let isDeleting        = false;
+  let archivingProjectIds = new Set();
+  let restoringProjectIds = new Set();
 
   const PRIORITY_OPTIONS  = ['Low', 'Medium', 'High'];
   const STATUS_OPTIONS    = ['Not Started', 'In Progress', 'Submitted', 'Needs Revision', 'Approved'];
@@ -1397,6 +1399,9 @@
 
   async function archiveProject(p) {
     if (!p) return;
+    const projectId = String(p.id || p.proj_id || '').trim();
+    if (!projectId || archivingProjectIds.has(projectId)) return;
+    archivingProjectIds = new Set([...archivingProjectIds, projectId]);
     const uid = getCurrentUserId();
     try {
       const res = await dispatchAction('update_proj_intern', {
@@ -1411,11 +1416,18 @@
       setTimeout(() => { formSuccess = ''; }, 2000);
     } catch (e) {
       formError = e?.message || 'Archive failed.';
+    } finally {
+      const next = new Set(archivingProjectIds);
+      next.delete(projectId);
+      archivingProjectIds = next;
     }
   }
 
   async function restoreProject(p) {
     if (!p) return;
+    const projectId = String(p.id || p.proj_id || '').trim();
+    if (!projectId || restoringProjectIds.has(projectId)) return;
+    restoringProjectIds = new Set([...restoringProjectIds, projectId]);
     const uid = getCurrentUserId();
     try {
       const res = await dispatchAction('restore_proj_intern', {
@@ -1428,6 +1440,10 @@
       setTimeout(() => { formSuccess = ''; }, 2000);
     } catch (e) {
       formError = e?.message || 'Restore failed.';
+    } finally {
+      const next = new Set(restoringProjectIds);
+      next.delete(projectId);
+      restoringProjectIds = next;
     }
   }
 
@@ -1810,8 +1826,18 @@
                     <button class="sub-action-btn" on:click={() => { activeView = 'Projects'; viewProject(p); }}>
                       <Eye size={12} /> Open
                     </button>
-                    <button class="sub-action-btn" title="Archive project" on:click={() => archiveProject(p)}>
-                      <Archive size={12} /> Archive
+                    <button
+                      class="sub-action-btn"
+                      class:sub-action-btn-busy={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                      title="Archive project"
+                      disabled={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                      on:click={() => archiveProject(p)}
+                    >
+                      {#if archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                        <Loader2 size={12} class="spin" /> Archiving...
+                      {:else}
+                        <Archive size={12} /> Archive
+                      {/if}
                     </button>
                   </div>
                 </div>
@@ -1927,8 +1953,19 @@
                   <button class="icon-btn" class:icon-btn-active={isViewing} title="View" aria-label="View" on:click={() => viewProject(p)}>
                     <Eye size={16} />
                   </button>
-                  <button class="icon-btn archive" title="Archive" aria-label="Archive" on:click={() => archiveProject(p)}>
-                    <Archive size={16} />
+                  <button
+                    class="icon-btn archive"
+                    class:icon-btn-busy={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                    title={archivingProjectIds.has(String(p.id || p.proj_id || '').trim()) ? 'Archiving...' : 'Archive'}
+                    aria-label={archivingProjectIds.has(String(p.id || p.proj_id || '').trim()) ? 'Archiving project' : 'Archive'}
+                    disabled={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                    on:click={() => archiveProject(p)}
+                  >
+                    {#if archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                      <Loader2 size={16} class="spin" />
+                    {:else}
+                      <Archive size={16} />
+                    {/if}
                   </button>
                 </span>
               </div>
@@ -2524,8 +2561,19 @@
                   {/if}
                 </span>
                 <div class="proj-arc-corner">
-                    <button class="icon-btn restore" title="Restore project" on:click={() => restoreProject(p)}>
-                      <RotateCcw size={16} />
+                    <button
+                      class="icon-btn restore"
+                      class:icon-btn-busy={restoringProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                      title={restoringProjectIds.has(String(p.id || p.proj_id || '').trim()) ? 'Restoring...' : 'Restore project'}
+                      aria-label={restoringProjectIds.has(String(p.id || p.proj_id || '').trim()) ? 'Restoring project' : 'Restore project'}
+                      disabled={restoringProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                      on:click={() => restoreProject(p)}
+                    >
+                      {#if restoringProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                        <Loader2 size={16} class="spin" />
+                      {:else}
+                        <RotateCcw size={16} />
+                      {/if}
                     </button>
                 </div>
               </div>
@@ -3001,6 +3049,15 @@
     transition:background 0.15s, border-color 0.15s;
   }
   .sub-action-btn:hover { background: var(--color-soft); border-color: var(--color-accent); }
+  .sub-action-btn:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+  }
+  .sub-action-btn-busy {
+    background: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface)) !important;
+    border-color: var(--color-accent) !important;
+    color: var(--color-accent) !important;
+  }
   .sub-action-btn-active { background:rgba(59,130,246,0.1) !important; border-color:#3b82f6 !important; color:#3b82f6 !important; }
   :global(body.dark) .sub-action-btn { background:#161c27; border-color:#ffffff10; }
 
@@ -3360,6 +3417,15 @@
   .icon-btn.archive { background: transparent; border-color: rgba(255,255,255,0.06); color: var(--color-accent); }
   .icon-btn.restore { background: transparent; border-color: rgba(255,255,255,0.06); color: #10b981; }
   .icon-btn.restore:hover { background: rgba(16,185,129,0.1); border-color: #10b981; }
+  .icon-btn:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+    transform: none;
+  }
+  .icon-btn-busy {
+    border-color: var(--color-accent) !important;
+    background: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface)) !important;
+  }
 
   /* ── Archive table ───────────────────────────────────────────────────── */
   .arc-table-wrap { padding: 1rem 1.25rem; }
@@ -3530,12 +3596,25 @@
   @media (max-width: 768px) {
     .stat-cards { grid-template-columns: 1fr; }
     .quick-head { gap: 0.75rem; }
-    .quick-actions { width: 100%; flex-wrap: wrap; gap: 0.5rem; }
+    .quick-actions { width: 100%; flex-wrap: wrap; gap: 0.42rem; }
     .quick-actions > * { width: 100%; }
     .quick-actions .search-wrap,
     .quick-actions .quick-status,
     .quick-actions .quick-priority,
-    .quick-actions .primary { width: 100%; }
+    .quick-actions .primary {
+      width: 100%;
+      height: 2.35rem;
+      min-height: 2.35rem;
+      border-radius: 0.72rem;
+      box-sizing: border-box;
+    }
+    .quick-actions .search-wrap { padding: 0 0.78rem; }
+    .quick-actions .search-input { font-size: 0.9rem; }
+    .quick-actions .quick-status,
+    .quick-actions .quick-priority {
+      font-size: 0.9rem;
+      line-height: 1.2;
+    }
 
     .proj-table-panel { overflow-x: auto; }
     .proj-table-header { display: none; }
@@ -4109,6 +4188,19 @@
     justify-content: center;
     font-size: 0.78rem;
     padding: 0.3rem 0.6rem;
+  }
+
+  @media (max-width: 768px) {
+    .projects-page {
+      padding-bottom: max(16px, calc(env(safe-area-inset-bottom) + 12px));
+    }
+
+    .ov-snippet-actions .sub-action-btn {
+      min-height: 2.2rem;
+      padding: 0.45rem 0.7rem;
+      font-size: 0.82rem;
+      border-radius: 0.55rem;
+    }
   }
 </style>
 
