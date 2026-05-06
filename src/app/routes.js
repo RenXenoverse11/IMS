@@ -13,7 +13,7 @@ export const pageMeta = {
   },
   '/time-log': {
     title: 'Time Log',
-    description: 'Track and manage your daily work hours.',
+    description: 'Track daily work hours.',
   },
   '/requests': {
     title: 'Requests',

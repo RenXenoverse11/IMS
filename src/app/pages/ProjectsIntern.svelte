@@ -1693,7 +1693,7 @@
         <div class="ov-top-grid">
 
           <!-- Milestone Summary -->
-          <section class="card ov-card">
+          <section class="card ov-card ov-milestone-card">
             <div class="ov-card-title">Milestone Summary</div>
             {#if isLoading}
               <div class="ov-skeleton-list">
@@ -1708,28 +1708,30 @@
             {:else if overviewMilestoneRows.length === 0}
               <div class="ov-empty">No milestone data yet.</div>
             {:else}
-              <div class="ov-status-bars">
-                {#each overviewMilestoneRows as row}
-                  {@const mpct = Math.round((row.done / row.total) * 100)}
-                  <div class="ov-bar-row">
-                    <span class="ov-ms-row-name ov-bar-label">{row.title}</span>
-                    <div class="ov-bar-track">
-                      <div class="progress-bar-inner" style="width:{mpct}%"></div>
+              <div class="ov-milestone-list">
+                <div class="ov-status-bars">
+                  {#each overviewMilestoneRows as row}
+                    {@const mpct = Math.round((row.done / row.total) * 100)}
+                    <div class="ov-bar-row">
+                      <span class="ov-ms-row-name ov-bar-label">{row.title}</span>
+                      <div class="ov-bar-track">
+                        <div class="progress-bar-inner" style="width:{mpct}%"></div>
+                      </div>
+                      <span class="ov-bar-count"><span class="ov-ms-done">{row.done}</span>/{row.total}</span>
                     </div>
-                    <span class="ov-bar-count"><span class="ov-ms-done">{row.done}</span>/{row.total}</span>
+                  {/each}
+                </div>
+                {#if archivedProjects.length > 0}
+                  <div class="ov-archived-note">
+                    <Archive size={11} /> {archivedProjects.length} archived project{archivedProjects.length === 1 ? '' : 's'}
                   </div>
-                {/each}
-              </div>
-            {/if}
-            {#if archivedProjects.length > 0}
-              <div class="ov-archived-note">
-                <Archive size={11} /> {archivedProjects.length} archived project{archivedProjects.length === 1 ? '' : 's'}
+                {/if}
               </div>
             {/if}
           </section>
 
           <!-- Upcoming Deadlines -->
-          <section class="card ov-card">
+          <section class="card ov-card ov-deadlines-card">
             <div class="ov-card-title">Upcoming Deadlines</div>
             {#if isLoading}
               <div class="ov-skeleton-list">
@@ -1769,7 +1771,7 @@
         </div>
 
         <!-- ── Project Snippets ── -->
-        <section class="card ov-card">
+        <section class="card ov-card ov-projects-card">
           <div style="display:flex;align-items:center;justify-content:space-between;padding:0.6rem 1rem;">
             <div class="ov-card-title">Your Projects</div>
             <button class="ov-view-all-btn" on:click={() => activeView = 'Projects'}>View all →</button>
@@ -1848,7 +1850,7 @@
 
         <!-- ── Recent Activity (expanded) ── -->
         <div class="ov-bottom-grid">
-          <section class="card ov-card">
+          <section class="card ov-card ov-activity-card">
             <div style="display:flex;align-items:center;justify-content:space-between;padding:0.6rem 1rem;">
               <div class="ov-card-title">Recent Activity</div>
               <button class="ov-refresh-btn" title="Refresh" on:click={loadOverviewActivity} disabled={isLoadingActivity}>
@@ -3824,9 +3826,11 @@
 
   /* ── Overview Layout ──────────────────────────────────────────────────── */
   .ov-top-grid {
+    --ov-fixed-list-height: calc((2.45rem * 3) + (0.55rem * 2));
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 10px;
+    align-items: start;
   }
   @media (max-width: 680px) {
     .ov-top-grid { grid-template-columns: 1fr; }
@@ -3962,11 +3966,35 @@
   /* ── Status breakdown bars ── */
   .ov-status-bars { display: flex; flex-direction: column; gap: 0.5rem; }
 
+  .ov-milestone-card .ov-milestone-list {
+    height: var(--ov-fixed-list-height);
+    overflow-y: auto;
+    padding-right: 0.35rem;
+    scrollbar-width: none;
+    scrollbar-color: transparent transparent;
+  }
+
+  .ov-milestone-card .ov-milestone-list::-webkit-scrollbar {
+    width: 0 !important;
+    height: 0 !important;
+    display: none !important;
+  }
+
+  .ov-milestone-card .ov-milestone-list::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .ov-milestone-card .ov-milestone-list::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 999px;
+  }
+
   .ov-bar-row {
     display: grid;
     grid-template-columns: 7.5rem 1fr 1.8rem;
     align-items: center;
     gap: 0.65rem;
+    min-height: 2.45rem;
   }
 
   .ov-bar-label {
@@ -4012,12 +4040,38 @@
   }
 
   /* ── Upcoming Deadlines ── */
-  .ov-deadline-list { display: flex; flex-direction: column; gap: 0.55rem; }
+  .ov-deadlines-card .ov-deadline-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    height: var(--ov-fixed-list-height);
+    overflow-y: auto;
+    padding-right: 0.35rem;
+    scrollbar-width: none;
+    scrollbar-color: transparent transparent;
+  }
 
-  .ov-deadline-row {
+  .ov-deadlines-card .ov-deadline-row {
     display: flex;
     align-items: center;
     gap: 0.65rem;
+    min-height: 2.45rem;
+    flex: 0 0 auto;
+  }
+
+  .ov-deadlines-card .ov-deadline-list::-webkit-scrollbar {
+    width: 0 !important;
+    height: 0 !important;
+    display: none !important;
+  }
+
+  .ov-deadlines-card .ov-deadline-list::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .ov-deadlines-card .ov-deadline-list::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 999px;
   }
 
   .ov-deadline-dot {
@@ -4049,6 +4103,34 @@
 
   /* ── Activity Feed ── */
   .ov-activity-feed { display: flex; flex-direction: column; gap: 0; }
+
+  .ov-activity-card .ov-activity-feed {
+    max-height: calc(3.35rem * 3);
+    overflow-y: auto;
+    padding-right: 0.35rem;
+    scrollbar-width: none;
+    scrollbar-color: transparent transparent;
+  }
+
+  .ov-activity-card .ov-act-row {
+    min-height: 3.35rem;
+    flex: 0 0 auto;
+  }
+
+  .ov-activity-card .ov-activity-feed::-webkit-scrollbar {
+    width: 0 !important;
+    height: 0 !important;
+    display: none !important;
+  }
+
+  .ov-activity-card .ov-activity-feed::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .ov-activity-card .ov-activity-feed::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 999px;
+  }
 
   /* Expanded activity card styles (removed) */
 
@@ -4109,6 +4191,30 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 0.8rem;
+  }
+
+  .ov-projects-card .ov-snippets-grid {
+    max-height: 13.5rem;
+    overflow-y: auto;
+    align-content: start;
+    padding-right: 0.35rem;
+    scrollbar-width: none;
+    scrollbar-color: transparent transparent;
+  }
+
+  .ov-projects-card .ov-snippets-grid::-webkit-scrollbar {
+    width: 0 !important;
+    height: 0 !important;
+    display: none !important;
+  }
+
+  .ov-projects-card .ov-snippets-grid::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .ov-projects-card .ov-snippets-grid::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 999px;
   }
 
   .ov-snippet-card {
