@@ -1,5 +1,6 @@
 function doGet() {
   return HtmlService.createHtmlOutputFromFile('Index')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover')
     .setTitle('IMS')
     .setFaviconUrl('https://raw.githubusercontent.com/RenXenoverse11/IMS/ims-favicon-host/public/ims-logo-favicon-v2.png');
 }

@@ -238,6 +238,36 @@ function canUseGoogleScriptRun() {
   return typeof window !== 'undefined' && typeof window.google !== 'undefined' && Boolean(window.google?.script?.run);
 }
 
+function extractAppsScriptErrorMessage(errorLike) {
+  if (!errorLike) {
+    return '';
+  }
+
+  if (typeof errorLike === 'string') {
+    return errorLike.trim();
+  }
+
+  const directMessage = String(errorLike.message || '').trim();
+  if (directMessage) {
+    return directMessage;
+  }
+
+  const details = Array.isArray(errorLike.details) ? errorLike.details : [];
+  for (const detail of details) {
+    const message = String(detail?.errorMessage || detail?.message || '').trim();
+    if (message) {
+      return message;
+    }
+  }
+
+  const fallbackText = String(errorLike.toString?.() || '').trim();
+  if (fallbackText && fallbackText !== '[object Object]') {
+    return fallbackText;
+  }
+
+  return '';
+}
+
 function waitForGoogleScriptRun(timeoutMs = 4000) {
   return new Promise((resolve, reject) => {
     const started = Date.now();
@@ -268,30 +298,32 @@ async function callGoogleScriptAction(action, payload = {}) {
       runner
         .withSuccessHandler((result) => resolve(result))
         .withFailureHandler((err) => {
-          reject(new Error(err?.message || 'Apps Script action failed.'));
+          const detailedMessage = extractAppsScriptErrorMessage(err);
+          reject(new Error(detailedMessage || 'Apps Script action failed.'));
         })
         .apiAction(action, payload);
     } catch (err) {
-      reject(new Error(err?.message || 'Apps Script action failed.'));
+      const detailedMessage = extractAppsScriptErrorMessage(err);
+      reject(new Error(detailedMessage || 'Apps Script action failed.'));
     }
   });
 }
 
-async function postAction(action, payload = {}) {
-  if (isAppsScriptHost()) {
-    const result = await callGoogleScriptAction(action, payload);
-    if (!result || typeof result !== 'object') {
-      throw new Error(`Invalid response while running ${action}.`);
-    }
-
-    if (result.ok !== true) {
-      const errorMessage = typeof result.error === 'string' ? result.error.trim() : '';
-      const fallbackMessage = typeof result.message === 'string' ? result.message.trim() : '';
-      throw new Error(errorMessage || fallbackMessage || `Request failed while running ${action}.`);
-    }
-    return result;
+function normalizeActionResultOrThrow(action, result) {
+  if (!result || typeof result !== 'object') {
+    throw new Error(`Invalid response while running ${action}.`);
   }
 
+  if (result.ok !== true) {
+    const errorMessage = typeof result.error === 'string' ? result.error.trim() : '';
+    const fallbackMessage = typeof result.message === 'string' ? result.message.trim() : '';
+    throw new Error(errorMessage || fallbackMessage || `Request failed while running ${action}.`);
+  }
+
+  return result;
+}
+
+async function postActionViaHttp(action, payload = {}) {
   const apiUrl = resolveApiUrl();
   const body = new URLSearchParams();
   body.set('action', action);
@@ -324,6 +356,28 @@ async function postAction(action, payload = {}) {
   }
 
   return result;
+}
+
+async function postAction(action, payload = {}) {
+  if (isAppsScriptHost()) {
+    try {
+      const bridgeResult = await callGoogleScriptAction(action, payload);
+      return normalizeActionResultOrThrow(action, bridgeResult);
+    } catch (bridgeError) {
+      // Fallback for cases where google.script.run bridge fails in /dev or embedded mobile contexts.
+      try {
+        return await postActionViaHttp(action, payload);
+      } catch (httpError) {
+        const bridgeMessage = String(bridgeError?.message || '').trim();
+        if (bridgeMessage && bridgeMessage !== 'Apps Script action failed.') {
+          throw bridgeError;
+        }
+        throw httpError;
+      }
+    }
+  }
+
+  return postActionViaHttp(action, payload);
 }
 
 export async function callApiAction(action, payload = {}) {

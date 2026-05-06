@@ -16,6 +16,8 @@
 
   export let currentPath = '/';
   export let collapsed = false;
+  export let mobileMode = false;
+  export let mobileOpen = false;
 
   const studentNavItems = [
     { path: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -81,6 +83,7 @@
 
   function goTo(path) {
     window.location.hash = path;
+    dispatch('navigate');
   }
   function toggleSidebar() {
     dispatch('toggle');
@@ -103,7 +106,7 @@
   });
 </script>
 
-<div class="ims-sw" class:ims-collapsed={collapsed}>
+<div class="ims-sw" class:ims-collapsed={collapsed} class:ims-mobile={mobileMode} class:ims-mobile-open={mobileOpen}>
   <aside class="ims-sidebar">
     <div class="ims-sidebar-logo">
       <button
@@ -145,17 +148,19 @@
         <div class="ims-logo-title">Internship</div>
         <div class="ims-logo-subtitle">Management System</div>
       </div>
-      <button
-        class="ims-collapse-btn"
-        type="button"
-        on:click={toggleSidebar}
-        aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-      >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="4.5" y="5" width="15" height="14" rx="3" />
-          <line x1="10.5" y1="5" x2="10.5" y2="19" />
-        </svg>
-      </button>
+      {#if !mobileMode}
+        <button
+          class="ims-collapse-btn"
+          type="button"
+          on:click={toggleSidebar}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="4.5" y="5" width="15" height="14" rx="3" />
+            <line x1="10.5" y1="5" x2="10.5" y2="19" />
+          </svg>
+        </button>
+      {/if}
     </div>
 
     <p class="ims-nav-label">Main Menu</p>
@@ -462,5 +467,64 @@
     background: color-mix(in srgb, var(--s2) 90%, var(--s) 10%);
     border-color: color-mix(in srgb, var(--b) 55%, transparent);
     color: color-mix(in srgb, var(--t) 92%, var(--a2) 8%);
+  }
+
+  @media (max-width: 960px) {
+    .ims-sw {
+      position: fixed;
+      inset: 0 auto 0 0;
+      z-index: 160;
+      pointer-events: none;
+    }
+
+    .ims-sidebar {
+      width: min(78vw, 304px);
+      max-width: 304px;
+      height: 100dvh;
+      padding-top: max(12px, env(safe-area-inset-top));
+      padding-bottom: max(8px, env(safe-area-inset-bottom));
+      transform: translateX(-104%);
+      transition: transform 200ms ease;
+      box-shadow: 0 18px 44px rgba(2, 6, 23, 0.58);
+    }
+
+    .ims-sw.ims-mobile-open {
+      pointer-events: auto;
+    }
+
+    .ims-sw.ims-mobile-open .ims-sidebar {
+      transform: translateX(0);
+    }
+
+    .ims-sw.ims-collapsed .ims-sidebar {
+      width: min(78vw, 304px);
+      padding: 0 10px 8px;
+      padding-top: max(12px, env(safe-area-inset-top));
+      padding-bottom: max(8px, env(safe-area-inset-bottom));
+    }
+
+    .ims-sw.ims-collapsed .ims-sidebar-logo {
+      justify-content: flex-start;
+      gap: 10px;
+      padding: 18px 10px 8px;
+    }
+
+    .ims-sw.ims-collapsed .ims-logo-text,
+    .ims-sw.ims-collapsed .ims-nav-label,
+    .ims-sw.ims-collapsed .ims-nav-text,
+    .ims-sw.ims-collapsed .ims-user-info,
+    .ims-sw.ims-collapsed .ims-nav-dot {
+      display: initial;
+    }
+
+    .ims-sw.ims-collapsed .ims-nav-item {
+      justify-content: flex-start;
+      padding: 9px 10px;
+    }
+
+    .ims-sw.ims-collapsed .ims-user-card {
+      justify-content: flex-start;
+      padding: 8px 10px;
+    }
   }
 </style>
