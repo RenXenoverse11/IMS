@@ -752,7 +752,7 @@
             console.warn('loadProjects: failed to load bootstrap users', e);
           }
           }
-      } catch (e) {
+          } catch (e) {
         // ignore storage errors
       }
     } catch (error) {
