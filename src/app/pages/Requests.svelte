@@ -959,7 +959,7 @@
         formError = `${recoveredCount} recovered, but ${failedRequests.length} failed: ${failedRequests[0].error || "Unknown error"}`;
         setTimeout(() => (formError = ""), 5000);
       } else {
-        formSuccess = `${recoveredCount} request(s) recovered.`;
+        formSuccess = `${recoveredCount} request(s) recovered to previous status.`;
         setTimeout(() => (formSuccess = ""), 3000);
       }
     } catch (err) {

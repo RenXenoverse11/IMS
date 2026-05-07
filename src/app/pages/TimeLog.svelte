@@ -1833,6 +1833,26 @@
     .tl-stat-grid { grid-template-columns: 1fr 1fr; }
     .tl-three-col { grid-template-columns: 1fr; }
 
+    /* Keep loading stats fluid on narrow screens (avoid clipped placeholders). */
+    .skeleton-stat {
+      gap: 10px;
+      padding: 16px 14px;
+    }
+    .skeleton-stat .skeleton-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 9px;
+    }
+    .skeleton-stat .tl-stat-body {
+      min-width: 0;
+    }
+    .skeleton-stat .tl-stat-body .skeleton-text {
+      max-width: 100% !important;
+    }
+    .skeleton-stat .tl-stat-body .skeleton-text:nth-child(1) { width: 72% !important; }
+    .skeleton-stat .tl-stat-body .skeleton-text:nth-child(2) { width: 56% !important; }
+    .skeleton-stat .tl-stat-body .skeleton-text:nth-child(3) { width: 88% !important; }
+
     .tl-stat-forecast .tl-stat-value {
       font-size: 20px;
       letter-spacing: -0.2px;

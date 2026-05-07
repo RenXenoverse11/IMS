@@ -23,7 +23,7 @@ var SUPERVISOR_ASSIGNMENTS_HEADERS_ = ['assignment_id', 'supervisor_user_id', 's
 var STUDENT_OJT_PROFILE_SHEET_ = 'student_ojt_profile';
 var STUDENT_OJT_PROFILE_HEADERS_ = ['user_id', 'total_ojt_hours', 'start_date', 'estimated_end_date', 'course', 'school'];
 var REQUESTS_SHEET_ = 'requests';
-var REQUESTS_HEADERS_ = ['request_id', 'user_id', 'requester_name', 'request_type', 'request_date', 'request_time', 'start_time', 'end_time', 'total_hours', 'reason', 'status', 'rejection_remarks', 'created_at'];
+var REQUESTS_HEADERS_ = ['request_id', 'user_id', 'requester_name', 'request_type', 'request_date', 'request_time', 'start_time', 'end_time', 'total_hours', 'reason', 'status', 'rejection_remarks', 'created_at', 'archived_previous_status'];
 var NOTIFICATIONS_SHEET_ = 'notifications';
 var NOTIFICATIONS_HEADERS_ = ['notification_id', 'user_id', 'title', 'description', 'type', 'related_id', 'is_read', 'created_at'];
 var USER_SETTINGS_SHEET_ = 'user_settings';
@@ -2402,6 +2402,7 @@ function handleUpdateRequestStatus_(payload) {
   var requestTypeColIndex = findColumnIndex_(headers, 'request_type');
   var requesterNameColIndex = findColumnIndex_(headers, 'requester_name');
   var requestDateColIndex = findColumnIndex_(headers, 'request_date');
+  var archivedPreviousStatusColIndex = findColumnIndex_(headers, 'archived_previous_status');
 
   // Find the request
   var requestRowIndex = -1;
@@ -2419,6 +2420,12 @@ function handleUpdateRequestStatus_(payload) {
   var studentUserId = String(rows[requestRowIndex][userIdColIndex - 1] || '').trim();
   var currentStatus = String(rows[requestRowIndex][updateColIndex - 1] || '').trim();
   var currentStatusLower = currentStatus.toLowerCase();
+  var currentArchivedPreviousStatus = archivedPreviousStatusColIndex > 0
+    ? String(rows[requestRowIndex][archivedPreviousStatusColIndex - 1] || '').trim()
+    : '';
+  var isArchiveTransition = String(newStatus || '').toLowerCase() === 'archived';
+  var isRecoverTransition = String(newStatus || '').toLowerCase() === 'pending' && currentStatusLower === 'archived';
+  var effectiveStatus = newStatus;
   
   // Permission checks
   if (isSupervisor) {
@@ -2436,7 +2443,7 @@ function handleUpdateRequestStatus_(payload) {
     }
     // Recovery is only valid from archived state
     if (newStatus === 'Pending' && currentStatusLower !== 'archived') {
-      return { ok: false, error: 'Only archived requests can be recovered to pending.' };
+      return { ok: false, error: 'Only archived requests can be recovered.' };
     }
   } else {
     // Interns can only archive/recover their own requests
@@ -2449,20 +2456,43 @@ function handleUpdateRequestStatus_(payload) {
     }
     // Recovery is only valid from archived state
     if (newStatus === 'Pending' && currentStatusLower !== 'archived') {
-      return { ok: false, error: 'Only archived requests can be recovered to pending.' };
+      return { ok: false, error: 'Only archived requests can be recovered.' };
     }
   }
 
+  if (isRecoverTransition) {
+    var archivedPreviousStatusLower = String(currentArchivedPreviousStatus || '').toLowerCase();
+    if (archivedPreviousStatusLower === 'approved') {
+      effectiveStatus = 'Approved';
+    } else if (archivedPreviousStatusLower === 'rejected') {
+      effectiveStatus = 'Rejected';
+    } else if (archivedPreviousStatusLower === 'pending') {
+      effectiveStatus = 'Pending';
+    } else {
+      effectiveStatus = 'Pending';
+    }
+  }
+
+  if (isArchiveTransition && archivedPreviousStatusColIndex > 0) {
+    sheet.getRange(requestRowIndex + 1, archivedPreviousStatusColIndex, 1, 1).setValue(currentStatus || 'Pending');
+  }
+
   // Update the request status
-  sheet.getRange(requestRowIndex + 1, updateColIndex, 1, 1).setValue(newStatus);
+  sheet.getRange(requestRowIndex + 1, updateColIndex, 1, 1).setValue(effectiveStatus);
+
+  if (isRecoverTransition && archivedPreviousStatusColIndex > 0) {
+    sheet.getRange(requestRowIndex + 1, archivedPreviousStatusColIndex, 1, 1).setValue('');
+  }
+  
+  var effectiveStatusLower = String(effectiveStatus || '').toLowerCase();
   
   // Store rejection remarks if rejecting
-  if (rejectionRemarksColIndex > 0 && newStatus.toLowerCase() === 'rejected' && rejectionRemarks) {
+  if (rejectionRemarksColIndex > 0 && effectiveStatusLower === 'rejected' && rejectionRemarks) {
     sheet.getRange(requestRowIndex + 1, rejectionRemarksColIndex, 1, 1).setValue(rejectionRemarks);
   }
 
   // Auto-extend estimated_end_date if approving an absence request
-  if (newStatus.toLowerCase() === 'approved') {
+  if (!isRecoverTransition && effectiveStatusLower === 'approved') {
     var requestType = String(rows[requestRowIndex][requestTypeColIndex - 1] || '').trim();
     if (requestType.toLowerCase() === 'absence' && studentUserId) {
       try {
@@ -2500,34 +2530,34 @@ function handleUpdateRequestStatus_(payload) {
   }
 
   // Notify the student who created the request (only for supervisors)
-  if (isSupervisor && studentUserId) {
+  if (isSupervisor && studentUserId && !isRecoverTransition) {
     var requestType = String(rows[requestRowIndex][requestTypeColIndex - 1] || '').trim();
     var requestDate = requestDateColIndex > 0 ? formatDateValue_(rows[requestRowIndex][requestDateColIndex - 1]) : '';
-    var notifType = newStatus.toLowerCase() === 'approved' ? 'approval' : 'rejection';
-    var notifMessage = 'Your ' + requestType.toLowerCase() + ' request has been ' + newStatus.toLowerCase() + '.';
-    if (newStatus.toLowerCase() === 'rejected' && rejectionRemarks) {
+    var notifType = effectiveStatusLower === 'approved' ? 'approval' : 'rejection';
+    var notifMessage = 'Your ' + requestType.toLowerCase() + ' request has been ' + effectiveStatusLower + '.';
+    if (effectiveStatusLower === 'rejected' && rejectionRemarks) {
       notifMessage += ' Remarks: ' + rejectionRemarks;
     }
-    if (newStatus.toLowerCase() === 'approved' && requestType.toLowerCase() === 'absence') {
+    if (effectiveStatusLower === 'approved' && requestType.toLowerCase() === 'absence') {
       notifMessage += ' Your internship end date has been automatically extended by 1 day.';
     }
     createNotification_(
       studentUserId,
-      requestType + ' Request ' + newStatus,
+      requestType + ' Request ' + effectiveStatus,
       notifMessage,
       notifType,
       requestId
     );
 
-    if (newStatus === 'Approved' || newStatus === 'Rejected') {
+    if (effectiveStatus === 'Approved' || effectiveStatus === 'Rejected') {
       try {
         sendStudentRequestStatusEmail_(studentUserId, {
           requestId: requestId,
           requestType: requestType,
           requestDate: requestDate,
-          status: newStatus,
+          status: effectiveStatus,
           rejectionRemarks: rejectionRemarks,
-          absenceExtended: newStatus === 'Approved' && requestType.toLowerCase() === 'absence'
+          absenceExtended: effectiveStatus === 'Approved' && requestType.toLowerCase() === 'absence'
         });
       } catch (mailErr) {
         Logger.log(
@@ -2539,7 +2569,7 @@ function handleUpdateRequestStatus_(payload) {
     }
   }
 
-  return { ok: true, message: 'Request status updated.' };
+  return { ok: true, message: 'Request status updated.', status: effectiveStatus };
 }
 
 function handleDeleteRequest_(payload) {
