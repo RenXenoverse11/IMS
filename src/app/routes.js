@@ -9,11 +9,11 @@ export const pageMeta = {
   },
   '/': {
     title: 'Dashboard',
-    description: 'Welcome back. Here is your internship overview.',
+    description: 'Track your internship overview.',
   },
   '/time-log': {
     title: 'Time Log',
-    description: 'Track and manage your daily work hours.',
+    description: 'Track daily work hours.',
   },
   '/requests': {
     title: 'Requests',
@@ -33,7 +33,7 @@ export const pageMeta = {
   },
   '/projects': {
     title: 'Projects',
-    description: 'View and manage your assigned projects.',
+    description: 'Manage your assigned projects.',
   },
   '/supervisor': {
     title: 'Supervisor Dashboard',

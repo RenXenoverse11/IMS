@@ -130,6 +130,10 @@ button {
   display: none;
 }
 
+body.mobile-sidebar-open .layout-content {
+  overflow: hidden;
+}
+
 
 .sidebar {
   position: relative;
@@ -869,42 +873,96 @@ button {
 
 @media (max-width: 960px) {
   .layout-shell {
-    flex-direction: column;
-    height: auto;
+    position: relative;
+    flex-direction: row;
+    height: 100dvh;
     min-height: 100dvh;
-    overflow: visible;
-  }
-
-  .sidebar {
-    position: static;
-    width: 100%;
-    height: auto;
-  }
-
-  .sidebar-collapse-btn {
-    position: static;
-    margin: 0.5rem 0.75rem 0 0;
-    align-self: flex-end;
+    overflow: hidden;
   }
 
   .layout-main {
-    height: auto;
-    min-height: 0;
-    overflow: visible;
+    height: 100dvh;
+    min-height: 100dvh;
+    overflow: hidden;
   }
 
   .header {
     height: auto;
-    flex-wrap: wrap;
-    padding: 1rem;
+    min-height: 3.85rem;
+    padding: max(0.62rem, env(safe-area-inset-top)) 0.95rem 0.62rem;
+    gap: 0.75rem;
+  }
+
+  .header-copy {
+    min-width: 0;
+  }
+
+  .header-copy h1 {
+    font-size: 0.95rem;
+    line-height: 1.15;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .header-copy p {
+    font-size: 0.7rem;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .layout-content {
-    overflow: visible;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
   }
 
   .search-shell {
     width: 100%;
     order: 3;
+  }
+}
+
+@media (max-width: 560px) {
+  .header {
+    min-height: 3.7rem;
+    padding: max(0.56rem, env(safe-area-inset-top)) 0.8rem 0.56rem;
+  }
+
+  .header-actions {
+    gap: 0.35rem;
+  }
+
+  .icon-button {
+    width: 2.1rem;
+    height: 2.1rem;
+  }
+}
+
+@media (max-width: 960px) {
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 160;
+    height: 100dvh;
+    transform: translateX(-102%);
+    transition: transform 200ms ease;
+  }
+
+  .layout-shell.mobile-sidebar-open .sidebar {
+    transform: translateX(0);
+  }
+
+  .layout-shell.sidebar-collapsed .sidebar {
+    width: 15rem;
+  }
+
+  .sidebar-collapse-btn {
+    height: auto;
+    margin: 0;
   }
 }

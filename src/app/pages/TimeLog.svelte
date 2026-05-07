@@ -1826,8 +1826,22 @@
     .tl-three-col { grid-template-columns: 1fr 1fr; }
   }
   @media (max-width: 680px) {
-    .tl-page { gap: 16px; }
+    .tl-page {
+      gap: 16px;
+      padding-bottom: max(10px, calc(env(safe-area-inset-bottom) + 8px));
+    }
     .tl-stat-grid { grid-template-columns: 1fr 1fr; }
     .tl-three-col { grid-template-columns: 1fr; }
+
+    .tl-stat-forecast .tl-stat-value {
+      font-size: 20px;
+      letter-spacing: -0.2px;
+      line-height: 1.15;
+      word-break: break-word;
+    }
+
+    .tl-stat-forecast .tl-stat-sub {
+      font-size: 10.5px;
+    }
   }
 </style>

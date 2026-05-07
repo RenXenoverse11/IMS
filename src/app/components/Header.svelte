@@ -1,6 +1,6 @@
 <script>
   import { onDestroy, onMount } from 'svelte';
-  import { Bell, Check, Moon, RefreshCw, Sun } from 'lucide-svelte';
+  import { Bell, Check, Menu, Moon, RefreshCw, Sun } from 'lucide-svelte';
   import {
     subscribeToCurrentUser,
     listNotifications,
@@ -12,6 +12,8 @@
 
   export let pageTitle = 'Internship Management System';
   export let pageDescription = '';
+  export let showMenuButton = false;
+  export let onMenuToggle = null;
 
   const POLL_INTERVAL_MS = 30000;
 
@@ -197,9 +199,34 @@
     opacity: 0.5;
     cursor: not-allowed;
   }
+
+  .mobile-menu-button {
+    display: none;
+  }
+
+  @media (max-width: 960px) {
+    .mobile-menu-button {
+      display: inline-flex;
+      flex-shrink: 0;
+      width: 2.4rem;
+      height: 2.4rem;
+      border-radius: 0.8rem;
+    }
+  }
 </style>
 
 <header class="header">
+  {#if showMenuButton}
+    <button
+      class="icon-button mobile-menu-button"
+      type="button"
+      on:click={() => onMenuToggle && onMenuToggle()}
+      aria-label="Open navigation menu"
+    >
+      <Menu size={18} />
+    </button>
+  {/if}
+
   <div class="header-copy">
     <h1>{pageTitle}</h1>
     {#if pageDescription}

@@ -458,6 +458,105 @@
 		color: #cbd5e1;
 	}
 
+	/* Force large readable layout on real touch devices, even if viewport width reports large. */
+	@media (hover: none) and (pointer: coarse) {
+		.login-shell {
+			height: 100dvh;
+			min-height: 100dvh;
+			overflow-x: hidden;
+			overflow-y: auto;
+			-webkit-overflow-scrolling: touch;
+			overscroll-behavior-y: contain;
+		}
+
+		.page-content {
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			justify-content: flex-start;
+			width: 100%;
+			min-height: max-content;
+			box-sizing: border-box;
+			padding: max(44px, env(safe-area-inset-top)) 14px max(14px, env(safe-area-inset-bottom));
+			gap: 14px;
+		}
+
+		.brand-panel {
+			text-align: center;
+			max-width: 560px;
+			padding-inline: 0;
+		}
+
+		.brand-panel h1 {
+			margin-top: 0;
+			font-size: clamp(2rem, 8vw, 2.75rem);
+			line-height: 1.08;
+		}
+
+		.brand-panel p {
+			max-width: 34ch;
+			margin: 0.95rem auto 0;
+			font-size: clamp(0.98rem, 4vw, 1.1rem);
+			line-height: 1.55;
+		}
+
+		.login-card {
+			width: min(100%, 520px);
+			max-width: calc(100vw - 24px);
+			padding: clamp(1.1rem, 4.4vw, 1.6rem);
+			border-radius: 1.35rem;
+			margin: 0;
+			gap: 0.95rem;
+		}
+
+		.card-head h2 {
+			font-size: clamp(1.5rem, 5.6vw, 1.9rem);
+		}
+
+		.card-head p {
+			font-size: 0.98rem;
+			line-height: 1.45;
+		}
+
+		.field span,
+		.text-link,
+		.signup-row {
+			font-size: 0.95rem;
+		}
+
+		input {
+			height: 3.45rem;
+			min-height: 3.45rem;
+			padding-left: 2.7rem;
+			font-size: 1rem;
+		}
+
+		.login-btn {
+			width: 100%;
+			min-height: 3.45rem;
+			font-size: 1rem;
+		}
+
+		.input-icon {
+			left: 0.9rem;
+		}
+
+		.input-icon :global(svg) {
+			width: 18px;
+			height: 18px;
+		}
+
+		.password-wrap input {
+			padding-right: 3rem;
+		}
+
+		.toggle-password {
+			width: 2.3rem;
+			height: 2.3rem;
+			right: 0.45rem;
+		}
+	}
+
 	@media (max-width: 980px) {
 		.page-content {
 			grid-template-columns: 1fr;
@@ -481,109 +580,147 @@
 
 	@media (max-width: 768px) {
 		.login-shell {
-			height: auto;
+			height: 100dvh;
 			min-height: 100dvh;
 			overflow-x: hidden;
 			overflow-y: auto;
+			-webkit-overflow-scrolling: touch;
+			overscroll-behavior-y: contain;
 		}
-
 		.login-shell::before {
 			background-position: center;
 			background-size: cover;
 		}
-
 		.page-content {
 			display: flex;
 			flex-direction: column;
 			align-items: center;
-			/* FIX: was justify-content: flex-start which caused dead space.
-			   center keeps both panels together in the middle of the screen.
-			   min-height: 100dvh ensures it still fills the viewport. */
-			justify-content: center;
+			justify-content: flex-start;
 			width: 100%;
-			min-height: 100dvh;
+			min-height: max-content;
 			box-sizing: border-box;
-			padding: 48px 16px max(24px, env(safe-area-inset-bottom));
-			/* FIX: was clamp(32px, 7dvh, 56px) — too large on tall phones (e.g. 7dvh
-			   on a 900px-tall screen = 63px gap, and flex-start pushed everything up
-			   leaving ~half the screen empty below the card).
-			   A fixed 24px gap keeps the two panels snug regardless of screen height. */
-			gap: 24px;
+			padding: max(44px, env(safe-area-inset-top)) 14px max(14px, env(safe-area-inset-bottom));
+			gap: 16px;
 		}
-
 		.brand-panel {
 			text-align: center;
-			max-width: 420px;
+			max-width: 560px;
 			padding-inline: 0;
 		}
-
 		.brand-panel h1 {
 			margin-top: 0;
-			font-size: clamp(28px, 8vw, 38px);
-			line-height: 1.12;
+			font-size: clamp(2.05rem, 8vw, 2.75rem);
+			line-height: 1.08;
 		}
-
 		.brand-panel p {
-			max-width: 340px;
-			margin: 0.75rem auto 0;
-			font-size: clamp(13px, 3.5vw, 15px);
-			line-height: 1.5;
+			max-width: 34ch;
+			margin: 0.95rem auto 0;
+			font-size: clamp(0.98rem, 3.7vw, 1.1rem);
+			line-height: 1.55;
 		}
-
 		.login-card {
-			width: calc(100vw - 32px);
-			max-width: 420px;
-			padding: 22px;
+			width: min(100%, 520px);
+			max-width: calc(100vw - 28px);
+			padding: clamp(1.15rem, 4.2vw, 1.65rem);
+			border-radius: 1.45rem;
 			margin: 0;
+			gap: 0.95rem;
 		}
-
 		.card-head h2 {
-			font-size: 1.4rem;
+			font-size: clamp(1.55rem, 5.5vw, 1.95rem);
 		}
-
 		.card-head p {
-			font-size: 0.88rem;
+			font-size: 1rem;
+			line-height: 1.45;
 		}
-
 		.field span {
-			font-size: 0.8rem;
+			font-size: 0.95rem;
 		}
-
 		input {
-			height: 44px;
-			min-height: 44px;
+			height: 3.5rem;
+			min-height: 3.5rem;
+			padding-left: 2.7rem;
+			font-size: 1rem;
 		}
-
 		.login-btn {
 			width: 100%;
-			min-height: 44px;
+			min-height: 3.5rem;
+			font-size: 1rem;
 		}
-
+		.input-icon {
+			left: 0.9rem;
+		}
+		.input-icon :global(svg) {
+			width: 18px;
+			height: 18px;
+		}
+		.password-wrap input {
+			padding-right: 3rem;
+		}
+		.toggle-password {
+			width: 2.35rem;
+			height: 2.35rem;
+			right: 0.45rem;
+		}
 		.link-row {
-			justify-content: flex-start;
+			justify-content: flex-end;
 		}
-
+		.feedback {
+			font-size: 0.94rem;
+			padding: 0.72rem 0.84rem;
+		}
+		.text-link {
+			font-size: 0.96rem;
+		}
 		.signup-row {
-			font-size: 0.88rem;
+			font-size: 0.95rem;
 		}
 	}
 
-	@media (max-width: 640px) {
+	@media (max-width: 480px) {
 		.page-content {
-			padding: 44px 16px max(24px, env(safe-area-inset-bottom));
-			gap: 24px;
+			padding: max(38px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
+			gap: 14px;
 		}
-
 		.brand-panel h1 {
-			font-size: clamp(27px, 8.2vw, 32px);
+			font-size: clamp(1.9rem, 9vw, 2.3rem);
 		}
-
 		.brand-panel p {
-			font-size: 13px;
+			font-size: 0.93rem;
+			margin-top: 0.7rem;
 		}
-
 		.login-card {
-			padding: 20px;
+			max-width: calc(100vw - 22px);
+			padding: 1.05rem;
+			border-radius: 1.2rem;
+			gap: 0.82rem;
+		}
+		.card-head h2 {
+			font-size: 1.5rem;
+		}
+		.card-head p {
+			font-size: 0.9rem;
+		}
+		.field span,
+		.text-link,
+		.signup-row {
+			font-size: 0.9rem;
+		}
+		input {
+			height: 3.25rem;
+			min-height: 3.25rem;
+			font-size: 0.95rem;
+		}
+		.login-btn {
+			min-height: 3.25rem;
+			font-size: 0.95rem;
+		}
+		.toggle-password {
+			width: 2.2rem;
+			height: 2.2rem;
+		}
+		.feedback {
+			font-size: 0.88rem;
 		}
 	}
 </style>

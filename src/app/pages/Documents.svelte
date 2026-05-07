@@ -653,6 +653,53 @@
     }
   }
 
+  async function deleteBulkDocuments() {
+    if (selectedDocuments.size === 0) return;
+
+    const count = selectedDocuments.size;
+    if (!confirm(`Are you sure you want to delete ${count} document${count !== 1 ? 's' : ''}?`)) {
+      return;
+    }
+
+    try {
+      let successCount = 0;
+      let errorCount = 0;
+
+      for (const docId of selectedDocuments) {
+        try {
+          const response = await callBackend_('delete_document', {
+            user_id: userId,
+            doc_id: docId
+          });
+
+          if (response.ok) {
+            successCount++;
+            documents = documents.filter((doc) => doc.id !== docId);
+          } else {
+            errorCount++;
+          }
+        } catch (err) {
+          console.error('Error deleting document:', err);
+          errorCount++;
+        }
+      }
+
+      // Clear selection
+      selectedDocuments.clear();
+      selectAllChecked = false;
+      selectedDocuments = selectedDocuments; // trigger reactivity
+
+      if (errorCount === 0) {
+        alert(`Successfully deleted ${successCount} document${successCount !== 1 ? 's' : ''}.`);
+      } else {
+        alert(`Deleted ${successCount} document${successCount !== 1 ? 's' : ''}. Failed to delete ${errorCount}.`);
+      }
+    } catch (err) {
+      console.error('Bulk delete error:', err);
+      alert('Error deleting documents');
+    }
+  }
+
   function openRenameFolderModal(folderName) {
     folderToRename = folderName;
     renameFolderInputValue = folderName;
@@ -874,37 +921,75 @@
                 </button>
               </div>
               <div class="header-controls">
-                <span class="docs-count">{filteredDocuments.length} items</span>
-                <button class="btn btn-ghost" on:click={() => (showCreateFolderModal = true)}>
-                  <Folder size={14} />
-                  <span>Create Folder</span>
-                </button>
-                <button class="btn btn-primary" on:click={openUploadModal_}>
-                  <Upload size={14} />
-                  <span>Upload Document</span>
-                </button>
-                <button 
-                  class="select-btn"
-                  on:click={toggleBulkActions}
-                >
-                  {showBulkActions ? 'Cancel' : 'Select'}
-                </button>
+                {#if showBulkActions}
+                  <span class="selection-info">{selectedDocuments.size} selected</span>
+                  <button class="btn btn-secondary" on:click={toggleSelectAll} title="Select all visible documents">
+                    {selectAllChecked ? 'Deselect All' : 'Select All'}
+                  </button>
+                  {#if selectedDocuments.size > 0}
+                    <button class="btn btn-ghost delete-bulk-btn" on:click={deleteBulkDocuments} title="Delete selected documents">
+                      <Trash2 size={14} />
+                      <span>Delete ({selectedDocuments.size})</span>
+                    </button>
+                  {/if}
+                  <button 
+                    class="select-btn cancel-btn"
+                    on:click={toggleBulkActions}
+                  >
+                    Cancel
+                  </button>
+                {:else}
+                  <span class="docs-count">{filteredDocuments.length} items</span>
+                  <button class="btn btn-ghost" on:click={() => (showCreateFolderModal = true)}>
+                    <Folder size={14} />
+                    <span>Create Folder</span>
+                  </button>
+                  <button class="btn btn-primary" on:click={openUploadModal_}>
+                    <Upload size={14} />
+                    <span>Upload Document</span>
+                  </button>
+                  <button 
+                    class="select-btn"
+                    on:click={toggleBulkActions}
+                  >
+                    Select
+                  </button>
+                {/if}
               </div>
             </div>
 
             {#if documentFilter === 'folders'}
-              <div class="folder-filter-selector">
-                <div class="folder-selector-grid">
-                  {#each folderStructure.root.subfolders as folder (folder)}
-                    <button
-                      class="folder-selector-btn"
-                      class:active={selectedFolder === folder}
-                      on:click={() => selectedFolder = selectedFolder === folder ? null : folder}
-                    >
-                      <span class="folder-selector-name">{folder}</span>
-                    </button>
-                  {/each}
-                </div>
+              <div class="folder-table-wrapper">
+                <table class="folders-table">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Created By</th>
+                      <th>Files</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {#each folderStructure.root.subfolders as folder (folder)}
+                      {@const folderDocs = documents.filter(doc => doc.folder === folder)}
+                      <tr class="table-row">
+                        <td class="col-name">
+                          <div class="file-info">
+                            <div class="file-icon">
+                              <Folder size={16} />
+                            </div>
+                            <span class="file-name">{folder}</span>
+                          </div>
+                        </td>
+                        <td class="col-creator">
+                          <span class="creator-name">—</span>
+                        </td>
+                        <td class="col-files">
+                          <span class="files-count">{folderDocs.length}</span>
+                        </td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
                 {#if folderStructure.root.subfolders.length === 0}
                   <p class="no-folders-message">No folders available</p>
                 {/if}
@@ -912,27 +997,12 @@
             {/if}
 
             {#if filteredDocuments.length > 0}
-              {#if showBulkActions && filteredDocuments.length > 0}
-                <div class="select-all-row" on:click={toggleSelectAll} role="button" tabindex="0">
-                  <input
-                    type="checkbox"
-                    bind:checked={selectAllChecked}
-                    on:change={toggleSelectAll}
-                    on:click={(e) => e.stopPropagation()}
-                    class="select-all-checkbox"
-                  />
-                  <span>Select All</span>
-                </div>
-              {/if}
-
               <div class="table-wrapper">
                 <table class="documents-table">
                   <thead>
                     <tr>
                       {#if showBulkActions}
-                        <th class="col-checkbox">
-                          <input type="checkbox" class="table-checkbox" disabled />
-                        </th>
+                        <th class="col-checkbox"></th>
                       {/if}
                       <th>Name</th>
                       <th>Uploaded By</th>
@@ -944,13 +1014,24 @@
                   </thead>
                   <tbody>
                     {#each filteredDocuments as doc (doc.id)}
-                      <tr class="table-row" class:row-selected={showBulkActions && selectedDocuments.has(doc.id)}>
+                      <tr 
+                        class="table-row" 
+                        class:row-selected={showBulkActions && selectedDocuments.has(doc.id)}
+                        on:click={() => {
+                          if (showBulkActions) {
+                            toggleDocumentSelection(doc);
+                          } else {
+                            openDocument(doc, null);
+                          }
+                        }}
+                      >
                         {#if showBulkActions}
                           <td class="col-checkbox">
                             <input
                               type="checkbox"
                               checked={selectedDocuments.has(doc.id)}
                               on:change={() => toggleDocumentSelection(doc)}
+                              on:click={(e) => e.stopPropagation()}
                               class="table-checkbox"
                             />
                           </td>
@@ -964,7 +1045,15 @@
                                 <FileText size={16} />
                               {/if}
                             </div>
-                            <button type="button" class="file-name-btn" title="Open document" on:click={(e) => openDocument(doc, e)}>
+                            <button 
+                              type="button" 
+                              class="file-name-btn" 
+                              title="Open document" 
+                              on:click={(e) => {
+                                e.stopPropagation();
+                                openDocument(doc, e);
+                              }}
+                            >
                               <span class="file-name">{doc.name}</span>
                             </button>
                           </div>
@@ -989,7 +1078,10 @@
                               type="button"
                               class="icon-btn"
                               title="View/Download"
-                              on:click={(e) => openDocument(doc, e)}
+                              on:click={(e) => {
+                                e.stopPropagation();
+                                openDocument(doc, e);
+                              }}
                             >
                               {#if doc.isLink}
                                 <Eye size={14} />
@@ -998,10 +1090,24 @@
                               {/if}
                             </button>
                             {#if currentUser?.role === 'Supervisor' || currentUser?.user_id === doc.created_by}
-                              <button class="icon-btn share-btn" title="Share" on:click={() => openShareModal(doc)}>
+                              <button 
+                                class="icon-btn share-btn" 
+                                title="Share" 
+                                on:click={(e) => {
+                                  e.stopPropagation();
+                                  openShareModal(doc);
+                                }}
+                              >
                                 <Share2 size={14} />
                               </button>
-                              <button class="icon-btn delete-btn" title="Delete" on:click={() => deleteDocument(doc.id)}>
+                              <button 
+                                class="icon-btn delete-btn" 
+                                title="Delete" 
+                                on:click={(e) => {
+                                  e.stopPropagation();
+                                  deleteDocument(doc.id);
+                                }}
+                              >
                                 <Trash2 size={14} />
                               </button>
                             {/if}
@@ -1841,10 +1947,10 @@
     font-size: 0.85rem;
     letter-spacing: 0.5px;
   }
-
   .documents-table tbody tr {
     border-bottom: 1px solid #edf3fb;
     transition: background 0.2s ease;
+    cursor: pointer;
   }
 
   .documents-table tbody tr:hover {
@@ -2586,6 +2692,23 @@
     background: rgba(43, 60, 87, 0.45);
   }
 
+  :global(.dark) .folders-table thead {
+    background: rgba(43, 60, 87, 0.4);
+  }
+
+  :global(.dark) .folders-table tbody tr {
+    border-bottom-color: #2b3c57;
+  }
+
+  :global(.dark) .folders-table tbody tr:hover {
+    background: rgba(43, 60, 87, 0.45);
+  }
+
+  :global(.dark) .folder-table-wrapper {
+    background: rgba(43, 60, 87, 0.2);
+    border-color: #2b3c57;
+  }
+
   :global(.dark) .folder-item:hover {
     background: rgba(43, 60, 87, 0.45);
     border-color: #426389;
@@ -2863,7 +2986,7 @@
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 12px;
-    margin-bottom: 28px;
+    margin-bottom: 12px;
   }
 
   .stat-card {
@@ -3244,9 +3367,11 @@
   .header-controls {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 12px;
     padding: 12px 22px;
     flex-shrink: 0;
+    flex-wrap: wrap;
+    justify-content: flex-end;
   }
 
   .docs-count {
@@ -3275,6 +3400,34 @@
   .select-btn:hover {
     opacity: 0.9;
     box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+  }
+
+  .select-btn.cancel-btn {
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+  }
+
+  .select-btn.cancel-btn:hover {
+    opacity: 0.9;
+    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+  }
+
+  .selection-info {
+    font-size: 13px;
+    color: #475569;
+    font-weight: 600;
+    padding: 0 8px;
+    white-space: nowrap;
+  }
+
+  .delete-bulk-btn {
+    background: #fecaca !important;
+    color: #991b1b !important;
+    border: 1px solid #fca5a5 !important;
+  }
+
+  .delete-bulk-btn:hover {
+    background: #fca5a5 !important;
+    color: #7f1d1d !important;
   }
 
   /* Select All Row */
@@ -3347,6 +3500,7 @@
   .documents-table tbody tr {
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     transition: background 0.2s ease;
+    cursor: pointer;
   }
 
   .documents-table tbody tr:hover {
@@ -3408,6 +3562,59 @@
     border: 1px solid rgba(255, 255, 255, 0.14);
     background: rgba(255, 255, 255, 0.06);
     color: #94a3b8;
+  }
+
+  .folder-table-wrapper {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .folders-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+
+  .folders-table thead {
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .folders-table thead th {
+    padding: 12px 14px;
+    text-align: left;
+    font-size: 11px;
+    text-transform: uppercase;
+    color: #64748b;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .folders-table tbody tr {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    transition: background 0.2s ease;
+  }
+
+  .folders-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .folders-table td {
+    padding: 12px 14px;
+    color: #cbd5e1;
+    vertical-align: middle;
+  }
+
+  .col-creator,
+  .col-files {
+    text-align: left;
+  }
+
+  .creator-name,
+  .files-count {
+    font-size: 13px;
+    color: #cbd5e1;
   }
 
   .action-buttons {

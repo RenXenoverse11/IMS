@@ -1426,6 +1426,18 @@
       flex-direction: column;
       align-items: stretch;
     }
+
+    .dash-view-toggle {
+      align-self: flex-start;
+      gap: 1px;
+      padding: 2px;
+    }
+
+    .dash-view-btn {
+      padding: 3px 12px;
+      font-size: 11px;
+      line-height: 1.1;
+    }
   }
 
   @media (max-width: 560px) {
@@ -1435,6 +1447,11 @@
 
     .dash-banner-title {
       font-size: 18px;
+    }
+
+    .dash-view-btn {
+      padding: 3px 10px;
+      font-size: 10.5px;
     }
 
 

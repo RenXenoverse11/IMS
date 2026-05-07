@@ -1253,10 +1253,12 @@
 
 	@media (max-width: 768px) {
 		.signup-shell {
-			height: auto;
+			height: 100dvh;
 			min-height: 100dvh;
 			overflow-x: hidden;
 			overflow-y: auto;
+			-webkit-overflow-scrolling: touch;
+			overscroll-behavior-y: contain;
 		}
 
 		.signup-layout {
@@ -1265,10 +1267,11 @@
 			align-items: center;
 			justify-content: flex-start;
 			width: 100%;
-			min-height: 100dvh;
+			min-height: max-content;
 			box-sizing: border-box;
-			padding: 48px 16px max(24px, env(safe-area-inset-bottom));
-			gap: clamp(32px, 7dvh, 56px);
+			padding: max(30px, env(safe-area-inset-top)) 16px
+				max(20px, env(safe-area-inset-bottom));
+			gap: 24px;
 		}
 
 		.brand-panel {
@@ -1352,8 +1355,9 @@
 
 	@media (max-width: 640px) {
 		.signup-layout {
-			padding: 44px 16px max(24px, env(safe-area-inset-bottom));
-			gap: 32px;
+			padding: max(26px, env(safe-area-inset-top)) 16px
+				max(16px, env(safe-area-inset-bottom));
+			gap: 20px;
 		}
 
 		.brand-panel {

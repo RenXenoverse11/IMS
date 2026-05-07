@@ -47,6 +47,8 @@
   let showDeleteModal   = false;
   let projectToDelete   = null;
   let isDeleting        = false;
+  let archivingProjectIds = new Set();
+  let restoringProjectIds = new Set();
 
   const PRIORITY_OPTIONS  = ['Low', 'Medium', 'High'];
   const STATUS_OPTIONS    = ['Not Started', 'In Progress', 'Submitted', 'Needs Revision', 'Approved'];
@@ -1438,6 +1440,9 @@
 
   async function archiveProject(p) {
     if (!p) return;
+    const projectId = String(p.id || p.proj_id || '').trim();
+    if (!projectId || archivingProjectIds.has(projectId)) return;
+    archivingProjectIds = new Set([...archivingProjectIds, projectId]);
     const uid = getCurrentUserId();
     try {
       const res = await dispatchAction('update_proj_intern', {
@@ -1452,11 +1457,18 @@
       setTimeout(() => { formSuccess = ''; }, 2000);
     } catch (e) {
       formError = e?.message || 'Archive failed.';
+    } finally {
+      const next = new Set(archivingProjectIds);
+      next.delete(projectId);
+      archivingProjectIds = next;
     }
   }
 
   async function restoreProject(p) {
     if (!p) return;
+    const projectId = String(p.id || p.proj_id || '').trim();
+    if (!projectId || restoringProjectIds.has(projectId)) return;
+    restoringProjectIds = new Set([...restoringProjectIds, projectId]);
     const uid = getCurrentUserId();
     try {
       const res = await dispatchAction('restore_proj_intern', {
@@ -1469,6 +1481,10 @@
       setTimeout(() => { formSuccess = ''; }, 2000);
     } catch (e) {
       formError = e?.message || 'Restore failed.';
+    } finally {
+      const next = new Set(restoringProjectIds);
+      next.delete(projectId);
+      restoringProjectIds = next;
     }
   }
 
@@ -1718,7 +1734,7 @@
         <div class="ov-top-grid">
 
           <!-- Milestone Summary -->
-          <section class="card ov-card">
+          <section class="card ov-card ov-milestone-card">
             <div class="ov-card-title">Milestone Summary</div>
             {#if isLoading}
               <div class="ov-skeleton-list">
@@ -1733,28 +1749,30 @@
             {:else if overviewMilestoneRows.length === 0}
               <div class="ov-empty">No milestone data yet.</div>
             {:else}
-              <div class="ov-status-bars">
-                {#each overviewMilestoneRows as row}
-                  {@const mpct = Math.round((row.done / row.total) * 100)}
-                  <div class="ov-bar-row">
-                    <span class="ov-ms-row-name ov-bar-label">{row.title}</span>
-                    <div class="ov-bar-track">
-                      <div class="progress-bar-inner" style="width:{mpct}%"></div>
+              <div class="ov-milestone-list">
+                <div class="ov-status-bars">
+                  {#each overviewMilestoneRows as row}
+                    {@const mpct = Math.round((row.done / row.total) * 100)}
+                    <div class="ov-bar-row">
+                      <span class="ov-ms-row-name ov-bar-label">{row.title}</span>
+                      <div class="ov-bar-track">
+                        <div class="progress-bar-inner" style="width:{mpct}%"></div>
+                      </div>
+                      <span class="ov-bar-count"><span class="ov-ms-done">{row.done}</span>/{row.total}</span>
                     </div>
-                    <span class="ov-bar-count"><span class="ov-ms-done">{row.done}</span>/{row.total}</span>
+                  {/each}
+                </div>
+                {#if archivedProjects.length > 0}
+                  <div class="ov-archived-note">
+                    <Archive size={11} /> {archivedProjects.length} archived project{archivedProjects.length === 1 ? '' : 's'}
                   </div>
-                {/each}
-              </div>
-            {/if}
-            {#if archivedProjects.length > 0}
-              <div class="ov-archived-note">
-                <Archive size={11} /> {archivedProjects.length} archived project{archivedProjects.length === 1 ? '' : 's'}
+                {/if}
               </div>
             {/if}
           </section>
 
           <!-- Upcoming Deadlines -->
-          <section class="card ov-card">
+          <section class="card ov-card ov-deadlines-card">
             <div class="ov-card-title">Upcoming Deadlines</div>
             {#if isLoading}
               <div class="ov-skeleton-list">
@@ -1794,7 +1812,7 @@
         </div>
 
         <!-- ── Project Snippets ── -->
-        <section class="card ov-card">
+        <section class="card ov-card ov-projects-card">
           <div style="display:flex;align-items:center;justify-content:space-between;padding:0.6rem 1rem;">
             <div class="ov-card-title">Your Projects</div>
             <button class="ov-view-all-btn" on:click={() => activeView = 'Projects'}>View all →</button>
@@ -1851,8 +1869,18 @@
                     <button class="sub-action-btn" on:click={() => { activeView = 'Projects'; viewProject(p); }}>
                       <Eye size={12} /> Open
                     </button>
-                    <button class="sub-action-btn" title="Archive project" on:click={() => archiveProject(p)}>
-                      <Archive size={12} /> Archive
+                    <button
+                      class="sub-action-btn"
+                      class:sub-action-btn-busy={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                      title="Archive project"
+                      disabled={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                      on:click={() => archiveProject(p)}
+                    >
+                      {#if archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                        <Loader2 size={12} class="spin" /> Archiving...
+                      {:else}
+                        <Archive size={12} /> Archive
+                      {/if}
                     </button>
                   </div>
                 </div>
@@ -1863,7 +1891,7 @@
 
         <!-- ── Recent Activity (expanded) ── -->
         <div class="ov-bottom-grid">
-          <section class="card ov-card">
+          <section class="card ov-card ov-activity-card">
             <div style="display:flex;align-items:center;justify-content:space-between;padding:0.6rem 1rem;">
               <div class="ov-card-title">Recent Activity</div>
               <button class="ov-refresh-btn" title="Refresh" on:click={loadOverviewActivity} disabled={isLoadingActivity}>
@@ -1968,8 +1996,19 @@
                   <button class="icon-btn" class:icon-btn-active={isViewing} title="View" aria-label="View" on:click={() => viewProject(p)}>
                     <Eye size={16} />
                   </button>
-                  <button class="icon-btn archive" title="Archive" aria-label="Archive" on:click={() => archiveProject(p)}>
-                    <Archive size={16} />
+                  <button
+                    class="icon-btn archive"
+                    class:icon-btn-busy={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                    title={archivingProjectIds.has(String(p.id || p.proj_id || '').trim()) ? 'Archiving...' : 'Archive'}
+                    aria-label={archivingProjectIds.has(String(p.id || p.proj_id || '').trim()) ? 'Archiving project' : 'Archive'}
+                    disabled={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                    on:click={() => archiveProject(p)}
+                  >
+                    {#if archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                      <Loader2 size={16} class="spin" />
+                    {:else}
+                      <Archive size={16} />
+                    {/if}
                   </button>
                 </span>
               </div>
@@ -2486,8 +2525,19 @@
                   {/if}
                 </span>
                 <div class="proj-arc-corner">
-                    <button class="icon-btn restore" title="Restore project" on:click={() => restoreProject(p)}>
-                      <RotateCcw size={16} />
+                    <button
+                      class="icon-btn restore"
+                      class:icon-btn-busy={restoringProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                      title={restoringProjectIds.has(String(p.id || p.proj_id || '').trim()) ? 'Restoring...' : 'Restore project'}
+                      aria-label={restoringProjectIds.has(String(p.id || p.proj_id || '').trim()) ? 'Restoring project' : 'Restore project'}
+                      disabled={restoringProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                      on:click={() => restoreProject(p)}
+                    >
+                      {#if restoringProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                        <Loader2 size={16} class="spin" />
+                      {:else}
+                        <RotateCcw size={16} />
+                      {/if}
                     </button>
                 </div>
               </div>
@@ -3329,6 +3379,15 @@
   .icon-btn.archive { background: transparent; border-color: rgba(255,255,255,0.06); color: var(--color-accent); }
   .icon-btn.restore { background: transparent; border-color: rgba(255,255,255,0.06); color: #10b981; }
   .icon-btn.restore:hover { background: rgba(16,185,129,0.1); border-color: #10b981; }
+  .icon-btn:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+    transform: none;
+  }
+  .icon-btn-busy {
+    border-color: var(--color-accent) !important;
+    background: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface)) !important;
+  }
 
   /* ── Archive table ───────────────────────────────────────────────────── */
   .arc-table-wrap { padding: 1rem 1.25rem; }
@@ -3499,12 +3558,25 @@
   @media (max-width: 768px) {
     .stat-cards { grid-template-columns: 1fr; }
     .quick-head { gap: 0.75rem; }
-    .quick-actions { width: 100%; flex-wrap: wrap; gap: 0.5rem; }
+    .quick-actions { width: 100%; flex-wrap: wrap; gap: 0.42rem; }
     .quick-actions > * { width: 100%; }
     .quick-actions .search-wrap,
     .quick-actions .quick-status,
     .quick-actions .quick-priority,
-    .quick-actions .primary { width: 100%; }
+    .quick-actions .primary {
+      width: 100%;
+      height: 2.35rem;
+      min-height: 2.35rem;
+      border-radius: 0.72rem;
+      box-sizing: border-box;
+    }
+    .quick-actions .search-wrap { padding: 0 0.78rem; }
+    .quick-actions .search-input { font-size: 0.9rem; }
+    .quick-actions .quick-status,
+    .quick-actions .quick-priority {
+      font-size: 0.9rem;
+      line-height: 1.2;
+    }
 
     .proj-table-panel { overflow-x: auto; }
     .proj-table-header { display: none; }
@@ -3714,9 +3786,11 @@
 
   /* ── Overview Layout ──────────────────────────────────────────────────── */
   .ov-top-grid {
+    --ov-fixed-list-height: calc((2.45rem * 3) + (0.55rem * 2));
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 10px;
+    align-items: start;
   }
   @media (max-width: 680px) {
     .ov-top-grid { grid-template-columns: 1fr; }
@@ -3852,11 +3926,35 @@
   /* ── Status breakdown bars ── */
   .ov-status-bars { display: flex; flex-direction: column; gap: 0.5rem; }
 
+  .ov-milestone-card .ov-milestone-list {
+    height: var(--ov-fixed-list-height);
+    overflow-y: auto;
+    padding-right: 0.35rem;
+    scrollbar-width: none;
+    scrollbar-color: transparent transparent;
+  }
+
+  .ov-milestone-card .ov-milestone-list::-webkit-scrollbar {
+    width: 0 !important;
+    height: 0 !important;
+    display: none !important;
+  }
+
+  .ov-milestone-card .ov-milestone-list::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .ov-milestone-card .ov-milestone-list::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 999px;
+  }
+
   .ov-bar-row {
     display: grid;
     grid-template-columns: 7.5rem 1fr 1.8rem;
     align-items: center;
     gap: 0.65rem;
+    min-height: 2.45rem;
   }
 
   .ov-bar-label {
@@ -3902,12 +4000,38 @@
   }
 
   /* ── Upcoming Deadlines ── */
-  .ov-deadline-list { display: flex; flex-direction: column; gap: 0.55rem; }
+  .ov-deadlines-card .ov-deadline-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    height: var(--ov-fixed-list-height);
+    overflow-y: auto;
+    padding-right: 0.35rem;
+    scrollbar-width: none;
+    scrollbar-color: transparent transparent;
+  }
 
-  .ov-deadline-row {
+  .ov-deadlines-card .ov-deadline-row {
     display: flex;
     align-items: center;
     gap: 0.65rem;
+    min-height: 2.45rem;
+    flex: 0 0 auto;
+  }
+
+  .ov-deadlines-card .ov-deadline-list::-webkit-scrollbar {
+    width: 0 !important;
+    height: 0 !important;
+    display: none !important;
+  }
+
+  .ov-deadlines-card .ov-deadline-list::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .ov-deadlines-card .ov-deadline-list::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 999px;
   }
 
   .ov-deadline-dot {
@@ -3939,6 +4063,34 @@
 
   /* ── Activity Feed ── */
   .ov-activity-feed { display: flex; flex-direction: column; gap: 0; }
+
+  .ov-activity-card .ov-activity-feed {
+    max-height: calc(3.35rem * 3);
+    overflow-y: auto;
+    padding-right: 0.35rem;
+    scrollbar-width: none;
+    scrollbar-color: transparent transparent;
+  }
+
+  .ov-activity-card .ov-act-row {
+    min-height: 3.35rem;
+    flex: 0 0 auto;
+  }
+
+  .ov-activity-card .ov-activity-feed::-webkit-scrollbar {
+    width: 0 !important;
+    height: 0 !important;
+    display: none !important;
+  }
+
+  .ov-activity-card .ov-activity-feed::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .ov-activity-card .ov-activity-feed::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 999px;
+  }
 
   /* Expanded activity card styles (removed) */
 
@@ -3999,6 +4151,30 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 0.8rem;
+  }
+
+  .ov-projects-card .ov-snippets-grid {
+    max-height: 13.5rem;
+    overflow-y: auto;
+    align-content: start;
+    padding-right: 0.35rem;
+    scrollbar-width: none;
+    scrollbar-color: transparent transparent;
+  }
+
+  .ov-projects-card .ov-snippets-grid::-webkit-scrollbar {
+    width: 0 !important;
+    height: 0 !important;
+    display: none !important;
+  }
+
+  .ov-projects-card .ov-snippets-grid::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .ov-projects-card .ov-snippets-grid::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 999px;
   }
 
   .ov-snippet-card {
@@ -4078,6 +4254,19 @@
     justify-content: center;
     font-size: 0.78rem;
     padding: 0.3rem 0.6rem;
+  }
+
+  @media (max-width: 768px) {
+    .projects-page {
+      padding-bottom: max(16px, calc(env(safe-area-inset-bottom) + 12px));
+    }
+
+    .ov-snippet-actions .sub-action-btn {
+      min-height: 2.2rem;
+      padding: 0.45rem 0.7rem;
+      font-size: 0.82rem;
+      border-radius: 0.55rem;
+    }
   }
 </style>
 
