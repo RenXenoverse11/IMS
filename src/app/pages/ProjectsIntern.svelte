@@ -50,7 +50,7 @@
   let restoringProjectIds = new Set();
 
   const PRIORITY_OPTIONS  = ['Low', 'Medium', 'High'];
-  const STATUS_OPTIONS    = ['Not Started', 'In Progress', 'Submitted', 'Needs Revision', 'Approved'];
+  const STATUS_OPTIONS    = ['Not Started', 'In Progress', 'Review', 'Completed'];
 
   // Populated from backend on mount, then filtered locally for assignment.
   let users = [];
@@ -80,16 +80,23 @@
     return String(val).trim();
   }
 
+  function canonicalStatusLabel(value) {
+    const raw = String(value || '').trim();
+    const lower = raw.toLowerCase();
+    if (!raw || lower === 'pending' || lower === 'not started') return 'Not Started';
+    if (lower === 'in progress') return 'In Progress';
+    if (lower === 'review' || lower === 'revision' || lower === 'submitted' || lower === 'for review' || lower === 'needs revision') return 'Review';
+    if (lower === 'completed' || lower === 'approved') return 'Completed';
+    if (lower === 'archived') return 'Archived';
+    return raw;
+  }
+
   const STATUS_META = {
-    'Not Started':  { cls: 'status-not-started',   label: 'Not Started'  },
-    'In Progress':  { cls: 'status-in-progress',   label: 'In Progress'  },
-    'Submitted':    { cls: 'status-submitted',     label: 'Submitted'    },
-    'Needs Revision': { cls: 'status-needs-revision', label: 'Needs Revision' },
-    'Approved':     { cls: 'status-approved',      label: 'Approved'     },
-    // legacy aliases
-    'For Review':   { cls: 'status-submitted',     label: 'Submitted'    },
-    'Pending':      { cls: 'status-pending',        label: 'Pending'      },
-    'Completed':    { cls: 'status-approved',      label: 'Completed'    }
+    'Not Started': { cls: 'status-not-started', label: 'Not Started' },
+    'In Progress': { cls: 'status-in-progress', label: 'In Progress' },
+    'Review':      { cls: 'status-needs-revision', label: 'Review' },
+    'Completed':   { cls: 'status-approved', label: 'Completed' },
+    'Archived':    { cls: 'status-pending', label: 'Archived' }
   };
 
   // Form
@@ -181,10 +188,10 @@
   }
 
   function statusToProgress(s) {
-    const v = String(s || '').trim().toLowerCase();
-    if (!v || v === 'not started' || v === 'pending') return 0;
+    const v = canonicalStatusLabel(s).toLowerCase();
+    if (!v || v === 'not started') return 0;
     if (v === 'in progress') return 50;
-    if (v === 'for review') return 90;
+    if (v === 'review') return 70;
     if (v === 'completed') return 100;
     const n = parseInt(s, 10);
     return isNaN(n) ? 0 : Math.max(0, Math.min(100, n));
@@ -389,7 +396,7 @@
       title:          p.proj_name    || '',
       description:    p.description  || '',
       priority_level: p.priority     || 'Medium',
-      status:         p.status       || 'Pending',
+      status:         canonicalStatusLabel(p.status || 'Not Started'),
       members:        p.members      ? p.members.split(',').map(s => s.trim()).filter(Boolean) : [],
       supervisors:    p.supervisor   ? p.supervisor.split(',').map(s => s.trim()).filter(Boolean) : [],
       timeline_start: p.start_date   || '',
@@ -397,7 +404,7 @@
       deadline:       p.end_date     || '',
       created_at:     p.created_at   || '',
       created_by:     p.created_by   || '',
-      archived:       p.status === 'Archived',
+      archived:       canonicalStatusLabel(p.status || '').toLowerCase() === 'archived',
       folders:        null,           // null = not yet loaded; [] = loaded and empty
       progress_logs:  [],
       milestones:     null
@@ -429,9 +436,9 @@
         });
         if (!res?.ok) { formError = res?.error || 'Update failed.'; return; }
         projects = projects.map(p =>
-          p.id === editingId
+        p.id === editingId
             ? { ...p, title: form.title, description: form.description, priority_level: form.priority_level,
-                status: form.status, members: [...(form.members || [])], supervisors: [...(form.supervisor || [])],
+                status: canonicalStatusLabel(form.status), members: [...(form.members || [])], supervisors: [...(form.supervisor || [])],
                 timeline_start: form.timeline_start, timeline_end: form.timeline_end, deadline: form.timeline_end }
             : p
         );
@@ -442,7 +449,7 @@
           proj_name:   form.title,
           description: form.description,
           priority:    form.priority_level,
-          status:      form.status,
+          status:      canonicalStatusLabel(form.status),
           members:     form.members,
           supervisor:  form.supervisor,
           start_date:  form.timeline_start,
@@ -454,7 +461,7 @@
           proj_name:   form.title,
           description: form.description,
           priority:    form.priority_level,
-          status:      form.status,
+          status:      canonicalStatusLabel(form.status),
           members:     form.members.join(','),
           supervisor:  (Array.isArray(form.supervisor) ? form.supervisor.join(',') : String(form.supervisor || '')),
           start_date:  form.timeline_start,
@@ -479,16 +486,16 @@
   }
 
   function startInlineEdit(p) {
-    inlineForm = {
-      priority_level: p.priority_level || 'Low',
-      title:          p.title || '',
-      description:    p.description || '',
-      members:        Array.isArray(p.members) ? [...p.members] : [],
-      supervisor:     Array.isArray(p.supervisors) ? [...p.supervisors] : [],
-      timeline_start: p.timeline_start || '',
-      timeline_end:   p.timeline_end || p.deadline || '',
-      status:         p.status || 'Not Started',
-    };
+      inlineForm = {
+        priority_level: p.priority_level || 'Low',
+        title:          p.title || '',
+        description:    p.description || '',
+        members:        Array.isArray(p.members) ? [...p.members] : [],
+        supervisor:     Array.isArray(p.supervisors) ? [...p.supervisors] : [],
+        timeline_start: p.timeline_start || '',
+        timeline_end:   p.timeline_end || p.deadline || '',
+      status:         canonicalStatusLabel(p.status || 'Not Started'),
+      };
     inlineEditId = p.id;
     showInlineMembersPanel = false;
     showInlineSupervisorPanel = false;
@@ -809,7 +816,7 @@
     try {
       const res = await dispatchAction('list_milestones', { proj_id: projId });
       if (res?.ok) {
-        const list = (res.milestones || []).map(m => ({ id: m.milestone_id, milestone: m.milestone, date: m.date, status: String(m.status || 'Not Started'), done: Boolean(m.done), created_at: m.created_at, created_by: m.created_by, linked_files: m.linked_files || '' }));
+        const list = (res.milestones || []).map(m => ({ id: m.milestone_id, milestone: m.milestone, date: m.date, status: canonicalStatusLabel(m.status || 'Not Started'), done: Boolean(m.done), created_at: m.created_at, created_by: m.created_by, linked_files: m.linked_files || '' }));
         projects = projects.map(p => p.id === projectId ? { ...p, milestones: list } : p);
         try { localStorage.setItem('projects.milestones.' + String(projectId), JSON.stringify(list)); } catch (e) {}
       } else {
@@ -822,7 +829,7 @@
       let cached = null;
       try { cached = localStorage.getItem('projects.milestones.' + String(projectId)); } catch (ee) { cached = null; }
       if (cached) {
-        try { const parsed = JSON.parse(cached); projects = projects.map(p => p.id === projectId ? { ...p, milestones: Array.isArray(parsed) ? parsed : [] } : p); } catch (ee) { projects = projects.map(p => p.id === projectId ? { ...p, milestones: [] } : p); }
+        try { const parsed = JSON.parse(cached); projects = projects.map(p => p.id === projectId ? { ...p, milestones: Array.isArray(parsed) ? parsed.map(mm => ({ ...mm, status: canonicalStatusLabel(mm.status || 'Not Started') })) : [] } : p); } catch (ee) { projects = projects.map(p => p.id === projectId ? { ...p, milestones: [] } : p); }
       } else {
         projects = projects.map(p => p.id === projectId ? { ...p, milestones: [] } : p);
       }
@@ -975,20 +982,20 @@
     if (!text) { formError = 'Milestone text is required.'; return; }
     const uid = getCurrentUserId();
     try {
-      const res = await dispatchAction('update_milestone', { milestone_id: milestoneId, milestone: text, date: date, status: String(inputs.status || 'Not Started'), user_id: uid });
+      const res = await dispatchAction('update_milestone', { milestone_id: milestoneId, milestone: text, date: date, status: canonicalStatusLabel(inputs.status || 'Not Started'), user_id: uid });
       if (!res?.ok) { formError = res?.error || 'Failed to update milestone.'; return; }
       // refresh from server to ensure we reflect persisted `done` state
       try {
         await loadProjectMilestones(projectId);
       } catch (e) {
         // fallback to local update if reload fails
-        projects = projects.map(p => p.id === projectId ? { ...p, milestones: (p.milestones || []).map(mm => mm.id === milestoneId ? { ...mm, milestone: text, date: date, status: String(inputs.status || 'Not Started') } : mm) } : p);
+        projects = projects.map(p => p.id === projectId ? { ...p, milestones: (p.milestones || []).map(mm => mm.id === milestoneId ? { ...mm, milestone: text, date: date, status: canonicalStatusLabel(inputs.status || 'Not Started') } : mm) } : p);
       }
       // update cache (best-effort)
       try {
         const key = 'projects.milestones.' + String(projectId);
         const cur = JSON.parse(localStorage.getItem(key) || '[]');
-        const updated = (cur || []).map(mm => mm.id === milestoneId ? { ...mm, milestone: text, date: date, status: String(inputs.status || 'Not Started') } : mm);
+        const updated = (cur || []).map(mm => mm.id === milestoneId ? { ...mm, milestone: text, date: date, status: canonicalStatusLabel(inputs.status || 'Not Started') } : mm);
         localStorage.setItem(key, JSON.stringify(updated));
       } catch (e) {}
       editingMilestoneId = null;
@@ -1004,10 +1011,10 @@
     if (!milestoneId) return;
     const uid = getCurrentUserId();
     try {
-      const res = await dispatchAction('update_milestone', { milestone_id: milestoneId, status: String(newStatus || 'Not Started'), user_id: uid });
+      const res = await dispatchAction('update_milestone', { milestone_id: milestoneId, status: canonicalStatusLabel(newStatus || 'Not Started'), user_id: uid });
       if (!res?.ok) { formError = res?.error || 'Failed to update status.'; return; }
       // update local state immediately and then reload for consistency
-      projects = projects.map(p => p.id === projectId ? { ...p, milestones: (p.milestones || []).map(mm => mm.id === milestoneId ? { ...mm, status: String(newStatus || 'Not Started'), done: (String(newStatus || '').toLowerCase() === 'approved' || Boolean(mm.done)) } : mm) } : p);
+      projects = projects.map(p => p.id === projectId ? { ...p, milestones: (p.milestones || []).map(mm => mm.id === milestoneId ? { ...mm, status: canonicalStatusLabel(newStatus || 'Not Started'), done: (canonicalStatusLabel(newStatus || '') === 'Completed' || Boolean(mm.done)) } : mm) } : p);
       try { await loadProjectMilestones(projectId); } catch (e) { /* fallback */ }
       formSuccess = 'Status updated.';
       setTimeout(() => { formSuccess = ''; }, 1200);
@@ -1435,7 +1442,7 @@
         user_id: uid
       });
       if (!res?.ok) { formError = res?.error || 'Restore failed.'; return; }
-      projects = projects.map(item => item.id === p.id ? { ...item, archived: false, status: res.status || 'Not Started' } : item);
+      projects = projects.map(item => item.id === p.id ? { ...item, archived: false, status: canonicalStatusLabel(res.status || 'Not Started') } : item);
       formSuccess = 'Project restored.';
       setTimeout(() => { formSuccess = ''; }, 2000);
     } catch (e) {
@@ -1529,7 +1536,7 @@
   $: filteredProjects = projects.filter(p => {
     if (p.archived) return false;
     const matchPriority = filterPriority === 'all' || p.priority_level === filterPriority;
-    const matchStatus   = filterStatus   === 'all' || p.status === filterStatus;
+    const matchStatus   = filterStatus   === 'all' || canonicalStatusLabel(p.status) === filterStatus;
     return matchPriority && matchStatus;
   });
 
@@ -1564,19 +1571,9 @@
 
 
 
-  async function loadOverviewMilestones() {
-    const snippets = projects.filter(p => !p.archived).slice(0, 6);
-    await Promise.all(
-      snippets
-        .filter(p => !Array.isArray(p.milestones))
-        .map(p => loadProjectMilestones(p.id).catch(() => {}))
-    );
-  }
-
   // Auto-load activity when the user first opens Overview and projects are ready
   $: if (activeView === 'Overview' && !isLoading && projects.length > 0 && !overviewActivityLoaded && !isLoadingActivity) {
     loadOverviewActivity();
-    loadOverviewMilestones();
   }
 
   $: upcomingDeadlines = projects
@@ -1586,7 +1583,7 @@
 
   $: statusBreakdown = STATUS_OPTIONS.map(s => ({
     status: s,
-    count: projects.filter(p => !p.archived && p.status === s).length,
+    count: projects.filter(p => !p.archived && canonicalStatusLabel(p.status) === s).length,
     meta: STATUS_META[s] || STATUS_META['Not Started']
   }));
 
@@ -1612,13 +1609,6 @@
   // Reset page when filters/search change
   $: { filterStatus; filterPriority; searchQuery; projectsPage = 0; }
 
-  $: overviewMilestoneRows = overviewSnippets
-    .filter(p => Array.isArray(p.milestones) && p.milestones.length > 0)
-    .map(p => ({
-      title: p.title,
-      total: p.milestones.length,
-      done: p.milestones.filter(m => Boolean(m.done) || String(m.status) === 'Approved').length
-    }));
 </script>
 <section class="projects-page">
 
@@ -1714,12 +1704,24 @@
         <!-- ── Overview: top 2-col grid ── -->
         <div class="ov-top-grid">
 
+<<<<<<< HEAD
           <!-- Milestone Summary -->
           <section class="card ov-card ov-milestone-card">
             <div class="ov-card-title">Milestone Summary</div>
+=======
+          <!-- Recent Activity -->
+          <section class="card ov-card ov-card-activity ov-card-tight">
+            <div class="ov-card-head">
+              <div class="ov-card-title">Recent Activity</div>
+              <button class="ov-refresh-btn" title="Refresh" on:click={loadOverviewActivity} disabled={isLoadingActivity}>
+                {#if isLoadingActivity}<Loader2 size={13} class="spin" />{:else}↻{/if}
+              </button>
+            </div>
+>>>>>>> 35fbf8e (Rechiel: fixed projects)
             {#if isLoading}
-              <div class="ov-skeleton-list">
+              <div class="ov-activity-feed">
                 {#each [1, 2, 3, 4] as _}
+<<<<<<< HEAD
                   <div class="ov-skeleton-row">
                     <div class="ov-skeleton shimmer" style="height: 11px; width: 120px;"></div>
                     <div class="ov-skeleton shimmer" style="height: 8px; width: 100%; border-radius: 999px;"></div>
@@ -1748,13 +1750,62 @@
                     <Archive size={11} /> {archivedProjects.length} archived project{archivedProjects.length === 1 ? '' : 's'}
                   </div>
                 {/if}
+=======
+                  <div class="ov-act-row">
+                    <div class="ov-skeleton shimmer" style="width: 28px; height: 28px; border-radius: 7px;"></div>
+                    <div class="ov-act-body">
+                      <div class="ov-skeleton shimmer" style="height: 12px; width: 70%;"></div>
+                      <div class="ov-skeleton shimmer" style="height: 11px; width: 45%;"></div>
+                    </div>
+                  </div>
+                {/each}
+              </div>
+            {:else if isLoadingActivity}
+              <div class="ov-empty"><Loader2 size={14} class="spin" /> Loading activity...</div>
+            {:else if overviewActivity.length === 0}
+              <div class="ov-empty">No recent activity found.</div>
+            {:else}
+              <div class="ov-activity-feed">
+                {#each overviewActivity as act}
+                  {@const proj = projects.find(p => p.proj_id === act.proj_id || p.id === act.proj_id)}
+                  <div class="ov-act-row">
+                    <div class="ov-act-icon {act.type === 'feedback' ? 'ov-act-icon-fb' : 'ov-act-icon-ms'}">
+                      {#if act.type === 'feedback'}
+                        <MessageSquare size={14} />
+                      {:else}
+                        <Flag size={14} />
+                      {/if}
+                    </div>
+                    <div class="ov-act-body">
+                      <div class="ov-act-text">
+                        {act.type === 'feedback' ? act.text : 'Milestone: ' + act.text}
+                      </div>
+                      <div class="ov-act-meta">
+                        {#if act.proj_name || proj}
+                          <span class="ov-act-proj">{act.proj_name || proj?.title || ''}</span>
+                        {/if}
+                        {#if act.created_at}
+                          <span class="ov-act-date">{humanizeTime(act.created_at)}</span>
+                        {/if}
+                      </div>
+                    </div>
+                  </div>
+                {/each}
+>>>>>>> 35fbf8e (Rechiel: fixed projects)
               </div>
             {/if}
           </section>
 
           <!-- Upcoming Deadlines -->
+<<<<<<< HEAD
           <section class="card ov-card ov-deadlines-card">
             <div class="ov-card-title">Upcoming Deadlines</div>
+=======
+          <section class="card ov-card ov-card-tight">
+            <div class="ov-card-head">
+              <div class="ov-card-title">Upcoming Deadlines</div>
+            </div>
+>>>>>>> 35fbf8e (Rechiel: fixed projects)
             {#if isLoading}
               <div class="ov-skeleton-list">
                 {#each [1, 2, 3] as _}
@@ -1777,8 +1828,10 @@
                   {@const near = isDeadlineNear(p.timeline_end)}
                   {@const sm   = STATUS_META[p.status] || STATUS_META['Not Started']}
                   <div class="ov-deadline-row">
-                    <div class="ov-deadline-dot" class:ov-dot-past={past} class:ov-dot-near={near && !past}></div>
-                    <div class="ov-deadline-info">
+                    <div class="ov-deadline-icon" class:ov-deadline-icon-past={past} class:ov-deadline-icon-near={near && !past}>
+                      <CalendarDays size={13} />
+                    </div>
+                    <div class="ov-deadline-body">
                       <div class="ov-deadline-name">{p.title}</div>
                       <div class="ov-deadline-date" class:ov-date-past={past} class:ov-date-near={near && !past}>
                         <CalendarDays size={11} /> {formatDate(p.timeline_end)}
@@ -1793,8 +1846,13 @@
         </div>
 
         <!-- ── Project Snippets ── -->
+<<<<<<< HEAD
         <section class="card ov-card ov-projects-card">
           <div style="display:flex;align-items:center;justify-content:space-between;padding:0.6rem 1rem;">
+=======
+        <section class="card ov-card">
+          <div class="ov-card-head">
+>>>>>>> 35fbf8e (Rechiel: fixed projects)
             <div class="ov-card-title">Your Projects</div>
             <div style="display:flex;align-items:center;gap:0.75rem;">
               {#if projectPageCount > 1}
@@ -1889,6 +1947,7 @@
           {/if}
         </section>
 
+<<<<<<< HEAD
         <!-- ── Recent Activity (expanded) ── -->
         <div class="ov-bottom-grid">
           <section class="card ov-card ov-activity-card">
@@ -1948,6 +2007,8 @@
 
         </div>
 
+=======
+>>>>>>> 35fbf8e (Rechiel: fixed projects)
       {/if}
     {:else if activeView === 'Projects'}
       <section class="proj-table-panel">
@@ -3457,6 +3518,14 @@
     color: var(--color-accent); cursor: pointer; margin: 0; transition: transform 0.12s, background 0.12s, border-color 0.12s;
   }
   .icon-btn:hover { background: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface)); border-color: var(--color-accent); transform: translateY(-1px); }
+  .icon-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    transform: none;
+    background: var(--color-surface);
+    border-color: var(--color-border);
+    color: var(--color-sidebar-text);
+  }
   .icon-btn.archive { background: transparent; border-color: rgba(255,255,255,0.06); color: var(--color-accent); }
   .icon-btn.restore { background: transparent; border-color: rgba(255,255,255,0.06); color: #10b981; }
   .icon-btn.restore:hover { background: rgba(16,185,129,0.1); border-color: #10b981; }
@@ -3871,7 +3940,11 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 10px;
+<<<<<<< HEAD
     align-items: start;
+=======
+    align-items: stretch;
+>>>>>>> 35fbf8e (Rechiel: fixed projects)
   }
   @media (max-width: 680px) {
     .ov-top-grid { grid-template-columns: 1fr; }
@@ -3887,6 +3960,18 @@
     gap: 0.7rem;
   }
   :global(body.dark) .ov-card { background: #161c27 !important; border-color: #ffffff0f !important; }
+
+  .ov-card-activity {
+    max-height: clamp(26rem, 52vh, 34rem);
+    overflow: hidden;
+  }
+  .ov-card-tight {
+    padding: 0.9rem 1rem;
+    gap: 0.55rem;
+    height: clamp(15rem, 24vh, 17rem);
+    overflow: hidden;
+    box-sizing: border-box;
+  }
 
   .ov-card-header {
     display: flex;
@@ -4081,6 +4166,7 @@
   }
 
   /* ── Upcoming Deadlines ── */
+<<<<<<< HEAD
   .ov-deadlines-card .ov-deadline-list {
     display: flex;
     flex-direction: column;
@@ -4090,10 +4176,22 @@
     padding-right: 0.35rem;
     scrollbar-width: none;
     scrollbar-color: transparent transparent;
+=======
+  .ov-deadline-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+    padding-right: 0.2rem;
+    scrollbar-gutter: stable;
+>>>>>>> 35fbf8e (Rechiel: fixed projects)
   }
 
   .ov-deadlines-card .ov-deadline-row {
     display: flex;
+<<<<<<< HEAD
     align-items: center;
     gap: 0.65rem;
     min-height: 2.45rem;
@@ -4113,17 +4211,29 @@
   .ov-deadlines-card .ov-deadline-list::-webkit-scrollbar-thumb {
     background: transparent;
     border-radius: 999px;
+=======
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.6rem 0;
+    border-bottom: 1px solid var(--color-border);
+>>>>>>> 35fbf8e (Rechiel: fixed projects)
   }
+  .ov-deadline-row:last-child { border-bottom: none; }
 
-  .ov-deadline-dot {
-    width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0;
-    background: var(--color-border);
-    border: 1.5px solid var(--color-border);
+  .ov-deadline-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    flex-shrink: 0;
+    display: grid;
+    place-items: center;
+    color: var(--color-sidebar-text);
+    background: rgba(37, 99, 235, 0.08);
   }
-  .ov-deadline-dot.ov-dot-near { background: #fbbf24; border-color: #f59e0b; }
-  .ov-deadline-dot.ov-dot-past { background: #ef4444; border-color: #dc2626; }
+  .ov-deadline-icon-near { background: rgba(251, 191, 36, 0.12); color: #f59e0b; }
+  .ov-deadline-icon-past { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
 
-  .ov-deadline-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  .ov-deadline-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 
   .ov-deadline-name {
     font-size: 0.85rem;
@@ -4135,15 +4245,25 @@
   }
 
   .ov-deadline-date {
-    font-size: 0.77rem;
+    font-size: 0.74rem;
     color: var(--color-sidebar-text);
-    display: flex; align-items: center; gap: 4px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
   }
   .ov-deadline-date.ov-date-near { color: #d97706; }
   .ov-deadline-date.ov-date-past { color: #dc2626; }
 
   /* ── Activity Feed ── */
-  .ov-activity-feed { display: flex; flex-direction: column; gap: 0; }
+  .ov-activity-feed {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    overflow-y: auto;
+    min-height: 0;
+    padding-right: 0.2rem;
+    scrollbar-gutter: stable;
+  }
 
   .ov-activity-card .ov-activity-feed {
     max-height: calc(3.35rem * 3);
@@ -4176,6 +4296,13 @@
   /* Expanded activity card styles (removed) */
 
   .ov-bottom-grid { display: grid; grid-template-columns: 1fr; gap: 0.8rem; align-items: start; }
+
+  .ov-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.6rem 1rem;
+  }
 
   /* card title styling */
   .ov-card-title { font-size: 0.85rem; font-weight: 700; color: var(--color-heading); letter-spacing: -0.01em; }
