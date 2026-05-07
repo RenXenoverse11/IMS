@@ -602,7 +602,7 @@
   let flashTimer;
 
   const PRIORITY_OPTIONS = ['Low', 'Medium', 'High'];
-  const STATUS_OPTIONS = ['Not Started', 'In Progress', 'Submitted', 'Needs Revision', 'Approved'];
+  const STATUS_OPTIONS = ['Not Started', 'In Progress', 'Review', 'Completed'];
 
   const DEFAULT_PRIORITY_COLOR = { bg: '#eef2f7', text: '#475569', border: '#cbd5e1' };
   const PRIORITY_COLORS = {
@@ -614,10 +614,7 @@
   const STATUS_META = {
     'Not Started': { cls: 'status-not-started', label: 'Not Started' },
     'In Progress': { cls: 'status-in-progress', label: 'In Progress' },
-    'Submitted': { cls: 'status-submitted', label: 'Submitted' },
-    'Needs Revision': { cls: 'status-needs-revision', label: 'Needs Revision' },
-    'Approved': { cls: 'status-approved', label: 'Approved' },
-    'Pending': { cls: 'status-pending', label: 'Pending' },
+    'Review': { cls: 'status-needs-revision', label: 'Review' },
     'Completed': { cls: 'status-approved', label: 'Completed' },
     'Archived': { cls: 'status-pending', label: 'Archived' }
   };
@@ -656,23 +653,19 @@
     if (!raw) return 'Not Started';
     if (lower === 'not started') return 'Not Started';
     if (lower === 'in progress') return 'In Progress';
-    if (lower === 'submitted') return 'Submitted';
-    if (lower === 'for review') return 'Submitted';
-    if (lower === 'needs revision') return 'Needs Revision';
-    if (lower === 'approved') return 'Approved';
-    if (lower === 'pending') return 'Pending';
-    if (lower === 'completed') return 'Completed';
+    if (lower === 'review' || lower === 'revision' || lower === 'submitted' || lower === 'for review' || lower === 'needs revision') return 'Review';
+    if (lower === 'completed' || lower === 'approved') return 'Completed';
+    if (lower === 'pending') return 'Not Started';
     if (lower === 'archived') return 'Archived';
     return raw;
   }
 
   function statusGroup(value) {
     const label = canonicalStatusLabel(value).toLowerCase();
-    if (label === 'approved' || label === 'completed') return 'approved';
-    if (label === 'submitted') return 'submitted';
-    if (label === 'needs revision') return 'needs revision';
+    if (label === 'completed') return 'completed';
+    if (label === 'review') return 'review';
     if (label === 'in progress') return 'in progress';
-    if (label === 'pending' || label === 'not started') return 'not started';
+    if (label === 'not started') return 'not started';
     return label;
   }
 
@@ -703,10 +696,9 @@
 
   function statusToProgress(value) {
     const label = canonicalStatusLabel(value).toLowerCase();
-    if (label === 'completed' || label === 'approved') return 100;
-    if (label === 'submitted') return 80;
-    if (label === 'needs revision') return 65;
-    if (label === 'in progress') return 45;
+    if (label === 'completed') return 100;
+    if (label === 'review') return 70;
+    if (label === 'in progress') return 50;
     if (label === 'archived') return 100;
     return 0;
   }
@@ -739,6 +731,10 @@
   function normalizeProject(project) {
     const priority = normalizePriorityLabel(project?.priority_level || project?.priority || 'Low');
     const status = canonicalStatusLabel(project?.status || 'Not Started');
+    const progressPercentRaw = project?.progress_percent ?? project?.progress ?? project?.progressPercentage ?? null;
+    const progressPercent = progressPercentRaw === null || progressPercentRaw === undefined || progressPercentRaw === ''
+      ? null
+      : Number(progressPercentRaw);
 
     return {
       id: String(project?.id || project?.proj_id || '').trim(),
@@ -766,7 +762,7 @@
       ,folders: null,
       milestones: null,
       progress_logs: [],
-      progress_percent: 0
+      progress_percent: Number.isFinite(progressPercent) ? progressPercent : null
     };
   }
 
@@ -937,7 +933,7 @@
     try {
       const res = await callApiAction('list_milestones', { proj_id: projId });
       if (res?.ok) {
-        const list = (res.milestones || []).map(m => ({ id: m.milestone_id, milestone: m.milestone, date: m.date, status: m.status || 'Not Started', done: Boolean(m.done), created_at: m.created_at, created_by: m.created_by, linked_files: m.linked_files || '' }));
+        const list = (res.milestones || []).map(m => ({ id: m.milestone_id, milestone: m.milestone, date: m.date, status: canonicalStatusLabel(m.status || 'Not Started'), done: Boolean(m.done), created_at: m.created_at, created_by: m.created_by, linked_files: m.linked_files || '' }));
         allProjects = allProjects.map(p => p.id === projectId ? { ...p, milestones: list } : p);
       } else {
         allProjects = allProjects.map(p => p.id === projectId ? { ...p, milestones: [] } : p);
@@ -1018,7 +1014,7 @@
 
       allProjects = allProjects.map((item) => (
         item.id === project.id
-          ? { ...item, archived: false, status: result.status || 'Not Started' }
+          ? { ...item, archived: false, status: canonicalStatusLabel(result.status || 'Not Started') }
           : item
       ));
       if (String(searchQuery || '').trim().toLowerCase() === String(project.title || '').trim().toLowerCase()) {
@@ -1069,14 +1065,23 @@
 
   $: totalProjects = activeProjects.length;
   $: inProgressCount = activeProjects.filter((p) => statusGroup(p.status) === 'in progress').length;
-  $: submittedCount = activeProjects.filter((p) => statusGroup(p.status) === 'submitted').length;
+  $: reviewCount = activeProjects.filter((p) => statusGroup(p.status) === 'review').length;
   $: internCount = uniqueInterns.length;
   $: archivedCount = archivedProjects.length;
-  $: overviewStatusRows = STATUS_OPTIONS.map((status) => ({
-    status,
-    count: activeProjects.filter((p) => statusMatchesFilter(p.status, status)).length,
-    meta: getStatusMeta(status)
-  }));
+  $: workloadRows = Object.entries(
+    activeProjects.reduce((acc, project) => {
+      const internName = String(project.owner_name || resolveUserName(project.created_by) || '').trim() || 'Unknown intern';
+      acc[internName] = (acc[internName] || 0) + 1;
+      return acc;
+    }, {})
+  )
+    .map(([internName, count]) => ({
+      internName,
+      count,
+      pct: totalProjects > 0 ? Math.round((count / totalProjects) * 100) : 0
+    }))
+    .sort((a, b) => b.count - a.count || a.internName.localeCompare(b.internName))
+    .slice(0, 4);
   $: upcomingDeadlines = activeProjects
     .filter((p) => String(p.timeline_end || p.deadline || '').trim())
     .sort((a, b) => String(a.timeline_end || a.deadline || '').localeCompare(String(b.timeline_end || b.deadline || '')))
@@ -1105,9 +1110,9 @@
     <div class="stat-card">
       <div class="stat-icon tone-green"><Tag size={16} /></div>
       <div class="stat-body">
-        <div class="stat-label">Submitted</div>
-        <div class="stat-value">{submittedCount}</div>
-        <div class="stat-sub">Awaiting review or next steps</div>
+        <div class="stat-label">Review</div>
+        <div class="stat-value">{reviewCount}</div>
+        <div class="stat-sub">Waiting on requested updates</div>
       </div>
     </div>
     <div class="stat-card">
@@ -1189,33 +1194,31 @@
       </div>
     {:else}
       <div class="ov-top-grid">
-        <section class="card ov-card">
-          <div class="ov-card-title">Milestone Summary</div>
-          {#if overviewStatusRows.length === 0}
-            <div class="ov-empty">No milestone data yet.</div>
+        <section class="card ov-card ov-card-tight">
+          <div class="ov-card-head">
+            <div class="ov-card-title">Workload Snapshot</div>
+          </div>
+          {#if workloadRows.length === 0}
+            <div class="ov-empty">No active workload yet.</div>
           {:else}
             <div class="ov-status-bars">
-              {#each overviewStatusRows as row}
-                {@const pct = totalProjects > 0 ? Math.round((row.count / totalProjects) * 100) : 0}
+              {#each workloadRows as row}
                 <div class="ov-bar-row">
-                  <span class="ov-bar-label">{row.status}</span>
+                  <span class="ov-bar-label">{row.internName}</span>
                   <div class="ov-bar-track">
-                    <div class="progress-bar-inner" style="width:{pct}%"></div>
+                    <div class="progress-bar-inner" style="width:{row.pct}%"></div>
                   </div>
                   <span class="ov-bar-count"><span class="ov-ms-done">{row.count}</span>/{totalProjects}</span>
                 </div>
               {/each}
             </div>
           {/if}
-          {#if archivedCount > 0}
-            <div class="ov-archived-note">
-              <Archive size={11} /> {archivedCount} archived project{archivedCount === 1 ? '' : 's'}
-            </div>
-          {/if}
         </section>
 
-        <section class="card ov-card">
-          <div class="ov-card-title">Upcoming Deadlines</div>
+        <section class="card ov-card ov-card-tight">
+          <div class="ov-card-head">
+            <div class="ov-card-title">Upcoming Deadlines</div>
+          </div>
           {#if upcomingDeadlines.length === 0}
             <div class="ov-empty">No upcoming deadlines.</div>
           {:else}
@@ -1225,8 +1228,10 @@
                 {@const near = !past && isDeadlineNear(p.timeline_end || p.deadline)}
                 {@const sm = getStatusMeta(p.status)}
                 <div class="ov-deadline-row">
-                  <div class="ov-deadline-dot" class:ov-dot-past={past} class:ov-dot-near={near && !past}></div>
-                  <div class="ov-deadline-info">
+                  <div class="ov-deadline-icon" class:ov-deadline-icon-past={past} class:ov-deadline-icon-near={near && !past}>
+                    <CalendarDays size={13} />
+                  </div>
+                  <div class="ov-deadline-body">
                     <div class="ov-deadline-name">{p.title}</div>
                     <div class="ov-deadline-date" class:ov-date-past={past} class:ov-date-near={near && !past}>
                       <CalendarDays size={11} /> {formatDate(p.timeline_end || p.deadline)}
@@ -1249,12 +1254,12 @@
           <div class="ov-empty">No tagged projects yet.</div>
         {:else}
           <div class="ov-snippets-grid">
-            {#each overviewSnippets as p (p.id)}
-              {@const sm = getStatusMeta(p.status)}
-              {@const pl = normalizePriorityLabel(p.priority_level)}
-              {@const pct = statusToProgress(p.status)}
-              {@const past = isDeadlinePast(p.timeline_end || p.deadline)}
-              <div class="ov-snippet-card">
+              {#each overviewSnippets as p (p.id)}
+                {@const sm = getStatusMeta(p.status)}
+                {@const pl = normalizePriorityLabel(p.priority_level)}
+              {@const pct = p.progress_percent != null ? Number(p.progress_percent) : statusToProgress(p.status)}
+                {@const past = isDeadlinePast(p.timeline_end || p.deadline)}
+                <div class="ov-snippet-card">
                 <div class="ov-snippet-top">
                   <div class="ov-snippet-name">{p.title}</div>
                   <div class="ov-snippet-top-right">
@@ -1277,9 +1282,9 @@
                   <button class="sub-action-btn" on:click={() => viewProject(p)}>
                     <Eye size={12} /> Open
                   </button>
-                  <button class="sub-action-btn" title="Archive project" on:click={() => archiveProject(p)}>
-                    <Archive size={12} /> Archive
-                  </button>
+                <button class="sub-action-btn" title="Archive project" on:click={() => archiveProject(p)}>
+                  <Archive size={12} /> Archive
+                </button>
                 </div>
               </div>
             {/each}
@@ -1287,31 +1292,22 @@
         {/if}
       </section>
 
-      <div class="ov-bottom-grid">
-        <section class="card ov-card">
-          <div class="ov-card-head">
-            <div class="ov-card-title">Recent Activity</div>
-            <button class="ov-refresh-btn" type="button" title="Refresh">
-              <RotateCcw size={13} />
-            </button>
-          </div>
-          <div class="ov-empty">No recent activity found.</div>
-        </section>
-      </div>
     {/if}
   {:else if activeView === 'Archive'}
-    {#if archivedProjects.length === 0}
-      <div class="empty-state">
-        <Archive size={28} />
-        <div class="empty-title">No archived projects</div>
-        <div class="empty-sub">Archived projects will appear here.</div>
-      </div>
-    {:else}
-      <section class="proj-table-panel archive-view">
-        <header class="proj-table-header">
-          <span class="proj-col-name">Archive</span>
-          <span class="proj-col-actions">Actions</span>
-        </header>
+    <section class="proj-table-panel archive-view">
+      <header class="proj-table-header">
+        <span class="proj-col-name">Archive</span>
+        <span class="proj-col-actions">Actions</span>
+      </header>
+      {#if archivedProjects.length === 0}
+        <div class="proj-table-body">
+          <div class="empty-state">
+            <Archive size={28} />
+            <div class="empty-title">No archived projects</div>
+            <div class="empty-sub">Archived projects will appear here.</div>
+          </div>
+        </div>
+      {:else}
         <div class="proj-table-body">
           {#each archivedProjects as p (p.id)}
             <div class="proj-table-row proj-arc-row">
@@ -1332,8 +1328,8 @@
             </div>
           {/each}
         </div>
-      </section>
-    {/if}
+      {/if}
+    </section>
   {:else if activeView === 'Projects'}
     {#if activeProjects.length === 0}
       <div class="empty-state">
@@ -1451,8 +1447,9 @@
 
                           <div>
                             <div class="progress-bar-outer" style="margin-top:8px">
-                              <div class="progress-bar-inner" style="width:{statusToProgress(p.status)}%"></div>
+                              <div class="progress-bar-inner" style="width:{p.progress_percent != null ? Number(p.progress_percent) : statusToProgress(p.status)}%"></div>
                             </div>
+                            <div style="display:flex; justify-content:flex-end; margin-top:6px; font-weight:700; font-size:0.86rem">{p.progress_percent != null ? Number(p.progress_percent) : statusToProgress(p.status)}%</div>
                           </div>
                         </div>
                       {:else if viewingProjectTab === 'Submissions'}
@@ -1803,7 +1800,12 @@
   .empty-title { font-size: 14px; font-weight: 600; color: var(--color-text); }
   .empty-sub { font-size: 12.5px; }
 
-  .ov-top-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .ov-top-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    align-items: stretch;
+  }
   .ov-card {
     background: var(--color-surface);
     border: 1px solid var(--color-border);
@@ -1812,6 +1814,14 @@
     display: flex;
     flex-direction: column;
     gap: 0.7rem;
+    height: 100%;
+    box-sizing: border-box;
+  }
+  .ov-card-tight {
+    padding: 0.9rem 1rem;
+    gap: 0.55rem;
+    height: clamp(15rem, 24vh, 17rem);
+    overflow: hidden;
   }
   .ov-bottom-grid { display: grid; grid-template-columns: 1fr; gap: 0.8rem; align-items: start; }
   .ov-card-head { display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 1rem; }
@@ -1831,29 +1841,63 @@
   }
   .ov-empty { font-size: 0.83rem; color: var(--color-sidebar-text); padding: 0.25rem 0.1rem; }
 
-  .ov-status-bars { display: flex; flex-direction: column; gap: 0.55rem; }
-  .ov-bar-row { display: grid; grid-template-columns: 7.5rem 1fr 2.2rem; align-items: center; gap: 0.65rem; }
+  .ov-status-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 0.42rem;
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+    padding-right: 0.2rem;
+    scrollbar-gutter: stable;
+  }
+  .ov-bar-row { display: grid; grid-template-columns: 6.8rem 1fr 2.2rem; align-items: center; gap: 0.55rem; }
   .ov-bar-label { font-size: 0.75rem; color: var(--color-heading); white-space: nowrap; }
-  .ov-bar-track { height: 8px; background: var(--color-border); border-radius: 999px; overflow: hidden; }
+  .ov-bar-track { height: 7px; background: var(--color-border); border-radius: 999px; overflow: hidden; }
   .ov-bar-count { font-size: 0.78rem; color: var(--color-heading); text-align: right; white-space: nowrap; }
   .ov-ms-done { font-weight: 700; color: var(--color-heading); }
   .ov-archived-note { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.75rem; color: var(--color-sidebar-text); }
 
-  .ov-deadline-list { display: flex; flex-direction: column; gap: 0.55rem; }
-  .ov-deadline-row { display: flex; align-items: center; gap: 0.65rem; }
-  .ov-deadline-dot {
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    flex-shrink: 0;
-    background: var(--color-border);
-    border: 1.5px solid var(--color-border);
+  .ov-deadline-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+    padding-right: 0.2rem;
+    scrollbar-gutter: stable;
   }
-  .ov-deadline-dot.ov-dot-near { background: #fbbf24; border-color: #f59e0b; }
-  .ov-deadline-dot.ov-dot-past { background: #ef4444; border-color: #dc2626; }
-  .ov-deadline-info { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
-  .ov-deadline-name { font-size: 0.85rem; font-weight: 600; color: var(--color-heading); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .ov-deadline-date { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.77rem; color: var(--color-sidebar-text); }
+  .ov-deadline-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.6rem 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .ov-deadline-row:last-child { border-bottom: none; }
+  .ov-deadline-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    flex-shrink: 0;
+    display: grid;
+    place-items: center;
+    color: var(--color-sidebar-text);
+    background: rgba(37, 99, 235, 0.08);
+  }
+  .ov-deadline-icon-near { background: rgba(251, 191, 36, 0.12); color: #f59e0b; }
+  .ov-deadline-icon-past { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
+  .ov-deadline-body { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 4px; }
+  .ov-deadline-name {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--color-heading);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ov-deadline-date { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.74rem; color: var(--color-sidebar-text); }
   .ov-date-past { color: #dc2626; }
   .ov-date-near { color: #d97706; }
 
@@ -1877,6 +1921,12 @@
   .ov-snippet-pct { font-size: 0.78rem; font-weight: 700; color: var(--color-heading); white-space: nowrap; width: 32px; text-align: right; }
   .ov-snippet-due { font-size: 0.77rem; color: var(--color-sidebar-text); display: flex; align-items: center; gap: 4px; }
   .ov-snippet-actions { display: flex; gap: 0.4rem; margin-top: 0.1rem; }
+  .ov-snippet-actions .sub-action-btn {
+    flex: 1;
+    justify-content: center;
+    font-size: 0.78rem;
+    padding: 0.3rem 0.6rem;
+  }
 
   .project-meta { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
   .meta-item { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--color-sidebar-text); }
