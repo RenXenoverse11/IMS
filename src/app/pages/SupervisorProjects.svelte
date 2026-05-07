@@ -2,7 +2,8 @@
 // @ts-nocheck
   import { onMount, onDestroy } from 'svelte';
   import { getCurrentUser, subscribeToCurrentUser, callApiAction } from '../lib/auth.js';
-  import { FolderOpen, Clock3, Tag, Users2, CalendarDays, Loader2, Grid, Archive, RotateCcw, Eye, Download, Trash2 } from 'lucide-svelte';
+  import { FolderOpen, Clock3, Tag, Users2, CalendarDays, Loader2, Grid, Archive, RotateCcw, Eye, Download } from 'lucide-svelte';
+  import FeedbackThread from '../components/FeedbackThread.svelte';
 
   export let currentUser = null;
 
@@ -467,6 +468,25 @@
   // Feedback helpers
   let replyingTo = {};
   let replyText = {};
+
+  function feedbackIdOf(item) {
+    return item?.feedback_id || item?.id || '';
+  }
+
+  function toggleReply(projectId, feedbackId) {
+    replyingTo = {
+      ...replyingTo,
+      [projectId]: replyingTo[projectId] === feedbackId ? null : feedbackId
+    };
+  }
+
+  function updateReplyText(projectId, value) {
+    replyText = { ...replyText, [projectId]: value };
+  }
+
+  function cancelReply(projectId) {
+    replyingTo = { ...replyingTo, [projectId]: null };
+  }
 
   function feedbackChildren(projectId, parentId) {
     const list = feedbackMap[projectId] || [];
@@ -1550,53 +1570,33 @@
 
                       {:else if viewingProjectTab === 'Feedback'}
                         <div class="feedback-wrap">
-                          <div>
-                            <textarea class="fb-reply-input" placeholder="Write a comment..." bind:value={newFeedbackText[p.id]} rows="3"></textarea>
-                            <div class="fb-actions">
-                              <button class="sub-action-btn" on:click={() => submitFeedback(p.id)}>Post Comment</button>
-                            </div>
-                          </div>
-
                           {#if feedbackLoading[p.id]}
-                            <div class="proj-detail-empty">Loading feedback...</div>
-                          {:else if !(feedbackMap[p.id] || []).length}
-                            <div class="proj-detail-empty">No feedback yet.</div>
+                            <div class="proj-detail-empty"><Loader2 size={16} class="spin" /> Loading feedback...</div>
                           {:else}
-                            <div style="padding-top:8px; display:flex; flex-direction:column; gap:8px;">
-                              {#each (feedbackMap[p.id] || []).filter(f => !f.parent_id) as f}
-                                <div class="feedback-thread">
-                                  <div class="feedback-card">
-                                    <div class="feedback-card-top">
-                                      <div style="display:flex;gap:8px;align-items:center">
-                                        <div class="fb-role-badge">{f.commenter_role || 'User'}</div>
-                                        <div class="fb-meta">{f.commenter_name || f.commenter} {'\u2022'} {humanizeTime(f.created_at)}</div>
-                                      </div>
-                                    </div>
-                                    <div class="fb-comment-text">{f.comment_text}</div>
-                                    <div class="fb-actions">
-                                      <button class="fb-reply-btn" on:click={() => replyingTo = { ...replyingTo, [p.id]: replyingTo[p.id] === f.id ? null : f.id }}>{replyingTo[p.id] === f.id ? 'Cancel' : 'Reply'}</button>
-                                      <button class="fb-reply-btn" on:click={() => deleteFeedback(p.id, f.feedback_id || f.id)}>Delete</button>
-                                    </div>
-                                    {#if replyingTo[p.id] === f.id}
-                                      <div class="fb-reply-compose">
-                                        <textarea class="fb-reply-input" placeholder="Write a reply..." bind:value={replyText[p.id]} rows="2"></textarea>
-                                        <div style="display:flex;gap:8px;margin-top:6px">
-                                          <button class="sub-action-btn" on:click={() => submitReply(p.id, f.id)}>Send Reply</button>
-                                        </div>
-                                      </div>
-                                    {/if}
-                                  </div>
-                                  {#each feedbackChildren(p.id, f.id) as child}
-                                    <div class="feedback-reply">
-                                      <div style="display:flex;gap:8px;align-items:center">
-                                        <div class="fb-role-badge">{child.commenter_role || 'User'}</div>
-                                        <div class="fb-meta">{child.commenter_name || child.commenter} {'\u2022'} {humanizeTime(child.created_at)}</div>
-                                      </div>
-                                      <div class="fb-comment-text">{child.comment_text}</div>
-                                    </div>
-                                  {/each}
-                                </div>
-                              {/each}
+                            {#each (feedbackMap[p.id] || []).filter(f => !f.parent_id) as thread (feedbackIdOf(thread))}
+                              <FeedbackThread
+                                item={thread}
+                                projectId={p.id}
+                                depth={0}
+                                {replyingTo}
+                                {replyText}
+                                {currentUser}
+                                {getCurrentUser}
+                                getChildren={feedbackChildren}
+                                resolveUserName={resolveUserName}
+                                onToggleReply={toggleReply}
+                                onReplyText={updateReplyText}
+                                onSubmitReply={submitReply}
+                                onCancelReply={cancelReply}
+                                onDelete={deleteFeedback}
+                              />
+                            {/each}
+                            {#if !(feedbackMap[p.id] || []).filter(f => !f.parent_id).length}
+                              <div class="proj-detail-empty">No feedback yet. Be the first to comment.</div>
+                            {/if}
+                            <div class="fb-new-comment">
+                              <textarea class="fb-reply-input" rows="3" placeholder="Add a comment..." value={newFeedbackText[p.id] || ''} on:input={(e) => { newFeedbackText = { ...newFeedbackText, [p.id]: e.currentTarget.value }; }}></textarea>
+                              <button class="sub-action-btn" style="margin-top:6px" on:click={() => submitFeedback(p.id)}>Post Comment</button>
                             </div>
                           {/if}
                         </div>
@@ -1942,7 +1942,6 @@
     color: var(--color-heading);
     cursor: pointer;
     transition: background 0.15s, border-color 0.15s;
-    flex: 1;
   }
   .sub-action-btn:hover { background: var(--color-soft); border-color: var(--color-accent); }
 
@@ -2357,21 +2356,25 @@
   :global(.dark) .folder-content { border-top-color:rgba(255,255,255,0.08); }
 
   .proj-progress-overview { background:transparent; border-top:none; padding:0.35rem 1rem; }
-  .feedback-wrap { display:flex; flex-direction:column; gap:0.6rem; }
-  .fb-reply-input { width:100%; min-height:72px; resize:vertical; padding:0.6rem 0.8rem; border-radius:8px; border:1px solid var(--color-border); background:var(--color-surface); color:var(--color-text); font-size:0.9rem; }
-  .fb-actions { display:flex; justify-content:flex-end; gap:0.5rem; margin-top:6px; }
-  .fb-reply-btn { background:transparent; border:1px solid var(--color-border); padding:0.35rem 0.6rem; border-radius:6px; cursor:pointer; font-size:0.85rem; }
-  .fb-reply-btn:hover { background:var(--color-soft); }
-
-  .feedback-thread { display:flex; flex-direction:column; gap:8px; }
-  .feedback-card { background:var(--color-surface); border:1px solid var(--color-border); padding:10px 12px; border-radius:8px; }
-  .feedback-card-top { display:flex; align-items:center; justify-content:space-between; }
-  .fb-role-badge { background:rgba(99,102,241,0.08); color:#6366f1; padding:4px 8px; border-radius:6px; font-weight:700; font-size:0.78rem; }
-  .fb-meta { font-size:0.82rem; color:var(--color-sidebar-text); }
-  .fb-comment-text { margin-top:6px; font-size:0.92rem; color:var(--color-text); }
-  .fb-reply-compose { margin-top:8px; display:flex; flex-direction:column; gap:6px; }
-  .feedback-reply { margin-left:28px; border-left:2px solid var(--color-border); padding-left:10px; display:flex; flex-direction:column; gap:6px; }
-  :global(body.dark) .feedback-card { background:#0d1117; border-color:rgba(255,255,255,0.06); }
+  .fb-reply-input {
+    resize:vertical;
+    width:100%;
+    font-size:0.82rem;
+    font-family:inherit;
+    border:1px solid var(--color-border);
+    border-radius:6px;
+    background:var(--color-surface);
+    color:var(--color-heading);
+    padding:0.4rem 0.6rem;
+    outline:none;
+    margin-bottom:6px;
+    box-sizing:border-box;
+  }
+  .fb-reply-input:focus { border-color:#3b82f6; }
+  .fb-new-comment {
+    display:flex; flex-direction:column;
+    padding:0.6rem 0; border-top:1px solid var(--color-border); margin-top:0.25rem;
+  }
 
   /* Milestones card styles (adopted from ProjectsIntern, adjusted sizes for Supervisor) */
   .milestone-list { display:flex; flex-direction:column; gap:8px; padding:0.5rem 0.75rem; }
