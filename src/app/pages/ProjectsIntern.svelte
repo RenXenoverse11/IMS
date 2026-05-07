@@ -2,7 +2,6 @@
 // @ts-nocheck
   import { onMount, onDestroy } from 'svelte';
   import { callApiAction, getCurrentUser, subscribeToCurrentUser } from '../lib/auth.js';
-  import FeedbackThread from '../components/FeedbackThread.svelte';
   import {
     FolderOpen, Plus, Pencil, Trash2, ExternalLink, Loader2, Eye,
     CalendarDays, Tag, CheckCircle2, Clock3, AlertCircle, Link2,
@@ -1020,15 +1019,13 @@
   // ── Feedback ────────────────────────────────────────────────────────────────
   let feedbackMap       = {};   // { [projectId]: FeedbackItem[] }
   let feedbackLoading   = {};   // { [projectId]: boolean }
-  let postingFeedback   = {};   // { [projectId]: boolean }
-  let replySubmitting   = {};   // { [projectId]: boolean }
   let newFeedbackText   = {};   // { [projectId]: string }
   let replyingTo        = {};   // { [projectId]: feedbackId | null }
   let replyText         = {};   // { [projectId]: string }
   // feedback actions removed: status / approve / reject
 
-  async function loadFeedback(projectId, { silent = false } = {}) {
-    if (!silent) feedbackLoading = { ...feedbackLoading, [projectId]: true };
+  async function loadFeedback(projectId) {
+    feedbackLoading = { ...feedbackLoading, [projectId]: true };
     try {
       const res = await dispatchAction('list_feedback', { proj_id: String(projectId) });
       if (res?.ok) feedbackMap = { ...feedbackMap, [projectId]: res.feedback || [] };
@@ -1036,7 +1033,7 @@
     } catch (e) {
       feedbackMap = { ...feedbackMap, [projectId]: [] };
     } finally {
-      if (!silent) feedbackLoading = { ...feedbackLoading, [projectId]: false };
+      feedbackLoading = { ...feedbackLoading, [projectId]: false };
     }
   }
 
@@ -1050,16 +1047,12 @@
     if (!text) return;
     const uid  = getCurrentUserId();
     const role = String(currentUser?.role || getCurrentUser()?.role || 'Intern');
-    postingFeedback = { ...postingFeedback, [projectId]: true };
     try {
       const res = await dispatchAction('create_feedback', { proj_id: String(projectId), user_id: uid, commenter_role: role, comment_text: text });
       if (!res?.ok) { formError = res?.error || 'Failed to post comment.'; return; }
       newFeedbackText = { ...newFeedbackText, [projectId]: '' };
       await loadFeedback(projectId);
     } catch (e) { formError = e?.message || 'Failed to post comment.'; }
-    finally {
-      postingFeedback = { ...postingFeedback, [projectId]: false };
-    }
   }
 
   async function submitReply(projectId, parentId) {
@@ -1067,7 +1060,6 @@
     if (!text) return;
     const uid  = getCurrentUserId();
     const role = String(currentUser?.role || getCurrentUser()?.role || 'Intern');
-    replySubmitting = { ...replySubmitting, [projectId]: true };
     try {
       const res = await dispatchAction('create_feedback', { proj_id: String(projectId), parent_id: String(parentId), user_id: uid, commenter_role: role, comment_text: text });
       if (!res?.ok) { formError = res?.error || 'Failed to post reply.'; return; }
@@ -1075,9 +1067,6 @@
       replyingTo   = { ...replyingTo,   [projectId]: null };
       await loadFeedback(projectId);
     } catch (e) { formError = e?.message || 'Failed to post reply.'; }
-    finally {
-      replySubmitting = { ...replySubmitting, [projectId]: false };
-    }
   }
 
   async function deleteFeedback(projectId, feedbackId) {
@@ -1087,36 +1076,6 @@
       if (!res?.ok) { formError = res?.error || 'Delete failed.'; return; }
       await loadFeedback(projectId);
     } catch (e) { formError = e?.message || 'Delete failed.'; }
-  }
-
-  function toggleReply(projectId, feedbackId) {
-    replyingTo = {
-      ...replyingTo,
-      [projectId]: replyingTo[projectId] === feedbackId ? null : feedbackId
-    };
-  }
-
-  function updateReplyText(projectId, value) {
-    replyText = { ...replyText, [projectId]: value };
-  }
-
-  function cancelReply(projectId) {
-    replyingTo = { ...replyingTo, [projectId]: null };
-  }
-
-  function resolveUserName(userId) {
-    const key = String(userId || '').trim();
-    if (!key) return 'Unknown user';
-    const found = (Array.isArray(users) ? users : []).find((u) => String(u?.user_id || u?.id || '').trim() === key);
-    if (found) {
-      return String(found.full_name || found.name || found.fullName || found.email || key).trim();
-    }
-    const current = currentUser || getCurrentUser() || {};
-    const currentKey = String(current.user_id || current.id || '').trim();
-    if (key === currentKey) {
-      return String(current.full_name || current.name || current.fullName || current.email || key).trim();
-    }
-    return '';
   }
 
   function normalizeSubmission_(s) {
@@ -1496,10 +1455,12 @@
     loadBootstrap();
     unsubscribeAuth = subscribeToCurrentUser(u => { currentUser = u; loadBootstrap(); });
     document.addEventListener('mousedown', handleModalPointerDown);
+    window.addEventListener('resize', handleResize);
   });
   onDestroy(() => {
     if (typeof unsubscribeAuth === 'function') unsubscribeAuth();
     document.removeEventListener('mousedown', handleModalPointerDown);
+    window.removeEventListener('resize', handleResize);
   });
 
   // ── Derived ───────────────────────────────────────────────────────────────
@@ -1633,11 +1594,20 @@
 
   // ── Your Projects pagination ───────────────────────────────────────────────
   let projectsPage = 0;
-  const PROJECTS_PER_PAGE = 4;
-  $: projectPageCount = Math.ceil(overviewSnippets.length / PROJECTS_PER_PAGE);
+  let windowWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
+
+  function handleResize() {
+    const prev = windowWidth;
+    windowWidth = window.innerWidth;
+    // Reset to page 0 if page size changes to avoid showing empty page
+    if ((prev <= 768) !== (windowWidth <= 768)) projectsPage = 0;
+  }
+
+  $: projectsPerPage = windowWidth <= 768 ? 2 : 4;
+  $: projectPageCount = Math.ceil(overviewSnippets.length / projectsPerPage);
   $: pagedSnippets = overviewSnippets.slice(
-    projectsPage * PROJECTS_PER_PAGE,
-    projectsPage * PROJECTS_PER_PAGE + PROJECTS_PER_PAGE
+    projectsPage * projectsPerPage,
+    projectsPage * projectsPerPage + projectsPerPage
   );
   // Reset page when filters/search change
   $: { filterStatus; filterPriority; searchQuery; projectsPage = 0; }
@@ -2491,35 +2461,114 @@
                         <div class="proj-detail-empty">No milestones defined yet.</div>
                       {/if}
                     {:else if viewingProjectTab === 'Feedback'}
+                      <!-- ── Feedback Tab ─────────────────────────────────── -->
                       <div class="feedback-wrap">
-                        {#if !feedbackLoading[p.id]}
-                          {#each (feedbackMap[p.id] || []).filter(f => !f.parent_id) as thread (thread.feedback_id)}
-                            <FeedbackThread
-                              item={thread}
-                              projectId={p.id}
-                              depth={0}
-                              {replyingTo}
-                              {replyText}
-                              {replySubmitting}
-                              {currentUser}
-                              {getCurrentUser}
-                              getChildren={feedbackChildren}
-                              resolveUserName={resolveUserName}
-                              onToggleReply={toggleReply}
-                              onReplyText={updateReplyText}
-                              onSubmitReply={submitReply}
-                              onCancelReply={cancelReply}
-                              onDelete={deleteFeedback}
-                            />
+                        {#if feedbackLoading[p.id]}
+                          <div class="proj-detail-empty"><Loader2 size={16} class="spin" /> Loading feedback…</div>
+                        {:else}
+                          <!-- Root comment threads -->
+                          {#each (feedbackMap[p.id] || []).filter(f => !f.parent_id) as thread}
+                            <div class="feedback-thread">
+                              <!-- Root comment row -->
+                              <div class="feedback-card">
+                                <div class="feedback-card-top">
+                                  <span class="fb-role-badge" class:fb-badge-sup={thread.commenter_role === 'Supervisor'}>{thread.commenter_role || 'Intern'}</span>
+                                  <div style="flex:1"></div>
+                                  {#if thread.commenter_id === (currentUser?.user_id || getCurrentUser()?.user_id)}
+                                    <button class="icon-btn" title="Delete" on:click={() => deleteFeedback(p.id, thread.feedback_id)}><Trash2 size={13}/></button>
+                                  {/if}
+                                </div>
+                                <div class="fb-comment-text">{thread.comment_text}</div>
+                                <div class="fb-actions">
+                                  <button class="fb-reply-btn" on:click={() => { replyingTo = { ...replyingTo, [p.id]: replyingTo[p.id] === thread.feedback_id ? null : thread.feedback_id }; }}>↩ Reply</button>
+                                </div>
+                              </div>
+
+                              {#each feedbackChildren(p.id, thread.feedback_id) as c1}
+                                <div class="feedback-reply" style="margin-left:1.1rem">
+                                  <div class="feedback-card-top">
+                                    <span class="fb-role-badge" class:fb-badge-sup={c1.commenter_role === 'Supervisor'}>{c1.commenter_role || 'Intern'}</span>
+                                    <div style="flex:1"></div>
+                                    {#if c1.commenter_id === (currentUser?.user_id || getCurrentUser()?.user_id)}
+                                      <button class="icon-btn" title="Delete" on:click={() => deleteFeedback(p.id, c1.feedback_id)}><Trash2 size={13}/></button>
+                                    {/if}
+                                  </div>
+                                  <div class="fb-comment-text">{c1.comment_text}</div>
+                                  <div class="fb-actions">
+                                    <button class="fb-reply-btn" on:click={() => { replyingTo = { ...replyingTo, [p.id]: replyingTo[p.id] === c1.feedback_id ? null : c1.feedback_id }; }}>↩ Reply</button>
+                                  </div>
+                                  {#if replyingTo[p.id] === c1.feedback_id}
+                                    <div class="fb-reply-compose">
+                                      <textarea class="fb-reply-input" rows="2" placeholder="Write a reply…" value={replyText[p.id] || ''} on:input={(e) => { replyText = { ...replyText, [p.id]: e.target.value }; }}></textarea>
+                                      <div class="fb-action-btns">
+                                        <button class="sub-action-btn" on:click={() => submitReply(p.id, c1.feedback_id)}>Send</button>
+                                        <button class="sub-cancel-btn" on:click={() => { replyingTo = { ...replyingTo, [p.id]: null }; }}>Cancel</button>
+                                      </div>
+                                    </div>
+                                  {/if}
+
+                                  {#each feedbackChildren(p.id, c1.feedback_id) as c2}
+                                    <div class="feedback-reply" style="margin-left:1.1rem">
+                                      <div class="feedback-card-top">
+                                        <span class="fb-role-badge" class:fb-badge-sup={c2.commenter_role === 'Supervisor'}>{c2.commenter_role || 'Intern'}</span>
+                                        <div style="flex:1"></div>
+                                        {#if c2.commenter_id === (currentUser?.user_id || getCurrentUser()?.user_id)}
+                                          <button class="icon-btn" title="Delete" on:click={() => deleteFeedback(p.id, c2.feedback_id)}><Trash2 size={13}/></button>
+                                        {/if}
+                                      </div>
+                                      <div class="fb-comment-text">{c2.comment_text}</div>
+                                      <div class="fb-actions">
+                                        <button class="fb-reply-btn" on:click={() => { replyingTo = { ...replyingTo, [p.id]: replyingTo[p.id] === c2.feedback_id ? null : c2.feedback_id }; }}>↩ Reply</button>
+                                      </div>
+                                      {#if replyingTo[p.id] === c2.feedback_id}
+                                        <div class="fb-reply-compose">
+                                          <textarea class="fb-reply-input" rows="2" placeholder="Write a reply…" value={replyText[p.id] || ''} on:input={(e) => { replyText = { ...replyText, [p.id]: e.target.value }; }}></textarea>
+                                          <div class="fb-action-btns">
+                                            <button class="sub-action-btn" on:click={() => submitReply(p.id, c2.feedback_id)}>Send</button>
+                                            <button class="sub-cancel-btn" on:click={() => { replyingTo = { ...replyingTo, [p.id]: null }; }}>Cancel</button>
+                                          </div>
+                                        </div>
+                                      {/if}
+
+                                      {#each feedbackChildren(p.id, c2.feedback_id) as c3}
+                                        <div class="feedback-reply" style="margin-left:1.1rem">
+                                          <div class="feedback-card-top">
+                                            <span class="fb-role-badge" class:fb-badge-sup={c3.commenter_role === 'Supervisor'}>{c3.commenter_role || 'Intern'}</span>
+                                            <div style="flex:1"></div>
+                                            {#if c3.commenter_id === (currentUser?.user_id || getCurrentUser()?.user_id)}
+                                              <button class="icon-btn" title="Delete" on:click={() => deleteFeedback(p.id, c3.feedback_id)}><Trash2 size={13}/></button>
+                                            {/if}
+                                          </div>
+                                          <div class="fb-comment-text">{c3.comment_text}</div>
+                                          <div class="fb-actions">
+                                            <button class="fb-reply-btn" on:click={() => { replyingTo = { ...replyingTo, [p.id]: replyingTo[p.id] === c3.feedback_id ? null : c3.feedback_id }; }}>↩ Reply</button>
+                                          </div>
+                                          {#if replyingTo[p.id] === c3.feedback_id}
+                                            <div class="fb-reply-compose">
+                                              <textarea class="fb-reply-input" rows="2" placeholder="Write a reply…" value={replyText[p.id] || ''} on:input={(e) => { replyText = { ...replyText, [p.id]: e.target.value }; }}></textarea>
+                                              <div class="fb-action-btns">
+                                                <button class="sub-action-btn" on:click={() => submitReply(p.id, c3.feedback_id)}>Send</button>
+                                                <button class="sub-cancel-btn" on:click={() => { replyingTo = { ...replyingTo, [p.id]: null }; }}>Cancel</button>
+                                              </div>
+                                            </div>
+                                          {/if}
+                                        </div>
+                                      {/each}
+
+                                    </div>
+                                  {/each}
+
+                                </div>
+                              {/each}
+                            </div>
                           {/each}
                           {#if !(feedbackMap[p.id] || []).filter(f => !f.parent_id).length}
                             <div class="proj-detail-empty">No feedback yet. Be the first to comment.</div>
                           {/if}
+                          <!-- New root comment composer -->
                           <div class="fb-new-comment">
                             <textarea class="fb-reply-input" rows="3" placeholder="Add a comment…" value={newFeedbackText[p.id] || ''} on:input={(e) => { newFeedbackText = { ...newFeedbackText, [p.id]: e.target.value }; }}></textarea>
-                            <button class="sub-action-btn" style="margin-top:6px" disabled={!!postingFeedback[p.id]} on:click={() => submitFeedback(p.id)}>
-                              {postingFeedback[p.id] ? 'Posting...' : 'Post Comment'}
-                            </button>
+                            <button class="sub-action-btn" style="margin-top:6px" on:click={() => submitFeedback(p.id)}>Post Comment</button>
                           </div>
                         {/if}
                       </div>
@@ -3044,11 +3093,13 @@
   }
   .sub-action-btn:hover { background: var(--color-soft); border-color: var(--color-accent); }
   .sub-action-btn:disabled {
-    opacity: 0.45;
+    opacity: 0.7;
     cursor: not-allowed;
-    background: var(--color-surface);
-    border-color: var(--color-border);
-    color: var(--color-sidebar-text);
+  }
+  .sub-action-btn-busy {
+    background: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface)) !important;
+    border-color: var(--color-accent) !important;
+    color: var(--color-accent) !important;
   }
   .sub-action-btn-active { background:rgba(59,130,246,0.1) !important; border-color:#3b82f6 !important; color:#3b82f6 !important; }
   :global(body.dark) .sub-action-btn { background:#161c27; border-color:#ffffff10; }
@@ -4195,29 +4246,38 @@
     display: flex;
     flex-direction: column;
     gap: 0.6rem;
-    padding: 1.1rem 1.2rem;
+    padding: 1rem 1rem;
     border: 1px solid var(--color-border);
     border-radius: 0.75rem;
     background: var(--color-soft);
     transition: border-color 140ms, box-shadow 140ms;
+    overflow: hidden;
+    min-width: 0;
   }
   .ov-snippet-card:hover { border-color: var(--color-accent); box-shadow: 0 6px 18px -14px rgba(15,23,42,.3); }
   :global(body.dark) .ov-snippet-card { background: #0d1117 !important; border-color: #ffffff0f !important; }
 
   .ov-snippet-top {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
-    gap: 0.5rem;
+    gap: 0.4rem;
+    flex-wrap: wrap;
   }
 
-  .ov-snippet-top-right { display:flex; align-items:center; gap:0.5rem; }
+  .ov-snippet-top-right {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-shrink: 0;
+  }
 
   .ov-snippet-name {
     font-size: 0.88rem;
     font-weight: 700;
     color: var(--color-heading);
     flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
