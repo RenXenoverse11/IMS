@@ -1704,11 +1704,6 @@
         <!-- ── Overview: top 2-col grid ── -->
         <div class="ov-top-grid">
 
-<<<<<<< HEAD
-          <!-- Milestone Summary -->
-          <section class="card ov-card ov-milestone-card">
-            <div class="ov-card-title">Milestone Summary</div>
-=======
           <!-- Recent Activity -->
           <section class="card ov-card ov-card-activity ov-card-tight">
             <div class="ov-card-head">
@@ -1717,40 +1712,9 @@
                 {#if isLoadingActivity}<Loader2 size={13} class="spin" />{:else}↻{/if}
               </button>
             </div>
->>>>>>> 35fbf8e (Rechiel: fixed projects)
             {#if isLoading}
               <div class="ov-activity-feed">
                 {#each [1, 2, 3, 4] as _}
-<<<<<<< HEAD
-                  <div class="ov-skeleton-row">
-                    <div class="ov-skeleton shimmer" style="height: 11px; width: 120px;"></div>
-                    <div class="ov-skeleton shimmer" style="height: 8px; width: 100%; border-radius: 999px;"></div>
-                    <div class="ov-skeleton shimmer" style="height: 11px; width: 34px;"></div>
-                  </div>
-                {/each}
-              </div>
-            {:else if overviewMilestoneRows.length === 0}
-              <div class="ov-empty">No milestone data yet.</div>
-            {:else}
-              <div class="ov-milestone-list">
-                <div class="ov-status-bars">
-                  {#each overviewMilestoneRows as row}
-                    {@const mpct = Math.round((row.done / row.total) * 100)}
-                    <div class="ov-bar-row">
-                      <span class="ov-ms-row-name ov-bar-label">{row.title}</span>
-                      <div class="ov-bar-track">
-                        <div class="progress-bar-inner" style="width:{mpct}%"></div>
-                      </div>
-                      <span class="ov-bar-count"><span class="ov-ms-done">{row.done}</span>/{row.total}</span>
-                    </div>
-                  {/each}
-                </div>
-                {#if archivedProjects.length > 0}
-                  <div class="ov-archived-note">
-                    <Archive size={11} /> {archivedProjects.length} archived project{archivedProjects.length === 1 ? '' : 's'}
-                  </div>
-                {/if}
-=======
                   <div class="ov-act-row">
                     <div class="ov-skeleton shimmer" style="width: 28px; height: 28px; border-radius: 7px;"></div>
                     <div class="ov-act-body">
@@ -1791,21 +1755,15 @@
                     </div>
                   </div>
                 {/each}
->>>>>>> 35fbf8e (Rechiel: fixed projects)
               </div>
             {/if}
           </section>
 
           <!-- Upcoming Deadlines -->
-<<<<<<< HEAD
-          <section class="card ov-card ov-deadlines-card">
-            <div class="ov-card-title">Upcoming Deadlines</div>
-=======
           <section class="card ov-card ov-card-tight">
             <div class="ov-card-head">
               <div class="ov-card-title">Upcoming Deadlines</div>
             </div>
->>>>>>> 35fbf8e (Rechiel: fixed projects)
             {#if isLoading}
               <div class="ov-skeleton-list">
                 {#each [1, 2, 3] as _}
@@ -1846,13 +1804,8 @@
         </div>
 
         <!-- ── Project Snippets ── -->
-<<<<<<< HEAD
-        <section class="card ov-card ov-projects-card">
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:0.6rem 1rem;">
-=======
         <section class="card ov-card">
           <div class="ov-card-head">
->>>>>>> 35fbf8e (Rechiel: fixed projects)
             <div class="ov-card-title">Your Projects</div>
             <div style="display:flex;align-items:center;gap:0.75rem;">
               {#if projectPageCount > 1}
@@ -1946,69 +1899,6 @@
             </div>
           {/if}
         </section>
-
-<<<<<<< HEAD
-        <!-- ── Recent Activity (expanded) ── -->
-        <div class="ov-bottom-grid">
-          <section class="card ov-card ov-activity-card">
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:0.6rem 1rem;">
-              <div class="ov-card-title">Recent Activity</div>
-              <button class="ov-refresh-btn" title="Refresh" on:click={loadOverviewActivity} disabled={isLoadingActivity}>
-                {#if isLoadingActivity}<Loader2 size={13} class="spin" />{:else}↻{/if}
-              </button>
-            </div>
-          {#if isLoading}
-            <div class="ov-activity-feed">
-              {#each [1, 2, 3, 4] as _}
-                <div class="ov-act-row">
-                  <div class="ov-skeleton shimmer" style="width: 28px; height: 28px; border-radius: 7px;"></div>
-                  <div class="ov-act-body">
-                    <div class="ov-skeleton shimmer" style="height: 12px; width: 70%;"></div>
-                    <div class="ov-skeleton shimmer" style="height: 11px; width: 45%;"></div>
-                  </div>
-                </div>
-              {/each}
-            </div>
-          {:else if isLoadingActivity}
-            <div class="ov-empty"><Loader2 size={14} class="spin" /> Loading activity…</div>
-          {:else if overviewActivity.length === 0}
-            <div class="ov-empty">No recent activity found.</div>
-          {:else}
-            <div class="ov-activity-feed">
-              {#each overviewActivity as act}
-                {@const proj = projects.find(p => p.proj_id === act.proj_id || p.id === act.proj_id)}
-                <div class="ov-act-row">
-                  <div class="ov-act-icon {act.type === 'feedback' ? 'ov-act-icon-fb' : 'ov-act-icon-ms'}">
-                    {#if act.type === 'feedback'}
-                      <MessageSquare size={14} />
-                    {:else}
-                      <Flag size={14} />
-                    {/if}
-                  </div>
-                  <div class="ov-act-body">
-                    <div class="ov-act-text">
-                      {act.type === 'feedback' ? act.text : 'Milestone: ' + act.text}
-                    </div>
-                    <div class="ov-act-meta">
-                      {#if act.proj_name || proj}
-                        <span class="ov-act-proj">{act.proj_name || proj?.title || ''}</span>
-                      {/if}
-                      <!-- role and milestone status badges removed for cleaner activity feed -->
-                      {#if act.created_at}
-                        <span class="ov-act-date">{humanizeTime(act.created_at)}</span>
-                      {/if}
-                    </div>
-                  </div>
-                </div>
-              {/each}
-            </div>
-          {/if}
-          </section>
-
-        </div>
-
-=======
->>>>>>> 35fbf8e (Rechiel: fixed projects)
       {/if}
     {:else if activeView === 'Projects'}
       <section class="proj-table-panel">
@@ -3940,11 +3830,7 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 10px;
-<<<<<<< HEAD
-    align-items: start;
-=======
     align-items: stretch;
->>>>>>> 35fbf8e (Rechiel: fixed projects)
   }
   @media (max-width: 680px) {
     .ov-top-grid { grid-template-columns: 1fr; }
@@ -4166,17 +4052,6 @@
   }
 
   /* ── Upcoming Deadlines ── */
-<<<<<<< HEAD
-  .ov-deadlines-card .ov-deadline-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.55rem;
-    height: var(--ov-fixed-list-height);
-    overflow-y: auto;
-    padding-right: 0.35rem;
-    scrollbar-width: none;
-    scrollbar-color: transparent transparent;
-=======
   .ov-deadline-list {
     display: flex;
     flex-direction: column;
@@ -4186,37 +4061,14 @@
     min-height: 0;
     padding-right: 0.2rem;
     scrollbar-gutter: stable;
->>>>>>> 35fbf8e (Rechiel: fixed projects)
   }
 
-  .ov-deadlines-card .ov-deadline-row {
+  .ov-deadline-row {
     display: flex;
-<<<<<<< HEAD
-    align-items: center;
-    gap: 0.65rem;
-    min-height: 2.45rem;
-    flex: 0 0 auto;
-  }
-
-  .ov-deadlines-card .ov-deadline-list::-webkit-scrollbar {
-    width: 0 !important;
-    height: 0 !important;
-    display: none !important;
-  }
-
-  .ov-deadlines-card .ov-deadline-list::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  .ov-deadlines-card .ov-deadline-list::-webkit-scrollbar-thumb {
-    background: transparent;
-    border-radius: 999px;
-=======
     align-items: flex-start;
     gap: 0.75rem;
     padding: 0.6rem 0;
     border-bottom: 1px solid var(--color-border);
->>>>>>> 35fbf8e (Rechiel: fixed projects)
   }
   .ov-deadline-row:last-child { border-bottom: none; }
 
