@@ -1588,7 +1588,18 @@
     meta: STATUS_META[s] || STATUS_META['Not Started']
   }));
 
-  $: overviewSnippets = projects.filter(p => !p.archived).slice(0, 6);
+  $: overviewSnippets = projects.filter(p => !p.archived);
+
+  // ── Your Projects pagination ───────────────────────────────────────────────
+  let projectsPage = 0;
+  const PROJECTS_PER_PAGE = 4;
+  $: projectPageCount = Math.ceil(overviewSnippets.length / PROJECTS_PER_PAGE);
+  $: pagedSnippets = overviewSnippets.slice(
+    projectsPage * PROJECTS_PER_PAGE,
+    projectsPage * PROJECTS_PER_PAGE + PROJECTS_PER_PAGE
+  );
+  // Reset page when filters/search change
+  $: { filterStatus; filterPriority; searchQuery; projectsPage = 0; }
 
   $: overviewMilestoneRows = overviewSnippets
     .filter(p => Array.isArray(p.milestones) && p.milestones.length > 0)
@@ -1774,11 +1785,30 @@
         <section class="card ov-card ov-projects-card">
           <div style="display:flex;align-items:center;justify-content:space-between;padding:0.6rem 1rem;">
             <div class="ov-card-title">Your Projects</div>
-            <button class="ov-view-all-btn" on:click={() => activeView = 'Projects'}>View all →</button>
+            <div style="display:flex;align-items:center;gap:0.75rem;">
+              {#if projectPageCount > 1}
+                <div class="proj-page-nav">
+                  <button
+                    class="proj-page-btn"
+                    disabled={projectsPage === 0}
+                    on:click={() => projectsPage--}
+                    aria-label="Previous page"
+                  >‹</button>
+                  <span class="proj-page-indicator">{projectsPage + 1} / {projectPageCount}</span>
+                  <button
+                    class="proj-page-btn"
+                    disabled={projectsPage >= projectPageCount - 1}
+                    on:click={() => projectsPage++}
+                    aria-label="Next page"
+                  >›</button>
+                </div>
+              {/if}
+              <button class="ov-view-all-btn" on:click={() => activeView = 'Projects'}>View all →</button>
+            </div>
           </div>
           {#if isLoading}
             <div class="ov-snippets-grid">
-              {#each [1, 2, 3] as _}
+              {#each [1, 2, 3, 4] as _}
                 <div class="ov-snippet-card ov-snippet-skeleton">
                   <div class="ov-snippet-top">
                     <div class="ov-skeleton shimmer" style="height: 12px; width: 55%;"></div>
@@ -1800,7 +1830,7 @@
             <div class="ov-empty">No active projects.</div>
           {:else}
             <div class="ov-snippets-grid">
-              {#each overviewSnippets as p (p.id)}
+              {#each pagedSnippets as p (p.id)}
                 {@const sm  = STATUS_META[p.status] || STATUS_META['Not Started']}
                 {@const pl  = getPriorityLabel(p.priority_level)}
                 {@const pct = p.progress_percent != null ? p.progress_percent : statusToProgress(p.status)}
@@ -4189,32 +4219,16 @@
   /* ── Project Snippets Grid ── */
   .ov-snippets-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    grid-template-columns: repeat(4, 1fr);
     gap: 0.8rem;
+    padding: 0 1rem 1rem;
   }
 
-  .ov-projects-card .ov-snippets-grid {
-    max-height: 13.5rem;
-    overflow-y: auto;
-    align-content: start;
-    padding-right: 0.35rem;
-    scrollbar-width: none;
-    scrollbar-color: transparent transparent;
+  @media (max-width: 1100px) {
+    .ov-snippets-grid { grid-template-columns: repeat(2, 1fr); }
   }
-
-  .ov-projects-card .ov-snippets-grid::-webkit-scrollbar {
-    width: 0 !important;
-    height: 0 !important;
-    display: none !important;
-  }
-
-  .ov-projects-card .ov-snippets-grid::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  .ov-projects-card .ov-snippets-grid::-webkit-scrollbar-thumb {
-    background: transparent;
-    border-radius: 999px;
+  @media (max-width: 680px) {
+    .ov-snippets-grid { grid-template-columns: 1fr; }
   }
 
   .ov-snippet-card {
@@ -4296,6 +4310,40 @@
     padding: 0.3rem 0.6rem;
   }
 
+  /* ── Your Projects Pagination ── */
+  .proj-page-nav {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .proj-page-btn {
+    width: 26px; height: 26px;
+    border-radius: 6px;
+    border: 1px solid var(--color-border);
+    background: var(--color-soft);
+    color: var(--color-heading);
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+    display: grid; place-items: center;
+    transition: background 120ms, border-color 120ms;
+    padding: 0;
+  }
+  .proj-page-btn:hover:not(:disabled) {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    color: #fff;
+  }
+  .proj-page-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  :global(body.dark) .proj-page-btn { background: #161c27; border-color: #ffffff10; }
+  .proj-page-indicator {
+    font-size: 0.78rem;
+    color: var(--color-sidebar-text);
+    white-space: nowrap;
+    min-width: 32px;
+    text-align: center;
+  }
+
   @media (max-width: 768px) {
     .projects-page {
       padding-bottom: max(16px, calc(env(safe-area-inset-bottom) + 12px));
@@ -4309,4 +4357,3 @@
     }
   }
 </style>
-
