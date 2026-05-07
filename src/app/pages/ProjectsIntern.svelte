@@ -1,4 +1,4 @@
-<script>
+﻿<script>
 // @ts-nocheck
   import { onMount, onDestroy } from 'svelte';
   import { callApiAction, getCurrentUser, subscribeToCurrentUser } from '../lib/auth.js';
@@ -1880,27 +1880,7 @@
               {/each}
             </div>
           {/if}
-          {#if projectPageCount > 1}
-            <div class="proj-page-footer">
-              <div class="proj-page-nav">
-                <button
-                  class="proj-page-btn"
-                  disabled={projectsPage === 0}
-                  on:click={() => projectsPage--}
-                  aria-label="Previous page"
-                >&#8249;</button>
-                <span class="proj-page-indicator">{projectsPage + 1} / {projectPageCount}</span>
-                <button
-                  class="proj-page-btn"
-                  disabled={projectsPage >= projectPageCount - 1}
-                  on:click={() => projectsPage++}
-                  aria-label="Next page"
-                >&#8250;</button>
-              </div>
-            </div>
-          {/if}
         </section>
-
       {/if}
     {:else if activeView === 'Projects'}
       <section class="proj-table-panel">
@@ -4065,7 +4045,7 @@
     scrollbar-gutter: stable;
   }
 
-  .ov-deadlines-card .ov-deadline-row {
+  .ov-deadline-row {
     display: flex;
     align-items: flex-start;
     gap: 0.75rem;
