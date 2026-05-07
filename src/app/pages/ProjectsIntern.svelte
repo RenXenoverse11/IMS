@@ -1018,13 +1018,15 @@
   // ── Feedback ────────────────────────────────────────────────────────────────
   let feedbackMap       = {};   // { [projectId]: FeedbackItem[] }
   let feedbackLoading   = {};   // { [projectId]: boolean }
+  let postingFeedback   = {};   // { [projectId]: boolean }
+  let replySubmitting   = {};   // { [projectId]: boolean }
   let newFeedbackText   = {};   // { [projectId]: string }
   let replyingTo        = {};   // { [projectId]: feedbackId | null }
   let replyText         = {};   // { [projectId]: string }
   // feedback actions removed: status / approve / reject
 
-  async function loadFeedback(projectId) {
-    feedbackLoading = { ...feedbackLoading, [projectId]: true };
+  async function loadFeedback(projectId, { silent = false } = {}) {
+    if (!silent) feedbackLoading = { ...feedbackLoading, [projectId]: true };
     try {
       const res = await dispatchAction('list_feedback', { proj_id: String(projectId) });
       if (res?.ok) feedbackMap = { ...feedbackMap, [projectId]: res.feedback || [] };
@@ -1032,7 +1034,7 @@
     } catch (e) {
       feedbackMap = { ...feedbackMap, [projectId]: [] };
     } finally {
-      feedbackLoading = { ...feedbackLoading, [projectId]: false };
+      if (!silent) feedbackLoading = { ...feedbackLoading, [projectId]: false };
     }
   }
 
@@ -1046,12 +1048,16 @@
     if (!text) return;
     const uid  = getCurrentUserId();
     const role = String(currentUser?.role || getCurrentUser()?.role || 'Intern');
+    postingFeedback = { ...postingFeedback, [projectId]: true };
     try {
       const res = await dispatchAction('create_feedback', { proj_id: String(projectId), user_id: uid, commenter_role: role, comment_text: text });
       if (!res?.ok) { formError = res?.error || 'Failed to post comment.'; return; }
       newFeedbackText = { ...newFeedbackText, [projectId]: '' };
       await loadFeedback(projectId);
     } catch (e) { formError = e?.message || 'Failed to post comment.'; }
+    finally {
+      postingFeedback = { ...postingFeedback, [projectId]: false };
+    }
   }
 
   async function submitReply(projectId, parentId) {
@@ -1059,6 +1065,7 @@
     if (!text) return;
     const uid  = getCurrentUserId();
     const role = String(currentUser?.role || getCurrentUser()?.role || 'Intern');
+    replySubmitting = { ...replySubmitting, [projectId]: true };
     try {
       const res = await dispatchAction('create_feedback', { proj_id: String(projectId), parent_id: String(parentId), user_id: uid, commenter_role: role, comment_text: text });
       if (!res?.ok) { formError = res?.error || 'Failed to post reply.'; return; }
@@ -1066,6 +1073,9 @@
       replyingTo   = { ...replyingTo,   [projectId]: null };
       await loadFeedback(projectId);
     } catch (e) { formError = e?.message || 'Failed to post reply.'; }
+    finally {
+      replySubmitting = { ...replySubmitting, [projectId]: false };
+    }
   }
 
   async function deleteFeedback(projectId, feedbackId) {
@@ -2413,9 +2423,7 @@
                       {/if}
                     {:else if viewingProjectTab === 'Feedback'}
                       <div class="feedback-wrap">
-                        {#if feedbackLoading[p.id]}
-                          <div class="proj-detail-empty"><Loader2 size={16} class="spin" /> Loading feedback…</div>
-                        {:else}
+                        {#if !feedbackLoading[p.id]}
                           {#each (feedbackMap[p.id] || []).filter(f => !f.parent_id) as thread (thread.feedback_id)}
                             <FeedbackThread
                               item={thread}
@@ -2423,6 +2431,7 @@
                               depth={0}
                               {replyingTo}
                               {replyText}
+                              {replySubmitting}
                               {currentUser}
                               {getCurrentUser}
                               getChildren={feedbackChildren}
@@ -2439,7 +2448,9 @@
                           {/if}
                           <div class="fb-new-comment">
                             <textarea class="fb-reply-input" rows="3" placeholder="Add a comment…" value={newFeedbackText[p.id] || ''} on:input={(e) => { newFeedbackText = { ...newFeedbackText, [p.id]: e.target.value }; }}></textarea>
-                            <button class="sub-action-btn" style="margin-top:6px" on:click={() => submitFeedback(p.id)}>Post Comment</button>
+                            <button class="sub-action-btn" style="margin-top:6px" disabled={!!postingFeedback[p.id]} on:click={() => submitFeedback(p.id)}>
+                              {postingFeedback[p.id] ? 'Posting...' : 'Post Comment'}
+                            </button>
                           </div>
                         {/if}
                       </div>
@@ -2952,6 +2963,13 @@
     transition:background 0.15s, border-color 0.15s;
   }
   .sub-action-btn:hover { background: var(--color-soft); border-color: var(--color-accent); }
+  .sub-action-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    background: var(--color-surface);
+    border-color: var(--color-border);
+    color: var(--color-sidebar-text);
+  }
   .sub-action-btn-active { background:rgba(59,130,246,0.1) !important; border-color:#3b82f6 !important; color:#3b82f6 !important; }
   :global(body.dark) .sub-action-btn { background:#161c27; border-color:#ffffff10; }
 

@@ -7,6 +7,7 @@
   export let depth = 0;
   export let replyingTo = {};
   export let replyText = {};
+  export let replySubmitting = {};
   export let currentUser = null;
   export let getCurrentUser = () => null;
   export let getChildren = () => [];
@@ -56,7 +57,9 @@
           on:input={(e) => onReplyText(projectId, e.currentTarget.value)}
         ></textarea>
         <div class="fb-action-btns">
-          <button class="fb-send-btn" on:click={() => onSubmitReply(projectId, itemId)}>Send</button>
+          <button class="fb-send-btn" disabled={!!replySubmitting?.[projectId]} on:click={() => onSubmitReply(projectId, itemId)}>
+            {replySubmitting?.[projectId] ? 'Sending...' : 'Send'}
+          </button>
           <button class="fb-cancel-btn" on:click={() => onCancelReply(projectId)}>Cancel</button>
         </div>
       </div>
@@ -70,6 +73,7 @@
       depth={depth + 1}
       {replyingTo}
       {replyText}
+      {replySubmitting}
       {currentUser}
       {getCurrentUser}
       {getChildren}
@@ -220,5 +224,13 @@
   .fb-cancel-btn:hover {
     background: var(--color-hover);
     color: var(--color-heading);
+  }
+
+  .fb-send-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    background: var(--color-surface);
+    border-color: var(--color-border);
+    color: var(--color-sidebar-text);
   }
 </style>

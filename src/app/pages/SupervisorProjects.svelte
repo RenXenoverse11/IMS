@@ -20,6 +20,8 @@
   let viewingProjectTab = 'Details';
   let feedbackMap = {};
   let feedbackLoading = {};
+  let postingFeedback = {};
+  let replySubmitting = {};
   let newFeedbackText = {};
   // expand/collapse for description in read view
   let expandedDescriptionId = null;
@@ -498,12 +500,16 @@
     if (!text) return;
     const uid  = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
     const role = String(currentUser?.role || getCurrentUser()?.role || 'Supervisor');
+    postingFeedback = { ...postingFeedback, [projectId]: true };
     try {
       const res = await callApiAction('create_feedback', { proj_id: String(projectId), user_id: uid, commenter_role: role, comment_text: text });
       if (!res?.ok) { setFlashError(res?.error || 'Failed to post comment.'); return; }
       newFeedbackText = { ...newFeedbackText, [projectId]: '' };
       await loadFeedback(projectId);
     } catch (e) { setFlashError(e?.message || 'Failed to post comment.'); }
+    finally {
+      postingFeedback = { ...postingFeedback, [projectId]: false };
+    }
   }
 
   async function submitReply(projectId, parentId) {
@@ -511,6 +517,7 @@
     if (!text) return;
     const uid  = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
     const role = String(currentUser?.role || getCurrentUser()?.role || 'Supervisor');
+    replySubmitting = { ...replySubmitting, [projectId]: true };
     try {
       const res = await callApiAction('create_feedback', { proj_id: String(projectId), parent_id: String(parentId), user_id: uid, commenter_role: role, comment_text: text });
       if (!res?.ok) { setFlashError(res?.error || 'Failed to post reply.'); return; }
@@ -518,6 +525,9 @@
       replyingTo   = { ...replyingTo,   [projectId]: null };
       await loadFeedback(projectId);
     } catch (e) { setFlashError(e?.message || 'Failed to post reply.'); }
+    finally {
+      replySubmitting = { ...replySubmitting, [projectId]: false };
+    }
   }
 
   async function deleteFeedback(projectId, feedbackId) {
@@ -938,8 +948,8 @@
     }
   }
 
-  async function loadFeedback(projectId) {
-    feedbackLoading = { ...feedbackLoading, [projectId]: true };
+  async function loadFeedback(projectId, { silent = false } = {}) {
+    if (!silent) feedbackLoading = { ...feedbackLoading, [projectId]: true };
     try {
       const res = await callApiAction('list_feedback', { proj_id: String(projectId) });
       if (res?.ok) feedbackMap = { ...feedbackMap, [projectId]: res.feedback || [] };
@@ -947,7 +957,7 @@
     } catch (e) {
       feedbackMap = { ...feedbackMap, [projectId]: [] };
     } finally {
-      feedbackLoading = { ...feedbackLoading, [projectId]: false };
+      if (!silent) feedbackLoading = { ...feedbackLoading, [projectId]: false };
     }
   }
 
@@ -1568,18 +1578,17 @@
                           <div class="proj-detail-empty">No milestones yet.</div>
                         {/if}
 
-                      {:else if viewingProjectTab === 'Feedback'}
-                        <div class="feedback-wrap">
-                          {#if feedbackLoading[p.id]}
-                            <div class="proj-detail-empty"><Loader2 size={16} class="spin" /> Loading feedback...</div>
-                          {:else}
-                            {#each (feedbackMap[p.id] || []).filter(f => !f.parent_id) as thread (feedbackIdOf(thread))}
-                              <FeedbackThread
-                                item={thread}
+                    {:else if viewingProjectTab === 'Feedback'}
+                      <div class="feedback-wrap">
+                        {#if !feedbackLoading[p.id]}
+                          {#each (feedbackMap[p.id] || []).filter(f => !f.parent_id) as thread (feedbackIdOf(thread))}
+                            <FeedbackThread
+                              item={thread}
                                 projectId={p.id}
                                 depth={0}
                                 {replyingTo}
                                 {replyText}
+                                {replySubmitting}
                                 {currentUser}
                                 {getCurrentUser}
                                 getChildren={feedbackChildren}
@@ -1593,14 +1602,16 @@
                             {/each}
                             {#if !(feedbackMap[p.id] || []).filter(f => !f.parent_id).length}
                               <div class="proj-detail-empty">No feedback yet. Be the first to comment.</div>
-                            {/if}
-                            <div class="fb-new-comment">
-                              <textarea class="fb-reply-input" rows="3" placeholder="Add a comment..." value={newFeedbackText[p.id] || ''} on:input={(e) => { newFeedbackText = { ...newFeedbackText, [p.id]: e.currentTarget.value }; }}></textarea>
-                              <button class="sub-action-btn" style="margin-top:6px" on:click={() => submitFeedback(p.id)}>Post Comment</button>
-                            </div>
                           {/if}
-                        </div>
-                      {/if}
+                          <div class="fb-new-comment">
+                            <textarea class="fb-reply-input" rows="3" placeholder="Add a comment..." value={newFeedbackText[p.id] || ''} on:input={(e) => { newFeedbackText = { ...newFeedbackText, [p.id]: e.currentTarget.value }; }}></textarea>
+                            <button class="sub-action-btn" style="margin-top:6px" disabled={!!postingFeedback[p.id]} on:click={() => submitFeedback(p.id)}>
+                              {postingFeedback[p.id] ? 'Posting...' : 'Post Comment'}
+                            </button>
+                          </div>
+                        {/if}
+                      </div>
+                    {/if}
                     </div>
                   </div>
             {/if}
