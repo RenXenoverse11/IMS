@@ -46,6 +46,9 @@
   let showDeleteModal   = false;
   let projectToDelete   = null;
   let isDeleting        = false;
+  let isSavingLink      = false;
+  let isSavingMilestone = false;
+  let isCreatingMilestone = false;
   let archivingProjectIds = new Set();
   let restoringProjectIds = new Set();
 
@@ -838,6 +841,8 @@
 
   // Local inputs for new milestone per project
   let newMilestoneInputs = {};
+  let newMilestoneLinkedFiles = {};
+  let newMilestoneFilePicker = {};
   let editingMilestoneId = null;
   let editingMilestoneInputs = {};
   let showAddMilestoneFor = {};
@@ -859,6 +864,23 @@
   // Parse linked_files JSON stored on a milestone; fall back to []
   function parseMilestoneFiles(m) {
     try { const v = m.linked_files || ''; if (!v) return []; return JSON.parse(v); } catch(e) { return []; }
+  }
+
+  function getNewMilestoneFiles(projectId) {
+    return Array.isArray(newMilestoneLinkedFiles[projectId]) ? newMilestoneLinkedFiles[projectId] : [];
+  }
+
+  function toggleNewMilestoneFilePicker(projectId) {
+    newMilestoneFilePicker = { ...newMilestoneFilePicker, [projectId]: !newMilestoneFilePicker[projectId] };
+  }
+
+  function toggleNewMilestoneFile(projectId, submission) {
+    const current = getNewMilestoneFiles(projectId);
+    const exists = current.find(f => f.id === submission.id);
+    const updated = exists
+      ? current.filter(f => f.id !== submission.id)
+      : [...current, { id: submission.id, name: submission.name, drive_url: submission.drive_url || '' }];
+    newMilestoneLinkedFiles = { ...newMilestoneLinkedFiles, [projectId]: updated };
   }
 
   // Returns all file submissions in a project (across all folders) for the linker picker
@@ -909,11 +931,14 @@
   function toggleAddMilestone(projectId) {
     const init = newMilestoneInputs[projectId] || { milestone: '', date: '' };
     newMilestoneInputs = { ...newMilestoneInputs, [projectId]: init };
-    showAddMilestoneFor = { ...showAddMilestoneFor, [projectId]: !Boolean(showAddMilestoneFor[projectId]) };
+    const isOpen = Boolean(showAddMilestoneFor[projectId]);
+    showAddMilestoneFor = { ...showAddMilestoneFor, [projectId]: !isOpen };
+    if (isOpen) newMilestoneFilePicker = { ...newMilestoneFilePicker, [projectId]: false };
   }
 
   async function createMilestone(projectId) {
     formError = '';
+    if (isCreatingMilestone) return;
     const proj = projects.find(p => p.id === projectId);
     if (!proj) return;
     const projId = String(proj.proj_id || projectId);
@@ -922,10 +947,12 @@
     const date = String(inputs.date || '').trim();
     if (!text) { formError = 'Milestone text is required.'; return; }
     const uid = getCurrentUserId();
+    const linkedFilesJson = JSON.stringify(getNewMilestoneFiles(projectId));
+    isCreatingMilestone = true;
     try {
-      const res = await dispatchAction('create_milestone', { proj_id: projId, milestone: text, date: date, status: 'Not Started', done: false, user_id: uid });
+      const res = await dispatchAction('create_milestone', { proj_id: projId, milestone: text, date: date, status: 'Not Started', done: false, user_id: uid, linked_files: linkedFilesJson });
       if (!res?.ok) { formError = res?.error || 'Failed to create milestone.'; console.warn('createMilestone failed', res); return; }
-      const item = { id: res.milestone_id, milestone: text, date: date, status: 'Not Started', created_at: res.created_at, created_by: uid, done: false };
+      const item = { id: res.milestone_id, milestone: text, date: date, status: 'Not Started', created_at: res.created_at, created_by: uid, done: false, linked_files: linkedFilesJson };
       projects = projects.map(p => p.id === projectId ? { ...p, milestones: [ ...(p.milestones || []), item ] } : p);
       // save to cache
       try {
@@ -935,12 +962,16 @@
         localStorage.setItem(key, JSON.stringify(cur));
       } catch (e) {}
       newMilestoneInputs = { ...newMilestoneInputs, [projectId]: { milestone: '', date: '' } };
+      newMilestoneLinkedFiles = { ...newMilestoneLinkedFiles, [projectId]: [] };
+      newMilestoneFilePicker = { ...newMilestoneFilePicker, [projectId]: false };
       showAddMilestoneFor = { ...showAddMilestoneFor, [projectId]: false };
       formSuccess = 'Milestone added.';
       setTimeout(() => { formSuccess = ''; }, 2000);
     } catch (e) {
       console.error('createMilestone error', e);
       formError = e?.message || 'Failed to create milestone.';
+    } finally {
+      isCreatingMilestone = false;
     }
   }
 
@@ -972,15 +1003,18 @@
 
   function cancelEditMilestone() {
     editingMilestoneId = null;
+    isSavingMilestone = false;
   }
 
   async function saveEditedMilestone(projectId, milestoneId) {
     if (!milestoneId) return;
+    if (isSavingMilestone) return;
     const inputs = editingMilestoneInputs[milestoneId] || { milestone: '', date: '' };
     const text = String(inputs.milestone || '').trim();
     const date = String(inputs.date || '').trim();
     if (!text) { formError = 'Milestone text is required.'; return; }
     const uid = getCurrentUserId();
+    isSavingMilestone = true;
     try {
       const res = await dispatchAction('update_milestone', { milestone_id: milestoneId, milestone: text, date: date, status: canonicalStatusLabel(inputs.status || 'Not Started'), user_id: uid });
       if (!res?.ok) { formError = res?.error || 'Failed to update milestone.'; return; }
@@ -1003,6 +1037,8 @@
       setTimeout(() => { formSuccess = ''; }, 1500);
     } catch (e) {
       formError = e?.message || 'Failed to update milestone.';
+    } finally {
+      isSavingMilestone = false;
     }
   }
 
@@ -1281,9 +1317,11 @@
 
   async function addLinkSubmission(projectId, folderId) {
     if (!String(viewingLinkUrl || '').trim()) { formError = 'Link URL is required.'; return; }
+    if (isSavingLink) return;
     const projId = String(projects.find(p => p.id === projectId)?.proj_id || projectId);
     const uid    = getCurrentUserId();
     formError = '';
+    isSavingLink = true;
     try {
       const res = await dispatchAction('create_proj_submission', {
         proj_id:    projId,
@@ -1315,6 +1353,8 @@
       setTimeout(() => { formSuccess = ''; }, 2000);
     } catch (e) {
       formError = e?.message || 'Failed to save link.';
+    } finally {
+      isSavingLink = false;
     }
   }
 
@@ -2222,8 +2262,10 @@
                                       <input class="sub-input" placeholder="Label  e.g. GitHub Repository" bind:value={viewingLinkLabel} />
                                       <input class="sub-input" placeholder="https://example.com" bind:value={viewingLinkUrl} />
                                       <div class="add-link-actions">
-                                        <button class="sub-action-btn" on:click={() => addLinkSubmission(p.id, folder.id)}>Save Link</button>
-                                        <button class="sub-cancel-btn" on:click={() => toggleLinkPanel(folder.id)}>Cancel</button>
+                                        <button class="sub-action-btn" class:sub-action-btn-busy={isSavingLink} disabled={isSavingLink} on:click={() => addLinkSubmission(p.id, folder.id)}>
+                                          {#if isSavingLink}<Loader2 size={13} class="spin" /> Saving…{:else}Save Link{/if}
+                                        </button>
+                                        <button class="sub-cancel-btn" disabled={isSavingLink} on:click={() => toggleLinkPanel(folder.id)}>Cancel</button>
                                       </div>
                                       {#if formError}<div class="sub-error">{formError}</div>{/if}
                                     </div>
@@ -2303,11 +2345,59 @@
                           </button>
                         </div>
                         {#if showAddMilestoneFor[p.id]}
-                          <div class="add-milestone-bar" style="padding:0.5rem 0.75rem; display:flex; gap:8px; align-items:center; margin-top:8px">
-                            <input type="text" placeholder="Milestone" value={newMilestoneInputs[p.id]?.milestone || ''} on:input={(e) => { newMilestoneInputs = { ...newMilestoneInputs, [p.id]: { ...(newMilestoneInputs[p.id] || {}), milestone: e.target.value } }; }} class="input" />
-                            <input type="date" value={newMilestoneInputs[p.id]?.date || ''} on:input={(e) => { newMilestoneInputs = { ...newMilestoneInputs, [p.id]: { ...(newMilestoneInputs[p.id] || {}), date: e.target.value } }; }} class="input" style="width:170px" />
-                            <button class="sub-action-btn" on:click={() => createMilestone(p.id)}>Save</button>
-                            <button class="sub-cancel-btn" on:click={() => { showAddMilestoneFor = { ...showAddMilestoneFor, [p.id]: false }; }}>Cancel</button>
+                          <div class="add-milestone-bar" style="padding:0.5rem 0.75rem; display:flex; flex-direction:column; gap:8px; margin-top:8px">
+                            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+                              <input type="text" placeholder="Milestone" value={newMilestoneInputs[p.id]?.milestone || ''} on:input={(e) => { newMilestoneInputs = { ...newMilestoneInputs, [p.id]: { ...(newMilestoneInputs[p.id] || {}), milestone: e.target.value } }; }} class="input" />
+                              <input type="date" value={newMilestoneInputs[p.id]?.date || ''} on:input={(e) => { newMilestoneInputs = { ...newMilestoneInputs, [p.id]: { ...(newMilestoneInputs[p.id] || {}), date: e.target.value } }; }} class="input" style="width:170px" />
+                            </div>
+
+                            <div class="ms-linked-section">
+                              <div class="ms-linked-label">Linked Files:</div>
+                              {#if getNewMilestoneFiles(p.id).length > 0}
+                                <ul class="ms-linked-list">
+                                  {#each getNewMilestoneFiles(p.id) as lf}
+                                    <li class="ms-linked-item">
+                                      <span>📄 {lf.name}</span>
+                                      {#if lf.drive_url}<a href={lf.drive_url} target="_blank" rel="noopener" class="ms-open-link">Open</a>{/if}
+                                      <button class="ms-unlink-btn" title="Remove file" on:click={() => toggleNewMilestoneFile(p.id, lf)}>✕</button>
+                                    </li>
+                                  {/each}
+                                </ul>
+                              {:else}
+                                <div class="ms-no-links">No linked files yet.</div>
+                              {/if}
+                            </div>
+
+                            <div class="ms-actions">
+                              <button class="sub-action-btn" class:sub-action-btn-active={newMilestoneFilePicker[p.id]} disabled={isCreatingMilestone} on:click={() => toggleNewMilestoneFilePicker(p.id)}>
+                                📎 {newMilestoneFilePicker[p.id] ? 'Close Picker' : 'Link Files'}
+                              </button>
+                              <div style="flex:1"></div>
+                              <button class="sub-action-btn" class:sub-action-btn-busy={isCreatingMilestone} disabled={isCreatingMilestone} on:click={() => createMilestone(p.id)}>
+                                {#if isCreatingMilestone}<Loader2 size={13} class="spin" /> Saving…{:else}Save{/if}
+                              </button>
+                              <button class="sub-cancel-btn" disabled={isCreatingMilestone} on:click={() => { showAddMilestoneFor = { ...showAddMilestoneFor, [p.id]: false }; newMilestoneFilePicker = { ...newMilestoneFilePicker, [p.id]: false }; }}>Cancel</button>
+                            </div>
+
+                            {#if newMilestoneFilePicker[p.id]}
+                              <div class="ms-file-picker">
+                                <div class="ms-picker-label">Select files from submissions to link:</div>
+                                {#if projectFileSubmissions(p.id).length === 0}
+                                  <div class="ms-picker-empty">No files uploaded in the Submissions tab yet.</div>
+                                {:else}
+                                  {#each projectFileSubmissions(p.id) as sub}
+                                    <label class="ms-picker-item">
+                                      <input type="checkbox"
+                                        disabled={isCreatingMilestone}
+                                        checked={!!getNewMilestoneFiles(p.id).find(f => f.id === sub.id)}
+                                        on:change={() => toggleNewMilestoneFile(p.id, sub)} />
+                                      <span class="ms-picker-name">📄 {sub.name}</span>
+                                      <span class="ms-picker-folder">{sub.folder_name}</span>
+                                    </label>
+                                  {/each}
+                                {/if}
+                              </div>
+                            {/if}
                           </div>
                         {/if}
                       </div>
@@ -2380,8 +2470,10 @@
                                     <div class="add-milestone-bar" style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
                                       <input class="input" type="text" value={editingMilestoneInputs[m.id]?.milestone || ''} on:input={(e) => { editingMilestoneInputs = { ...editingMilestoneInputs, [m.id]: { ...(editingMilestoneInputs[m.id] || {}), milestone: e.target.value } }; }} placeholder="Milestone" />
                                       <input class="input" type="date" value={editingMilestoneInputs[m.id]?.date || ''} on:input={(e) => { editingMilestoneInputs = { ...editingMilestoneInputs, [m.id]: { ...(editingMilestoneInputs[m.id] || {}), date: e.target.value } }; }} style="width:170px" />
-                                      <button class="sub-action-btn" on:click={() => saveEditedMilestone(p.id, m.id)}>Save</button>
-                                      <button class="sub-cancel-btn" on:click={cancelEditMilestone}>Cancel</button>
+                                      <button class="sub-action-btn" class:sub-action-btn-busy={isSavingMilestone} disabled={isSavingMilestone} on:click={() => saveEditedMilestone(p.id, m.id)}>
+                                        {#if isSavingMilestone}<Loader2 size={13} class="spin" /> Saving…{:else}Save{/if}
+                                      </button>
+                                      <button class="sub-cancel-btn" disabled={isSavingMilestone} on:click={cancelEditMilestone}>Cancel</button>
                                     </div>
                                   {/if}
 
@@ -3079,7 +3171,7 @@
   .submissions-list { display:flex; flex-direction:column; gap:0.6rem; padding:0.75rem 1.25rem 1rem; }
 
   /* Milestones add bar styling */
-  .add-milestone-bar { background: var(--color-surface); border:1px solid var(--color-border); padding:0.6rem; border-radius:8px; align-items:center; }
+  .add-milestone-bar { background: var(--color-surface); border:1px solid var(--color-border); padding:0.6rem; border-radius:8px; align-items:flex-start; }
   .add-milestone-bar .input { padding:0.45rem 0.75rem; border-radius:6px; border:1px solid var(--color-border); background:var(--color-surface); color:var(--color-heading); font-size:0.87rem; font-family:inherit; }
   .add-milestone-btn { display:inline-flex; align-items:center; gap:0.5rem; padding:0.4rem 0.9rem; border-radius:8px; background:transparent; border:1px solid var(--color-border); color:var(--color-heading); font-size:0.87rem; font-family:inherit; }
   .add-milestone-btn .icon { color:#7c3aed; }
