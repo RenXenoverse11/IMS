@@ -1318,12 +1318,6 @@
             <div class="proj-table-row proj-arc-row">
               <span class="proj-col-name proj-name-cell">
                 <div class="proj-arc-title">{p.title}</div>
-                {#if p.timeline_end || p.deadline}
-                  <div class="proj-arc-meta">
-                    <CalendarDays size={14} />
-                    <span class="proj-arc-date">{formatDate(p.timeline_end || p.deadline)}</span>
-                  </div>
-                {/if}
               </span>
               <div class="proj-arc-corner">
                 <button class="icon-btn restore" title="Restore project" aria-label="Restore project" on:click={() => restoreProject(p)}>
@@ -2156,6 +2150,9 @@
   .icon-btn:hover { background: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface)); border-color: var(--color-accent); transform: translateY(-1px); }
   .icon-btn.restore { background: transparent; border-color: rgba(255,255,255,0.06); color: #10b981; }
   .icon-btn.restore:hover { background: rgba(16,185,129,0.1); border-color: #10b981; }
+
+  .proj-arc-title { font-size: 0.88rem; font-weight: 600; color: var(--color-heading); }
+  .proj-arc-corner { display: flex; justify-content: flex-end; }
 
   :global(.spin) { animation: spin 1s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
