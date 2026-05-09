@@ -908,15 +908,31 @@
       ? current.filter(f => f.id !== submission.id)
       : [...current, { id: submission.id, name: submission.name, drive_url: submission.drive_url || '' }];
     const linkedJson = JSON.stringify(updated);
+    const previousJson = JSON.stringify(current);
     const uid = getCurrentUserId();
     try {
-      const res = await dispatchAction('update_milestone', { milestone_id: milestoneId, linked_files: linkedJson, user_id: uid });
-      if (!res?.ok) { formError = res?.error || 'Failed to update linked files.'; return; }
+      // Optimistic UI so the edit mode list updates immediately.
       projects = projects.map(proj2 => proj2.id !== projectId ? proj2 : {
         ...proj2,
         milestones: (proj2.milestones || []).map(mm => mm.id === milestoneId ? { ...mm, linked_files: linkedJson } : mm)
       });
-    } catch(e) { formError = e?.message || 'Failed to update linked files.'; }
+
+      const res = await dispatchAction('update_milestone', { milestone_id: milestoneId, linked_files: linkedJson, user_id: uid });
+      if (!res?.ok) {
+        projects = projects.map(proj2 => proj2.id !== projectId ? proj2 : {
+          ...proj2,
+          milestones: (proj2.milestones || []).map(mm => mm.id === milestoneId ? { ...mm, linked_files: previousJson } : mm)
+        });
+        formError = res?.error || 'Failed to update linked files.';
+        return;
+      }
+    } catch(e) {
+      projects = projects.map(proj2 => proj2.id !== projectId ? proj2 : {
+        ...proj2,
+        milestones: (proj2.milestones || []).map(mm => mm.id === milestoneId ? { ...mm, linked_files: previousJson } : mm)
+      });
+      formError = e?.message || 'Failed to update linked files.';
+    }
   }
 
   function milestoneStatusIcon(status) {
@@ -2353,9 +2369,9 @@
 
                             <div class="ms-linked-section">
                               <div class="ms-linked-label">Linked Files:</div>
-                              {#if getNewMilestoneFiles(p.id).length > 0}
+                              {#if (newMilestoneLinkedFiles[p.id] || []).length > 0}
                                 <ul class="ms-linked-list">
-                                  {#each getNewMilestoneFiles(p.id) as lf}
+                                  {#each (newMilestoneLinkedFiles[p.id] || []) as lf}
                                     <li class="ms-linked-item">
                                       <span>📄 {lf.name}</span>
                                       {#if lf.drive_url}<a href={lf.drive_url} target="_blank" rel="noopener" class="ms-open-link">Open</a>{/if}
@@ -2389,7 +2405,7 @@
                                     <label class="ms-picker-item">
                                       <input type="checkbox"
                                         disabled={isCreatingMilestone}
-                                        checked={!!getNewMilestoneFiles(p.id).find(f => f.id === sub.id)}
+                                        checked={!!(newMilestoneLinkedFiles[p.id] || []).find(f => f.id === sub.id)}
                                         on:change={() => toggleNewMilestoneFile(p.id, sub)} />
                                       <span class="ms-picker-name">📄 {sub.name}</span>
                                       <span class="ms-picker-folder">{sub.folder_name}</span>
