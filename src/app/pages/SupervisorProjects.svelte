@@ -913,9 +913,14 @@
             submission_id: s.submission_id,
             kind: s.kind === 'link' ? 'link' : 'file',
             name: s.file_name || s.link_label || '',
+            file_type: s.file_type || '',
+            file_size: s.file_size || '',
+            uploaded_at: s.uploaded_at || '',
+            title: s.kind === 'link' ? (s.link_label || s.link_url || '') : '',
             url: s.link_url || '',
             drive_url: s.link_url || '',
-            gdrive: s.gdrive || ''
+            gdrive: s.gdrive || '',
+            added_at: s.kind === 'link' ? (s.uploaded_at || '') : ''
           }))
         }));
         allProjects = allProjects.map(p => p.id === projectId ? { ...p, folders } : p);
