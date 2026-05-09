@@ -2217,11 +2217,6 @@
                           {#if isSavingFolder}<Loader2 size={13} class="spin" />{:else}<FolderOpen size={13} />{/if} New Folder
                         </button>
                         <!-- Add Milestone moved to Milestones tab -->
-                        {#if p.folders !== null && !isLoadingFolders}
-                          <button class="sub-action-btn" title="Refresh folders" on:click={() => loadProjectFolders(p.id)}>
-                            🔄
-                          </button>
-                        {/if}
                       </div>
 
                       {#if isLoadingFolders}
@@ -2659,9 +2654,6 @@
               <div class="proj-table-row proj-arc-row">
                 <span class="proj-col-name proj-name-cell">
                   <div class="proj-arc-title">{p.title}</div>
-                  {#if p.timeline_end || p.deadline}
-                    <div class="proj-arc-meta"><CalendarDays size={14} /><span class="proj-arc-date">{formatDate(p.timeline_end || p.deadline)}</span></div>
-                  {/if}
                 </span>
                 <div class="proj-arc-corner">
                     <button
@@ -3545,9 +3537,6 @@
   .proj-arc-corner { position: absolute; top: 0.5rem; right: 0.9rem; display:flex; gap:0.4rem; }
   /* Archive view header alignment */
   .proj-table-panel.archive-view .proj-table-header > .proj-col-actions { justify-self: end; padding-top: 0.4rem; }
-
-  .proj-arc-meta { display:flex; align-items:center; gap:8px; margin-top:6px; color:var(--color-sidebar-text); font-size:0.77rem; }
-  .proj-arc-date { font-weight:700; color:var(--color-heading); margin-left:2px; }
   .arc-table { width: 100%; border-collapse: collapse; }
   .arc-th { padding: 0.55rem 0.75rem; font-size: 0.78rem; font-weight: 700; color: var(--color-heading); text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid var(--color-border, rgba(255,255,255,0.08)); text-align: left; }
   .arc-th-main { width: 100%; }
