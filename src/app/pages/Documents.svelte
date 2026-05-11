@@ -1,3 +1,4 @@
+
 <script>
   import { onMount } from 'svelte';
   import { Upload, Link2, Folder, FolderOpen, FileText, Download, Trash2, Eye, Plus, Search, Share2, Copy, X, Check, ChevronRight, Loader2, Files } from 'lucide-svelte';
@@ -57,6 +58,15 @@
   let showBulkActions = false;
   let selectedDocuments = new Set();
   let selectAllChecked = false;
+
+  // Delete Document Confirmation State
+  let showDeleteConfirm = false;
+  let documentToDelete = null;
+  let isDeleting = false;
+
+  // Bulk Delete Confirmation State
+  let showBulkDeleteConfirm = false;
+  let isDeleteBulkProcessing = false;
 
   const AUTH_SESSION_STORAGE_KEY = 'ims-auth-session-user';
 
@@ -597,21 +607,34 @@
   }
 
   async function deleteDocument(id) {
+    isDeleting = true;
     try {
       const response = await callBackend_('delete_document', {
         user_id: userId,
         doc_id: id
       });
 
-      if (response.ok) {
+      if (response && response.ok) {
         documents = documents.filter((doc) => doc.id !== id);
+        showDeleteConfirm = false;
+        documentToDelete = null;
+        showActionMessage_('Document deleted successfully.');
       } else {
-        alert('Error deleting document: ' + response.error);
+        const errorMsg = response?.error || response?.message || 'Unknown error occurred';
+        showActionMessage_(`Error: ${errorMsg}`, 'error');
+        console.error('Delete failed:', response);
       }
     } catch (err) {
       console.error('Delete error:', err);
-      alert('Error deleting document');
+      showActionMessage_('Error deleting document. Please try again.', 'error');
+    } finally {
+      isDeleting = false;
     }
+  }
+
+  function openDeleteConfirm(doc) {
+    documentToDelete = doc;
+    showDeleteConfirm = true;
   }
 
   function toggleBulkActions() {
@@ -655,11 +678,12 @@
 
   async function deleteBulkDocuments() {
     if (selectedDocuments.size === 0) return;
+    showBulkDeleteConfirm = true;
+  }
 
-    const count = selectedDocuments.size;
-    if (!confirm(`Are you sure you want to delete ${count} document${count !== 1 ? 's' : ''}?`)) {
-      return;
-    }
+  async function confirmBulkDelete() {
+    if (selectedDocuments.size === 0) return;
+    isDeleteBulkProcessing = true;
 
     try {
       let successCount = 0;
@@ -672,14 +696,15 @@
             doc_id: docId
           });
 
-          if (response.ok) {
+          if (response && response.ok) {
             successCount++;
             documents = documents.filter((doc) => doc.id !== docId);
           } else {
             errorCount++;
+            console.error('Delete failed for doc:', docId, response);
           }
         } catch (err) {
-          console.error('Error deleting document:', err);
+          console.error('Error deleting document:', docId, err);
           errorCount++;
         }
       }
@@ -688,15 +713,19 @@
       selectedDocuments.clear();
       selectAllChecked = false;
       selectedDocuments = selectedDocuments; // trigger reactivity
+      showBulkDeleteConfirm = false;
+      isDeleteBulkProcessing = false;
 
       if (errorCount === 0) {
-        alert(`Successfully deleted ${successCount} document${successCount !== 1 ? 's' : ''}.`);
+        showActionMessage_(`Successfully deleted ${successCount} document${successCount !== 1 ? 's' : ''}.`);
       } else {
-        alert(`Deleted ${successCount} document${successCount !== 1 ? 's' : ''}. Failed to delete ${errorCount}.`);
+        showActionMessage_(`Deleted ${successCount} document${successCount !== 1 ? 's' : ''}. Failed to delete ${errorCount}.`, 'error');
       }
     } catch (err) {
       console.error('Bulk delete error:', err);
-      alert('Error deleting documents');
+      showActionMessage_('Error deleting documents', 'error');
+      showBulkDeleteConfirm = false;
+      isDeleteBulkProcessing = false;
     }
   }
 
@@ -1105,7 +1134,7 @@
                                 title="Delete" 
                                 on:click={(e) => {
                                   e.stopPropagation();
-                                  deleteDocument(doc.id);
+                                  openDeleteConfirm(doc);
                                 }}
                               >
                                 <Trash2 size={14} />
@@ -1464,6 +1493,78 @@
           <button class="btn btn-secondary" on:click={() => (showDeleteFolderConfirm = false)}>Cancel</button>
           <button class="btn btn-danger" on:click={() => deleteFolder(folderToDelete)}>
             <span>Delete Folder</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Delete Document Confirmation Modal -->
+  {#if showDeleteConfirm && documentToDelete}
+    <!-- svelte-ignore a11y-click-events-have-key-events -->
+    <!-- svelte-ignore a11y-no-static-element-interactions -->
+    <div class="modal-overlay" on:click={() => (showDeleteConfirm = false)}>
+      <div class="modal delete-modal" on:click={(e) => e.stopPropagation()}>
+        <div class="modal-header">
+          <div class="delete-icon-container">
+            <Trash2 size={24} />
+          </div>
+          <h2>Delete Document</h2>
+          <button class="close-btn" on:click={() => (showDeleteConfirm = false)}>×</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="confirmation-content">
+            <p>Are you sure you want to delete <strong>"{documentToDelete.name}"</strong>?</p>
+            <p class="warning-text">This action cannot be undone. The document will be permanently removed.</p>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn btn-secondary" on:click={() => (showDeleteConfirm = false)} disabled={isDeleting}>Cancel</button>
+          <button class="btn btn-danger" on:click={() => deleteDocument(documentToDelete.id)} disabled={isDeleting}>
+            {#if isDeleting}
+              <Loader2 size={16} class="spinning-icon" />
+            {:else}
+              <Trash2 size={16} />
+            {/if}
+            <span>{isDeleting ? 'Deleting...' : 'Delete Document'}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Delete Multiple Documents Confirmation Modal -->
+  {#if showBulkDeleteConfirm && selectedDocuments.size > 0}
+    <!-- svelte-ignore a11y-click-events-have-key-events -->
+    <!-- svelte-ignore a11y-no-static-element-interactions -->
+    <div class="modal-overlay" on:click={() => (showBulkDeleteConfirm = false)}>
+      <div class="modal delete-modal" on:click={(e) => e.stopPropagation()}>
+        <div class="modal-header">
+          <div class="delete-icon-container">
+            <Trash2 size={24} />
+          </div>
+          <h2>Delete Documents</h2>
+          <button class="close-btn" on:click={() => (showBulkDeleteConfirm = false)}>×</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="confirmation-content">
+            <p>Are you sure you want to delete <strong>{selectedDocuments.size} document{selectedDocuments.size !== 1 ? 's' : ''}</strong>?</p>
+            <p class="warning-text">This action cannot be undone. All selected documents will be permanently removed.</p>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn btn-secondary" on:click={() => (showBulkDeleteConfirm = false)} disabled={isDeleteBulkProcessing}>Cancel</button>
+          <button class="btn btn-danger" on:click={confirmBulkDelete} disabled={isDeleteBulkProcessing}>
+            {#if isDeleteBulkProcessing}
+              <Loader2 size={16} class="spinning-icon" />
+            {:else}
+              <Trash2 size={16} />
+            {/if}
+            <span>{isDeleteBulkProcessing ? `Deleting (${[...selectedDocuments].length})...` : `Delete ${selectedDocuments.size} Document${selectedDocuments.size !== 1 ? 's' : ''}`}</span>
           </button>
         </div>
       </div>
@@ -3895,5 +3996,122 @@
 
   :global(html:not(.dark)) .selected-folder-text {
     color: #5f7188;
+  }
+
+  /* Delete Modal Styles */
+  .delete-modal {
+    box-shadow: 0 25px 40px rgba(0, 0, 0, 0.3);
+  }
+
+  .delete-modal .modal-header {
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    position: relative;
+    padding-bottom: 1.25rem;
+  }
+
+  .delete-modal .close-btn {
+    position: absolute;
+    top: 1.5rem;
+    right: 1.5rem;
+  }
+
+  .delete-modal .modal-header h2 {
+    margin: 0;
+    text-align: center;
+  }
+
+  .delete-icon-container {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: rgba(239, 68, 68, 0.1);
+    border: 2px solid rgba(239, 68, 68, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #ef4444;
+    margin-top: 0.5rem;
+  }
+
+  :global(.dark) .delete-icon-container {
+    background: rgba(239, 68, 68, 0.15);
+    border-color: rgba(239, 68, 68, 0.4);
+    color: #fda4af;
+  }
+
+  :global(html:not(.dark)) .delete-icon-container {
+    background: rgba(239, 68, 68, 0.08);
+    border-color: rgba(239, 68, 68, 0.25);
+    color: #dc2626;
+  }
+
+  .delete-modal .confirmation-content {
+    text-align: center;
+  }
+
+  .delete-modal .confirmation-content p {
+    margin: 0;
+    font-size: 0.95rem;
+  }
+
+  .delete-modal .confirmation-content p:first-child {
+    margin-bottom: 0.75rem;
+    font-weight: 500;
+  }
+
+  .delete-modal .warning-text {
+    font-size: 0.9rem;
+    margin: 0;
+    opacity: 0.85;
+  }
+
+  .delete-modal .modal-footer {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    align-items: center;
+    padding: 1.5rem;
+  }
+
+  .delete-modal .btn-secondary {
+    min-width: 120px;
+    flex: 0 1 auto;
+  }
+
+  .delete-modal .btn-danger {
+    min-width: 160px;
+    flex: 0 1 auto;
+  }
+
+  .btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .btn-danger:disabled {
+    background: #dc2626;
+    opacity: 0.75;
+  }
+
+  .btn-secondary:disabled {
+    opacity: 0.6;
+  }
+
+  .spinning-icon {
+    animation: spin 1s linear infinite;
+    display: inline-block;
+    transform-origin: center;
+  }
+
+  @keyframes spin {
+    0% {
+      transform: rotate(0deg);
+    }
+    100% {
+      transform: rotate(360deg);
+    }
   }
 </style>
