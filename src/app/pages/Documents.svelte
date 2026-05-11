@@ -1,7 +1,7 @@
 
 <script>
   import { onMount } from 'svelte';
-  import { Upload, Link2, Folder, FolderOpen, FileText, Download, Trash2, Eye, Plus, Search, Share2, Copy, X, Check, ChevronRight, Loader2, Files } from 'lucide-svelte';
+  import { Upload, Link2, Folder, FolderOpen, FileText, Download, Trash2, Eye, Plus, Search, Share2, Copy, X, Check, ChevronRight, Loader2, Files, Clock } from 'lucide-svelte';
   import * as authApi from '../lib/auth.js';
 
   // Folder structure
@@ -68,6 +68,9 @@
   let showBulkDeleteConfirm = false;
   let isDeleteBulkProcessing = false;
 
+  // Sort State
+  let documentSort = 'date'; // 'date', 'name', or 'size'
+
   const AUTH_SESSION_STORAGE_KEY = 'ims-auth-session-user';
 
   $: filteredDocuments = documents.filter((doc) => {
@@ -87,6 +90,20 @@
     }
     
     return matchesSearch && matchesFolder && matchesFilter;
+  }).sort((a, b) => {
+    if (documentSort === 'name') {
+      return a.name.localeCompare(b.name);
+    } else if (documentSort === 'size') {
+      // Sort by size (largest first)
+      const sizeA = parseFloat(a.size) || 0;
+      const sizeB = parseFloat(b.size) || 0;
+      return sizeB - sizeA;
+    } else {
+      // Sort by date (newest first)
+      const dateA = new Date(a.uploadedDate || a.created_date || 0).getTime();
+      const dateB = new Date(b.uploadedDate || b.created_date || 0).getTime();
+      return dateB - dateA;
+    }
   });
 
   $: folderDocuments = documents.filter(doc => doc.folder === currentFolder);
@@ -195,26 +212,10 @@
   }
 
   function openUploadModal_() {
-    if (folderStructure.root.subfolders.length === 0) {
-      showActionMessage_('Create a folder first before uploading.');
-      showCreateFolderModal = true;
-      return;
-    }
-    if (!uploadToFolder || uploadToFolder === '/') {
-      uploadToFolder = getDefaultUploadFolder_();
-    }
     showUploadModal = true;
   }
 
   function openLinkModal_() {
-    if (folderStructure.root.subfolders.length === 0) {
-      showActionMessage_('Create a folder first before adding links.');
-      showCreateFolderModal = true;
-      return;
-    }
-    if (!uploadToFolder || uploadToFolder === '/') {
-      uploadToFolder = getDefaultUploadFolder_();
-    }
     showLinkModal = true;
   }
 
@@ -333,14 +334,6 @@
 
   async function confirmUpload() {
     if (!pendingFile || isUploading) return;
-    if (folderStructure.root.subfolders.length === 0) {
-      alert('Please create a folder first before uploading.');
-      return;
-    }
-    if (folderStructure.root.subfolders.length > 0 && uploadToFolder === '/') {
-      alert('Please select a folder before uploading.');
-      return;
-    }
     
     try {
       isUploading = true;
@@ -363,7 +356,7 @@
         await loadDocuments_();
         showUploadModal = false;
         showUploadPreview = false;
-        uploadToFolder = getDefaultUploadFolder_();
+        uploadToFolder = '/';
         pendingFile = null;
         pendingFilePreview = null;
         showActionMessage_('Document uploaded and saved to database.');
@@ -397,15 +390,6 @@
     if (newLinkName.trim() && newLinkUrl.trim()) {
       if (isAddingLink) return;
 
-      if (folderStructure.root.subfolders.length === 0) {
-        alert('Please create a folder first before adding a link.');
-        return;
-      }
-      if (folderStructure.root.subfolders.length > 0 && uploadToFolder === '/') {
-        alert('Please select a folder before adding a link.');
-        return;
-      }
-
       let normalizedUrl = '';
       try {
         normalizedUrl = new URL(newLinkUrl.trim()).toString();
@@ -431,7 +415,7 @@
           newLinkName = '';
           newLinkUrl = '';
           showLinkModal = false;
-          uploadToFolder = getDefaultUploadFolder_();
+          uploadToFolder = '/';
           showActionMessage_('Link uploaded and saved to database.');
         } else {
           showActionMessage_('Add link failed: ' + (response.error || 'Unknown error.'), 'error');
@@ -989,6 +973,11 @@
 
             {#if documentFilter === 'folders'}
               <div class="folder-table-wrapper">
+                <!-- Folders List -->
+                <h3 class="folders-title">
+                  <Folder size={18} />
+                  <span>Folders</span>
+                </h3>
                 <table class="folders-table">
                   <thead>
                     <tr>
@@ -999,7 +988,7 @@
                   </thead>
                   <tbody>
                     {#each folderStructure.root.subfolders as folder (folder)}
-                      {@const folderDocs = documents.filter(doc => doc.folder === folder)}
+                      {@const folderDocs = documents.filter(doc => doc.folder === '/' + folder)}
                       <tr class="table-row">
                         <td class="col-name">
                           <div class="file-info">
@@ -1025,7 +1014,39 @@
               </div>
             {/if}
 
-            {#if filteredDocuments.length > 0}
+            {#if documentFilter !== 'folders' && filteredDocuments.length > 0}
+              <div class="sort-bar">
+                <div class="sort-controls">
+                  <span class="sort-label">Sort by:</span>
+                  <button 
+                    class="sort-btn"
+                    class:active={documentSort === 'date'}
+                    on:click={() => documentSort = 'date'}
+                    title="Sort by upload date (newest first)"
+                  >
+                    Date
+                  </button>
+                  <button 
+                    class="sort-btn"
+                    class:active={documentSort === 'name'}
+                    on:click={() => documentSort = 'name'}
+                    title="Sort alphabetically by name"
+                  >
+                    Name
+                  </button>
+                  <button 
+                    class="sort-btn"
+                    class:active={documentSort === 'size'}
+                    on:click={() => documentSort = 'size'}
+                    title="Sort by file size (largest first)"
+                  >
+                    Size
+                  </button>
+                </div>
+              </div>
+            {/if}
+
+            {#if filteredDocuments.length > 0 && documentFilter !== 'folders'}
               <div class="table-wrapper">
                 <table class="documents-table">
                   <thead>
@@ -1147,7 +1168,7 @@
                   </tbody>
                 </table>
               </div>
-            {:else}
+            {:else if documentFilter !== 'folders' && filteredDocuments.length === 0}
               <div class="empty-state">
                 <div class="empty-icon-wrap">
                   <FileText size={28} />
@@ -1176,7 +1197,7 @@
         <div class="modal-body">
           <!-- Folder Selection with Search -->
           <div class="form-group">
-            <span class="label-heading">Select Folder</span>
+            <span class="label-heading">Select Folder (Optional)</span>
             
             <!-- Search Box -->
             {#if folderStructure.root.subfolders.length > 4}
@@ -1193,6 +1214,18 @@
             
             <!-- Folder Grid -->
             <div class="folder-grid">
+              <!-- None Option -->
+              <button
+                type="button"
+                class="folder-card"
+                class:active={uploadToFolder === '/'}
+                on:click|stopPropagation={() => (uploadToFolder = '/')}
+                title="Upload without selecting a folder"
+              >
+                <X size={20} />
+                <span class="folder-name">None</span>
+              </button>
+
               {#each folderStructure.root.subfolders.filter(f => f.toLowerCase().includes(folderSearchQuery.toLowerCase())) as folder (folder)}
                 {@const folderPath = '/' + folder}
                 <button
@@ -1208,7 +1241,7 @@
               {/each}
             </div>
 
-            {#if folderStructure.root.subfolders.filter(f => f.toLowerCase().includes(folderSearchQuery.toLowerCase())).length === 0}
+            {#if folderStructure.root.subfolders.filter(f => f.toLowerCase().includes(folderSearchQuery.toLowerCase())).length === 0 && folderStructure.root.subfolders.length > 0}
               <div class="no-folders-message">No folders match your search</div>
             {/if}
           </div>
@@ -1310,8 +1343,19 @@
         <div class="modal-body">
           <!-- Folder Selection Tabs -->
           <div class="form-group">
-            <span class="label-heading">Select Folder</span>
+            <span class="label-heading">Select Folder (Optional)</span>
             <div class="folder-tabs">
+              <!-- None Option -->
+              <button
+                type="button"
+                class="folder-tab"
+                class:active={uploadToFolder === '/'}
+                on:click|stopPropagation={() => (uploadToFolder = '/')}
+              >
+                <X size={16} />
+                <span>None</span>
+              </button>
+
               {#each folderStructure.root.subfolders as folder (folder)}
                 {@const folderPath = '/' + folder}
                 <button
@@ -1326,7 +1370,7 @@
               {/each}
             </div>
             <div class="selected-folder-text">
-              Selected: {uploadToFolder.substring(1)}
+              Selected: {uploadToFolder === '/' ? 'No Folder' : uploadToFolder.substring(1)}
             </div>
           </div>
 
@@ -3578,6 +3622,49 @@
     overflow-x: auto;
   }
 
+  .sort-bar {
+    padding: 0.625rem 1.5rem;
+    background: rgba(255, 255, 255, 0.02);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .sort-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .sort-label {
+    font-size: 0.8rem;
+    color: #94a3b8;
+    font-weight: 500;
+  }
+
+  .sort-btn {
+    padding: 0.375rem 0.75rem;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 5px;
+    color: #cbd5e1;
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .sort-btn:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.2);
+  }
+
+  .sort-btn.active {
+    background: rgba(15, 108, 189, 0.25);
+    border-color: rgba(15, 108, 189, 0.5);
+    color: #0ea5e9;
+  }
+
   .documents-table {
     width: 100%;
     border-collapse: collapse;
@@ -3672,10 +3759,108 @@
     overflow: hidden;
   }
 
+  .recent-files-section {
+    padding: 1.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .recent-title,
+  .folders-title {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 0 0 1rem 0;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #e2e8f0;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .recent-files-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .recent-file-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    transition: all 0.2s ease;
+    cursor: pointer;
+  }
+
+  .recent-file-item:hover {
+    background: rgba(15, 108, 189, 0.1);
+    border-color: rgba(15, 108, 189, 0.3);
+  }
+
+  .recent-file-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    background: rgba(15, 108, 189, 0.15);
+    border-radius: 6px;
+    color: #0f6cbd;
+    flex-shrink: 0;
+  }
+
+  .recent-file-info {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .recent-file-name {
+    display: block;
+    font-weight: 500;
+    color: #e2e8f0;
+    font-size: 0.9rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .recent-file-meta {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 0.25rem;
+    font-size: 0.8rem;
+    color: #94a3b8;
+  }
+
+  .recent-file-folder {
+    display: inline-block;
+    padding: 0.2rem 0.5rem;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+  }
+
+  .no-recent-message {
+    margin: 0;
+    padding: 1rem;
+    text-align: center;
+    color: #64748b;
+    font-size: 0.9rem;
+  }
+
+  .folders-title {
+    padding: 0 1.5rem;
+    padding-top: 1.5rem;
+    margin-bottom: 1rem;
+  }
+
   .folders-table {
     width: 100%;
     border-collapse: collapse;
     font-size: 12px;
+    padding: 0 1.5rem 1.5rem 1.5rem;
   }
 
   .folders-table thead {
@@ -3855,10 +4040,6 @@
 
     .folders-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .action-bar .btn span {
-      display: none;
     }
   }
 

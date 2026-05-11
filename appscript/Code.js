@@ -4807,19 +4807,40 @@ function handleDeleteDocument_(payload) {
     }
 
     var data = sheet.getDataRange().getValues();
+    Logger.log('=== DELETE DOCUMENT REQUEST ===');
+    Logger.log('Requested docId: [' + docId + ']');
+    Logger.log('Requested userId: [' + userId + ']');
+    Logger.log('Total rows in sheet: ' + data.length);
+    
     for (var i = 1; i < data.length; i++) {
       var row = data[i];
       var rowDocId = String(row[0] || '').trim();
       var rowUserId = String(row[1] || '').trim();
+      
+      Logger.log('Row ' + i + ': docId=[' + rowDocId + '], userId=[' + rowUserId + '], name=[' + String(row[2] || '') + ']');
+      
       if (rowDocId === docId && rowUserId === userId) {
         sheet.deleteRow(i + 1);
-        return { ok: true, message: 'Document deleted.' };
+        Logger.log('✓ Document DELETED - Row: ' + (i + 1));
+        return { ok: true, message: 'Document deleted successfully.' };
       }
     }
 
-    return { ok: false, error: 'Document not found.' };
+    // If no exact match found, provide helpful error
+    Logger.log('✗ Document NOT FOUND - No matching docId and userId combination');
+    Logger.log('Available documents in sheet:');
+    for (var i = 1; i < data.length; i++) {
+      var row = data[i];
+      Logger.log('  - docId: ' + String(row[0] || '') + ', userId: ' + String(row[1] || '') + ', name: ' + String(row[2] || ''));
+    }
+    
+    return { 
+      ok: false, 
+      error: 'Document not found. The document may have already been deleted or you may not have permission to delete it.' 
+    };
   } catch (err) {
-    return { ok: false, error: err.message || String(err) };
+    Logger.log('ERROR deleting document: ' + err.message);
+    return { ok: false, error: 'Server error: ' + err.message };
   }
 }
 
