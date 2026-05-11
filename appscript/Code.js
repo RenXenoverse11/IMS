@@ -4816,10 +4816,11 @@ function handleDeleteDocument_(payload) {
       var row = data[i];
       var rowDocId = String(row[0] || '').trim();
       var rowUserId = String(row[1] || '').trim();
+      var rowCreatedBy = String(row[10] || '').trim(); // created_by is typically in column 10
       
-      Logger.log('Row ' + i + ': docId=[' + rowDocId + '], userId=[' + rowUserId + '], name=[' + String(row[2] || '') + ']');
+      Logger.log('Row ' + i + ': docId=[' + rowDocId + '], userId=[' + rowUserId + '], created_by=[' + rowCreatedBy + '], name=[' + String(row[2] || '') + ']');
       
-      if (rowDocId === docId && rowUserId === userId) {
+      if (rowDocId === docId && (rowUserId === userId || rowCreatedBy === userId)) {
         sheet.deleteRow(i + 1);
         Logger.log('✓ Document DELETED - Row: ' + (i + 1));
         return { ok: true, message: 'Document deleted successfully.' };
@@ -4831,7 +4832,7 @@ function handleDeleteDocument_(payload) {
     Logger.log('Available documents in sheet:');
     for (var i = 1; i < data.length; i++) {
       var row = data[i];
-      Logger.log('  - docId: ' + String(row[0] || '') + ', userId: ' + String(row[1] || '') + ', name: ' + String(row[2] || ''));
+      Logger.log('  - docId: ' + String(row[0] || '') + ', userId: ' + String(row[1] || '') + ', created_by: ' + String(row[10] || '') + ', name: ' + String(row[2] || ''));
     }
     
     return { 

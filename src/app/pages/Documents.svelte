@@ -71,6 +71,9 @@
   // Sort State
   let documentSort = 'date'; // 'date', 'name', or 'size'
 
+  // Folder Selection in Folders Tab
+  let selectedFolderInTab = null;
+
   const AUTH_SESSION_STORAGE_KEY = 'ims-auth-session-user';
 
   $: filteredDocuments = documents.filter((doc) => {
@@ -989,7 +992,12 @@
                   <tbody>
                     {#each folderStructure.root.subfolders as folder (folder)}
                       {@const folderDocs = documents.filter(doc => doc.folder === '/' + folder)}
-                      <tr class="table-row">
+                      <tr 
+                        class="table-row"
+                        class:active={selectedFolderInTab === folder}
+                        on:click={() => selectedFolderInTab = selectedFolderInTab === folder ? null : folder}
+                        style="cursor: pointer;"
+                      >
                         <td class="col-name">
                           <div class="file-info">
                             <div class="file-icon">
@@ -1005,6 +1013,104 @@
                           <span class="files-count">{folderDocs.length}</span>
                         </td>
                       </tr>
+                      {#if selectedFolderInTab === folder}
+                        <tr class="folder-details-row">
+                          <td colspan="3">
+                            {#if folderDocs.length > 0}
+                              <div class="folder-documents-container">
+                                <h4 class="folder-docs-title">Documents in "{folder}"</h4>
+                                <table class="folder-docs-table">
+                                  <thead>
+                                    <tr>
+                                      <th>Name</th>
+                                      <th>Uploaded By</th>
+                                      <th>Type</th>
+                                      <th>Size</th>
+                                      <th>Uploaded</th>
+                                      <th>Actions</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {#each folderDocs as doc (doc.id)}
+                                      <tr class="doc-row">
+                                        <td class="col-name">
+                                          <div class="file-info">
+                                            <div class="file-icon">
+                                              {#if doc.isLink}
+                                                <Link2 size={16} />
+                                              {:else}
+                                                <FileText size={16} />
+                                              {/if}
+                                            </div>
+                                            <button 
+                                              type="button" 
+                                              class="file-name-btn" 
+                                              title="Open document" 
+                                              on:click={(e) => {
+                                                e.stopPropagation();
+                                                openDocument(doc, e);
+                                              }}
+                                            >
+                                              <span class="file-name">{doc.name}</span>
+                                            </button>
+                                          </div>
+                                        </td>
+                                        <td class="col-creator">{doc.created_by || '—'}</td>
+                                        <td class="col-type">
+                                          <span class="type-badge">{doc.isLink ? 'Link' : 'File'}</span>
+                                        </td>
+                                        <td class="col-size">{doc.size || '—'}</td>
+                                        <td class="col-date">{formatDate(doc.uploadedDate || doc.created_date)}</td>
+                                        <td class="col-actions">
+                                          <div class="action-buttons">
+                                            <button 
+                                              class="icon-btn" 
+                                              title="Download" 
+                                              on:click={(e) => {
+                                                e.stopPropagation();
+                                                openDocument(doc, e);
+                                              }}
+                                            >
+                                              <Download size={14} />
+                                            </button>
+                                            {#if currentUser?.role === 'Supervisor' || currentUser?.user_id === doc.created_by}
+                                              <button 
+                                                class="icon-btn share-btn" 
+                                                title="Share" 
+                                                on:click={(e) => {
+                                                  e.stopPropagation();
+                                                  openShareModal(doc);
+                                                }}
+                                              >
+                                                <Share2 size={14} />
+                                              </button>
+                                              <button 
+                                                class="icon-btn delete-btn" 
+                                                title="Delete" 
+                                                on:click={(e) => {
+                                                  e.stopPropagation();
+                                                  openDeleteConfirm(doc);
+                                                }}
+                                              >
+                                                <Trash2 size={14} />
+                                              </button>
+                                            {/if}
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    {/each}
+                                  </tbody>
+                                </table>
+                              </div>
+                            {:else}
+                              <div class="folder-empty-state">
+                                <FileText size={24} />
+                                <p>No documents in this folder</p>
+                              </div>
+                            {/if}
+                          </td>
+                        </tr>
+                      {/if}
                     {/each}
                   </tbody>
                 </table>
@@ -3757,6 +3863,79 @@
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 12px;
     overflow: hidden;
+  }
+
+  .folders-table tbody tr.active {
+    background: rgba(15, 108, 189, 0.15);
+  }
+
+  .folder-details-row {
+    background: rgba(15, 108, 189, 0.08) !important;
+    border-top: 2px solid rgba(15, 108, 189, 0.3) !important;
+    border-bottom: 2px solid rgba(15, 108, 189, 0.3) !important;
+  }
+
+  .folder-documents-container {
+    padding: 1.5rem;
+  }
+
+  .folder-docs-title {
+    margin: 0 0 1rem 0;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #0ea5e9;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .folder-docs-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+
+  .folder-docs-table thead {
+    background: rgba(15, 108, 189, 0.15);
+  }
+
+  .folder-docs-table thead th {
+    padding: 10px 12px;
+    text-align: left;
+    font-size: 11px;
+    text-transform: uppercase;
+    color: #64748b;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .folder-docs-table tbody tr.doc-row {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    transition: background 0.2s ease;
+  }
+
+  .folder-docs-table tbody tr.doc-row:hover {
+    background: rgba(15, 108, 189, 0.08);
+  }
+
+  .folder-docs-table td {
+    padding: 10px 12px;
+    color: #cbd5e1;
+    vertical-align: middle;
+  }
+
+  .folder-empty-state {
+    padding: 2rem 1.5rem;
+    text-align: center;
+    color: #64748b;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .folder-empty-state p {
+    margin: 0;
+    font-size: 0.9rem;
   }
 
   .recent-files-section {
