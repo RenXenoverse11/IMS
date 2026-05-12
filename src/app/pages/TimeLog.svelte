@@ -894,10 +894,20 @@
         : { tone: 'success', label: 'Almost complete' };
   $: completedEntries = entries.filter((entry) => entry.timeOut && Number(entry.hours) > 0);
   $: exportMonth = exportMonth || getMonthInputFromDate(date) || getCurrentMonthInput();
-  $: attendanceEntriesForExport = completedEntries
-    .filter((entry) => getMonthInputFromDate(entry.date) === exportMonth)
+  $: attendanceDayStartDate = normalizeDateOnly(ojtStartDate || '');
+  $: attendanceDayEntries = completedEntries
     .slice()
-    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    .sort((a, b) => {
+      const dateCompare = String(a.date || '').localeCompare(String(b.date || ''));
+      if (dateCompare !== 0) return dateCompare;
+      const timeCompare = String(a.timeIn || '').localeCompare(String(b.timeIn || ''));
+      if (timeCompare !== 0) return timeCompare;
+      return String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
+    })
+    .filter((entry) => !attendanceDayStartDate || String(entry.date || '') >= attendanceDayStartDate);
+  $: attendanceEntriesForExport = attendanceDayEntries
+    .map((entry, index) => ({ ...entry, attendanceDay: index + 1 }))
+    .filter((entry) => getMonthInputFromDate(entry.date) === exportMonth);
   $: selectedExportMonthLabel = formatMonthLabel(exportMonth, true);
   $: selectedExportMonthTitle = formatMonthLabel(exportMonth, false);
   $: currentUser = authApi.getCurrentUser() || {};
@@ -1313,9 +1323,9 @@
             </tr>
           </thead>
           <tbody>
-            {#each attendanceEntriesForExport as entry, index (entry.id)}
+            {#each attendanceEntriesForExport as entry (entry.id)}
               <tr>
-                <td>{index + 1}</td>
+                <td>{entry.attendanceDay}</td>
                 <td>{formatAttendanceDate(entry.date)}</td>
                 <td>{formatAttendanceTime(entry.timeIn)}</td>
                 <td>{formatAttendanceTime(entry.timeOut)}</td>
