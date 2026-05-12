@@ -6121,6 +6121,7 @@ let assignedTasksError = '';
   }
 
   .activity-shell.projects-page .daily-logs-content {
+    align-items: start;
     background: transparent;
     padding: 0;
   }
@@ -6152,10 +6153,14 @@ let assignedTasksError = '';
   }
 
   .activity-shell.projects-page .worklog-list-card {
-    height: 540px;
-    min-height: 540px;
+    height: 420px;
+    min-height: 420px;
     display: flex;
     flex-direction: column;
+  }
+
+  .activity-shell.projects-page .worklog-form-card {
+    height: fit-content;
   }
 
   .activity-shell.projects-page .worklog-list-scroll {
