@@ -1,5 +1,5 @@
 <script>
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import {
     AlertCircle,
     Calendar,
@@ -21,6 +21,7 @@
   const ACTIVE_SESSION_STORAGE_PREFIX = 'ims-active-time-session';
   const DEFAULT_TIME_IN = '09:00';
   const DEFAULT_TIME_OUT = '17:00';
+  const HTML2PDF_CDN_URL = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
   
   // ---- Skeleton loading flag ----
   let isLoading = true;
@@ -46,6 +47,9 @@
   let isLoggingOut = false;
   let isLoggedIn = false;
   let isDeletingEntry = false;
+  let isExportingAttendance = false;
+  let exportMonth = '';
+  let attendanceSheetRef = null;
 
   // Intern's custom schedule from supervisor assignment
   let internSchedule = {
@@ -65,6 +69,66 @@
   let deleteConfirmEntry = null;
   let unsubscribeAuth = null;
   let queuedAuthRefresh = false;
+  let html2pdfLoaderPromise = null;
+
+  function getHtml2PdfFromWindow() {
+    if (typeof window === 'undefined') return null;
+    const instance = window.html2pdf;
+    return typeof instance === 'function' ? instance : null;
+  }
+
+  function ensureHtml2PdfLoaded() {
+    const existing = getHtml2PdfFromWindow();
+    if (existing) return Promise.resolve(existing);
+
+    if (html2pdfLoaderPromise) return html2pdfLoaderPromise;
+
+    html2pdfLoaderPromise = new Promise((resolve, reject) => {
+      if (typeof document === 'undefined') {
+        reject(new Error('html2pdf.js not available'));
+        return;
+      }
+
+      const current = getHtml2PdfFromWindow();
+      if (current) {
+        resolve(current);
+        return;
+      }
+
+      const existingScript = document.querySelector(`script[data-lib="html2pdf"][src="${HTML2PDF_CDN_URL}"]`);
+      if (existingScript) {
+        existingScript.addEventListener('load', () => {
+          const loaded = getHtml2PdfFromWindow();
+          if (loaded) {
+            resolve(loaded);
+            return;
+          }
+          reject(new Error('html2pdf.js not available'));
+        }, { once: true });
+        existingScript.addEventListener('error', () => reject(new Error('html2pdf.js not available')), { once: true });
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.src = HTML2PDF_CDN_URL;
+      script.async = true;
+      script.dataset.lib = 'html2pdf';
+      script.onload = () => {
+        const loaded = getHtml2PdfFromWindow();
+        if (loaded) {
+          resolve(loaded);
+          return;
+        }
+        reject(new Error('html2pdf.js not available'));
+      };
+      script.onerror = () => reject(new Error('html2pdf.js not available'));
+      document.head.appendChild(script);
+    }).finally(() => {
+      html2pdfLoaderPromise = null;
+    });
+
+    return html2pdfLoaderPromise;
+  }
 
   function getActiveSessionStorageKey(userId) {
     const normalizedUserId = String(userId || '').trim();
@@ -161,6 +225,61 @@
     const num = Number(value);
     if (!Number.isFinite(num)) return '0';
     return num.toFixed(1).replace(/\.0$/, '');
+  }
+
+  function formatAttendanceHours(value) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return '0';
+    return Number(num.toFixed(2)).toString();
+  }
+
+  function formatAttendanceDate(value) {
+    const dateObj = parseIsoDateOnly(value);
+    if (!dateObj) return '';
+    const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const day = String(dateObj.getDate()).padStart(2, '0');
+    const year = String(dateObj.getFullYear()).slice(-2);
+    return `${month}-${day}-${year}`;
+  }
+
+  function formatAttendanceTime(value) {
+    const normalized = normalizeTimeValue(value, '');
+    if (!normalized) return '';
+    const [hoursRaw, minutesRaw] = normalized.split(':');
+    const hours24 = Number(hoursRaw);
+    const minutes = String(minutesRaw || '00').padStart(2, '0');
+    if (!Number.isFinite(hours24)) return normalized;
+    const hours12 = ((hours24 + 11) % 12) + 1;
+    return `${String(hours12).padStart(2, '0')}:${minutes}`;
+  }
+
+  function formatMonthLabel(monthInput, includeYear = true) {
+    const raw = String(monthInput || '').trim();
+    if (!/^\d{4}-\d{2}$/.test(raw)) return '';
+    const [yearText, monthText] = raw.split('-');
+    const year = Number(yearText);
+    const monthIndex = Number(monthText) - 1;
+    if (!Number.isFinite(year) || !Number.isFinite(monthIndex) || monthIndex < 0 || monthIndex > 11) return '';
+    const dateObj = new Date(year, monthIndex, 1);
+    return new Intl.DateTimeFormat('en-US', includeYear ? { month: 'long', year: 'numeric' } : { month: 'long' }).format(dateObj);
+  }
+
+  function toSafeFilenameSegment(value, fallback = 'Intern') {
+    const raw = String(value || '').trim();
+    const sanitized = raw.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    return sanitized || fallback;
+  }
+
+  function getMonthInputFromDate(value) {
+    const normalized = normalizeDateOnly(value);
+    if (!normalized) return '';
+    return normalized.slice(0, 7);
+  }
+
+  function getCurrentMonthInput() {
+    const today = new Date();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    return `${today.getFullYear()}-${month}`;
   }
 
   function parseIsoDateOnly(value) {
@@ -441,6 +560,53 @@
     requestTlChartInit();
   }
 
+  async function exportAttendanceSheetPdf() {
+    if (isExportingAttendance) return;
+    if (!attendanceEntriesForExport.length) {
+      logSyncError = 'No completed entries found for the selected month.';
+      return;
+    }
+    isExportingAttendance = true;
+    logSyncError = '';
+    try {
+      const html2pdf = await ensureHtml2PdfLoaded();
+      if (typeof html2pdf !== 'function') {
+        throw new Error('html2pdf.js not available');
+      }
+
+      await tick();
+
+      if (!attendanceSheetRef) {
+        throw new Error('Attendance sheet preview is not available.');
+      }
+
+      const internPart = toSafeFilenameSegment(internFullName || 'Intern', 'Intern');
+      const monthPart = toSafeFilenameSegment(selectedExportMonthLabel || formatMonthLabel(exportMonth, true) || 'Month-Year', 'Month-Year');
+      const filename = `OJT-Attendance-Sheet-${internPart}-${monthPart}.pdf`;
+      const options = {
+        margin: [6, 8, 6, 8],
+        filename,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
+      };
+
+      await html2pdf().set(options).from(attendanceSheetRef).save();
+    } catch (err) {
+      const message = String(err?.message || '');
+      if (message.toLowerCase().includes('html2pdf')) {
+        if (typeof window !== 'undefined') {
+          window.alert('html2pdf.js is not installed. Run: npm install html2pdf.js');
+        }
+      } else {
+        logSyncError = message || 'Unable to export attendance sheet right now.';
+      }
+    } finally {
+      isExportingAttendance = false;
+    }
+  }
+
   // ---- Chart logic (unchanged) ----
   let _chartJsPromise = null;
   function _loadChartJs() {
@@ -657,6 +823,9 @@
       const month = String(today.getMonth() + 1).padStart(2, '0');
       const day = String(today.getDate()).padStart(2, '0');
       date = `${year}-${month}-${day}`;
+      if (!exportMonth) {
+        exportMonth = `${year}-${month}`;
+      }
       await checkForActiveSession();
       requestTlChartInit();
     } catch (err) {
@@ -724,6 +893,16 @@
         ? { tone: 'success', label: 'On track' }
         : { tone: 'success', label: 'Almost complete' };
   $: completedEntries = entries.filter((entry) => entry.timeOut && Number(entry.hours) > 0);
+  $: exportMonth = exportMonth || getMonthInputFromDate(date) || getCurrentMonthInput();
+  $: attendanceEntriesForExport = completedEntries
+    .filter((entry) => getMonthInputFromDate(entry.date) === exportMonth)
+    .slice()
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  $: selectedExportMonthLabel = formatMonthLabel(exportMonth, true);
+  $: selectedExportMonthTitle = formatMonthLabel(exportMonth, false);
+  $: currentUser = authApi.getCurrentUser() || {};
+  $: internFullName = String(currentUser?.full_name || '').trim() || 'Intern';
+  $: companyName = String(currentUser?.company || currentUser?.ojt?.company || '').trim();
   
   $: if (typeof window !== 'undefined' && completedHours >= 0 && completedHoursStorageKey) {
     localStorage.setItem(completedHoursStorageKey, String(completedHours));
@@ -1038,7 +1217,21 @@
     <div class="tl-table-section">
       <div class="tl-table-header">
         <span class="tl-table-title">Time Log History</span>
-        <span class="tl-entry-count">{completedEntries.length} completed {completedEntries.length === 1 ? 'entry' : 'entries'}</span>
+        <div class="tl-table-tools">
+          <span class="tl-entry-count">{completedEntries.length} completed {completedEntries.length === 1 ? 'entry' : 'entries'}</span>
+          <label class="tl-export-month">
+            <span>Month</span>
+            <input type="month" bind:value={exportMonth} />
+          </label>
+          <button class="tl-export-btn" type="button" on:click={exportAttendanceSheetPdf} disabled={isExportingAttendance || attendanceEntriesForExport.length === 0}>
+            {#if isExportingAttendance}
+              <Loader2 size={14} class="tl-spin" />
+              Exporting...
+            {:else}
+              Export Attendance Sheet
+            {/if}
+          </button>
+        </div>
       </div>
       <div class="tl-table-scroll">
         <table>
@@ -1081,6 +1274,55 @@
                 <td colspan="8" class="tl-empty-row">No time entries yet. Log in to start tracking your hours.</td>
               </tr>
             {/if}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tl-attendance-print-root" aria-hidden="true">
+      <div class="tl-attendance-sheet" bind:this={attendanceSheetRef}>
+        <div class="tl-attendance-head">
+          <h1>OJT DAILY ATTENDANCE SHEET</h1>
+          <h2>Month of {selectedExportMonthTitle || '__________'}</h2>
+        </div>
+
+        <div class="tl-attendance-meta">
+          <div class="tl-attendance-meta-row">
+            <span class="tl-attendance-meta-label">Name:</span>
+            <span class="tl-attendance-meta-value">{internFullName}</span>
+          </div>
+          <div class="tl-attendance-meta-row">
+            <span class="tl-attendance-meta-label">Company Name:</span>
+            <span class="tl-attendance-meta-value">{companyName || '\u00A0'}</span>
+          </div>
+          <div class="tl-attendance-meta-row">
+            <span class="tl-attendance-meta-label">Name of Representative:</span>
+            <span class="tl-attendance-meta-value">{'\u00A0'}</span>
+          </div>
+        </div>
+
+        <table class="tl-attendance-table">
+          <thead>
+            <tr>
+              <th>Day</th>
+              <th>Date</th>
+              <th>TIME-IN</th>
+              <th>TIME-OUT</th>
+              <th>Number of Hours</th>
+              <th>Signature</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each attendanceEntriesForExport as entry, index (entry.id)}
+              <tr>
+                <td>{index + 1}</td>
+                <td>{formatAttendanceDate(entry.date)}</td>
+                <td>{formatAttendanceTime(entry.timeIn)}</td>
+                <td>{formatAttendanceTime(entry.timeOut)}</td>
+                <td>{formatAttendanceHours(entry.hours)}</td>
+                <td></td>
+              </tr>
+            {/each}
           </tbody>
         </table>
       </div>
@@ -1586,11 +1828,159 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
     padding: 16px 22px;
     border-bottom: 1px solid var(--tl-border);
   }
   .tl-table-title { font-size: 14px; font-weight: 600; color: var(--tl-text); }
   .tl-entry-count  { font-size: 12px; color: var(--tl-text2); }
+  .tl-table-tools {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .tl-export-month {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11.5px;
+    color: var(--tl-text2);
+    font-weight: 600;
+  }
+  .tl-export-month input {
+    width: 148px;
+    background: var(--tl-surface2);
+    border: 1px solid var(--tl-border);
+    border-radius: var(--tl-radius-sm);
+    padding: 7px 10px;
+    color: var(--tl-text);
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    outline: none;
+  }
+  .tl-export-month input:focus {
+    border-color: var(--tl-accent);
+    box-shadow: 0 0 0 3px var(--tl-accent-glow);
+  }
+  .tl-export-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 34px;
+    padding: 0 14px;
+    border-radius: 8px;
+    border: 1px solid var(--tl-border);
+    background: var(--tl-surface2);
+    color: var(--tl-text);
+    font-family: 'DM Sans', inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .tl-export-btn:hover:not(:disabled) {
+    border-color: var(--tl-accent2);
+    color: var(--tl-accent);
+  }
+  .tl-export-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .tl-attendance-print-root {
+    position: fixed;
+    left: -99999px;
+    top: 0;
+    width: 194mm;
+    z-index: -1;
+    pointer-events: none;
+  }
+  .tl-attendance-sheet {
+    width: 194mm;
+    background: #ffffff;
+    color: #000000;
+    padding: 10mm 8mm 8mm;
+    font-family: 'Times New Roman', Georgia, serif;
+    box-sizing: border-box;
+  }
+  .tl-attendance-head {
+    text-align: center;
+    margin-bottom: 8mm;
+    color: #000000;
+  }
+  .tl-attendance-head h1 {
+    margin: 0;
+    font-size: 22px;
+    letter-spacing: 0.02em;
+    font-weight: 700;
+    color: #000000;
+  }
+  .tl-attendance-head h2 {
+    margin: 6px 0 0;
+    font-size: 18px;
+    font-weight: 700;
+    color: #000000;
+  }
+  .tl-attendance-meta {
+    display: grid;
+    gap: 6px;
+    margin-bottom: 8mm;
+    color: #000000;
+    font-size: 14px;
+  }
+  .tl-attendance-meta-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .tl-attendance-meta-label {
+    min-width: 160px;
+    font-weight: 700;
+    color: #000000;
+  }
+  .tl-attendance-meta-value {
+    flex: 1;
+    min-height: 22px;
+    border-bottom: 1px solid #000000;
+    display: inline-flex;
+    align-items: flex-end;
+    padding-bottom: 2px;
+    color: #000000;
+  }
+  .tl-attendance-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    color: #000000;
+    font-size: 12px;
+  }
+  .tl-attendance-table th,
+  .tl-attendance-table td {
+    border: 1px solid #000000;
+    padding: 6px 4px;
+    text-align: center;
+    color: #000000;
+  }
+  .tl-attendance-table th {
+    font-weight: 700;
+    color: #000000;
+  }
+  .tl-attendance-table th:nth-child(1),
+  .tl-attendance-table td:nth-child(1) { width: 10%; }
+  .tl-attendance-table th:nth-child(2),
+  .tl-attendance-table td:nth-child(2) { width: 18%; }
+  .tl-attendance-table th:nth-child(3),
+  .tl-attendance-table td:nth-child(3) { width: 18%; }
+  .tl-attendance-table th:nth-child(4),
+  .tl-attendance-table td:nth-child(4) { width: 18%; }
+  .tl-attendance-table th:nth-child(5),
+  .tl-attendance-table td:nth-child(5) { width: 18%; }
+  .tl-attendance-table th:nth-child(6),
+  .tl-attendance-table td:nth-child(6) { width: 18%; }
   .tl-table-scroll { overflow-x: auto; max-height: 400px; overflow-y: auto; }
   .tl-table-scroll table { width: 100%; border-collapse: collapse; }
   .tl-table-scroll thead th {
