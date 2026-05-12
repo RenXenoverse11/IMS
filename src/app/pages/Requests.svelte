@@ -1420,7 +1420,7 @@
                       updateRequestStatus(request.id, "Approved")}
                   >
                     {#if approvingRequestId === request.id}
-                      <Loader2 size={13} class="spin" /> Approving...
+                      <span class="spin"><Loader2 size={13} /></span> Approving...
                     {:else}
                       <CheckCircle size={13} /> Approve
                     {/if}

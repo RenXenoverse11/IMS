@@ -1,4 +1,4 @@
-
+﻿
 <script>
   import { onMount } from 'svelte';
   import { Upload, Link2, Folder, FolderOpen, FileText, Download, Trash2, Eye, Plus, Search, Share2, Copy, X, Check, ChevronRight, Loader2, Files, Clock } from 'lucide-svelte';
@@ -109,8 +109,45 @@
     }
   });
 
-  $: folderDocuments = documents.filter(doc => doc.folder === currentFolder);
+  $: normalizedFolders = folderStructure.root.subfolders
+    .map((folder) => normalizeFolderPath_(folder))
+    .filter(Boolean);
+  $: currentChildFolders = normalizedFolders.filter((folderPath) => getParentFolderPath_(folderPath) === currentFolder);
+  $: folderDocuments = documents.filter(doc => normalizeFolderPath_(doc.folder) === currentFolder);
   $: documentsInFolder = folderDocuments.length;
+  $: currentFolderName = currentFolder === '/' ? '' : getFolderNameFromPath_(currentFolder);
+  $: isFolderOpen = documentFilter === 'folders' && currentFolder !== '/';
+
+  function normalizeFolderPath_(value) {
+    const raw = String(value?.path || value || '').trim();
+    if (!raw || raw === '/') return '/';
+    const cleaned = raw
+      .replace(/\\/g, '/')
+      .replace(/^\/+/, '')
+      .replace(/\/+$/, '')
+      .split('/')
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .join('/');
+    return cleaned ? '/' + cleaned : '/';
+  }
+
+  function getFolderNameFromPath_(folderPath) {
+    const normalized = normalizeFolderPath_(folderPath);
+    if (normalized === '/') return 'Folders';
+    return normalized.split('/').filter(Boolean).pop() || 'Folders';
+  }
+
+  function getParentFolderPath_(folderPath) {
+    const parts = normalizeFolderPath_(folderPath).split('/').filter(Boolean);
+    if (parts.length <= 1) return '/';
+    return '/' + parts.slice(0, -1).join('/');
+  }
+
+  function getFolderDocumentCount_(folderPath) {
+    const normalized = normalizeFolderPath_(folderPath);
+    return documents.filter((doc) => normalizeFolderPath_(doc.folder) === normalized).length;
+  }
 
   function parseStoredAuthUserId_() {
     if (typeof window === 'undefined') {
@@ -160,7 +197,7 @@
       id: String(doc.id || ''),
       user_id: String(doc.user_id || doc.userId || ''),
       name: String(doc.name || ''),
-      folder: String(doc.folder || '/'),
+      folder: normalizeFolderPath_(doc.folder || '/'),
       type: String(doc.type || (isLink ? 'link' : 'file')),
       size: String(doc.size || ''),
       url: String(doc.url || ''),
@@ -210,15 +247,46 @@
   }
 
   function getDefaultUploadFolder_() {
-    const firstFolder = folderStructure.root.subfolders[0];
-    return firstFolder ? '/' + firstFolder : '/';
+    const firstFolder = normalizedFolders[0];
+    return firstFolder || '/';
   }
 
   function openUploadModal_() {
+    uploadToFolder = currentFolder !== '/' ? currentFolder : uploadToFolder;
     showUploadModal = true;
   }
 
+  function openDocumentFolder_(folderName) {
+    const normalizedFolder = normalizeFolderPath_(folderName);
+    if (!normalizedFolder || normalizedFolder === '/') return;
+    documentFilter = 'folders';
+    currentFolder = normalizedFolder;
+    selectedFolderInTab = normalizedFolder;
+    selectedDocuments = new Set();
+    selectAllChecked = false;
+    showBulkActions = false;
+    uploadToFolder = currentFolder;
+  }
+
+  function closeDocumentFolder_() {
+    currentFolder = '/';
+    selectedFolderInTab = null;
+    selectedDocuments = new Set();
+    selectAllChecked = false;
+    showBulkActions = false;
+    uploadToFolder = '/';
+  }
+
+  function goToParentFolder_() {
+    if (currentFolder === '/') return;
+    const parentPath = getParentFolderPath_(currentFolder);
+    currentFolder = parentPath;
+    selectedFolderInTab = parentPath === '/' ? null : parentPath;
+    uploadToFolder = parentPath;
+  }
+
   function openLinkModal_() {
+    uploadToFolder = currentFolder !== '/' ? currentFolder : uploadToFolder;
     showLinkModal = true;
   }
 
@@ -265,7 +333,7 @@
     try {
       const response = await callBackend_('get_document_folders', { user_id: userId });
       if (response?.ok && Array.isArray(response.folders) && response.folders.length > 0) {
-        folderStructure.root.subfolders = [...response.folders];
+        folderStructure.root.subfolders = response.folders.map((folder) => normalizeFolderPath_(folder));
       } else {
         folderStructure.root.subfolders = [...folderStructure.root.subfolders];
       }
@@ -286,7 +354,7 @@
       if (response?.ok) {
         // Update folders
         if (Array.isArray(response.folders)) {
-          folderStructure.root.subfolders = [...response.folders];
+          folderStructure.root.subfolders = response.folders.map((folder) => normalizeFolderPath_(folder));
         }
         
         // Update documents
@@ -359,7 +427,7 @@
         await loadDocuments_();
         showUploadModal = false;
         showUploadPreview = false;
-        uploadToFolder = '/';
+        uploadToFolder = currentFolder !== '/' ? currentFolder : '/';
         pendingFile = null;
         pendingFilePreview = null;
         showActionMessage_('Document uploaded and saved to database.');
@@ -418,7 +486,7 @@
           newLinkName = '';
           newLinkUrl = '';
           showLinkModal = false;
-          uploadToFolder = '/';
+          uploadToFolder = currentFolder !== '/' ? currentFolder : '/';
           showActionMessage_('Link uploaded and saved to database.');
         } else {
           showActionMessage_('Add link failed: ' + (response.error || 'Unknown error.'), 'error');
@@ -776,9 +844,9 @@
   }
 
   function formatDate(dateStr) {
-    if (!dateStr) return '—';
+    if (!dateStr) return 'â€”';
     const date = new Date(dateStr);
-    if (isNaN(date.getTime())) return '—';
+    if (isNaN(date.getTime())) return 'â€”';
     return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
   }
 
@@ -833,24 +901,74 @@
     {/if}
 
     {#if isLoading}
-      <!-- Skeleton Stats -->
-      <div class="skeleton-stats">
-        <div class="skeleton skeleton-stat-card"></div>
-        <div class="skeleton skeleton-stat-card"></div>
-        <div class="skeleton skeleton-stat-card"></div>
-        <div class="skeleton skeleton-stat-card"></div>
+      <div class="stats-row docs-skeleton-stats" aria-hidden="true">
+        {#each [1, 2, 3, 4] as _}
+          <div class="stat-card docs-skeleton-stat-card">
+            <div class="stat-head">
+              <div class="skeleton docs-skeleton-label"></div>
+              <div class="skeleton docs-skeleton-icon"></div>
+            </div>
+            <div class="skeleton docs-skeleton-value"></div>
+            <div class="skeleton docs-skeleton-sub"></div>
+          </div>
+        {/each}
       </div>
 
-      <div class="section-header" style="margin-top: 32px;">
-        <span class="section-title">Folders</span>
-      </div>
-      <div class="skeleton-folders">
-        <div class="skeleton skeleton-folder-card"></div>
-        <div class="skeleton skeleton-folder-card"></div>
-        <div class="skeleton skeleton-folder-card"></div>
-      </div>
+      <div class="bottom-area docs-skeleton-area" aria-hidden="true">
+        <div>
+          <div class="search-filter-bar">
+            <div class="search-wrap">
+              <Search size={15} />
+              <div class="skeleton docs-skeleton-search"></div>
+            </div>
+          </div>
 
-      <div class="skeleton skeleton-table-panel"></div>
+          <div class="docs-panel docs-skeleton-panel">
+            <div class="docs-panel-header">
+              <div class="filter-tabs docs-skeleton-tabs">
+                {#each [1, 2, 3, 4] as _}
+                  <div class="skeleton docs-skeleton-tab"></div>
+                {/each}
+              </div>
+              <div class="header-controls docs-skeleton-controls">
+                <div class="skeleton docs-skeleton-count"></div>
+                <div class="skeleton docs-skeleton-button"></div>
+                <div class="skeleton docs-skeleton-button docs-skeleton-button-primary"></div>
+                <div class="skeleton docs-skeleton-select"></div>
+              </div>
+            </div>
+
+            <div class="sort-bar docs-skeleton-sort">
+              <div class="skeleton docs-skeleton-sort-label"></div>
+              <div class="skeleton docs-skeleton-sort-btn"></div>
+              <div class="skeleton docs-skeleton-sort-btn"></div>
+              <div class="skeleton docs-skeleton-sort-btn"></div>
+            </div>
+
+            <div class="docs-skeleton-list">
+              {#each [1, 2, 3] as _}
+                <div class="docs-skeleton-row">
+                  <div class="docs-skeleton-row-main">
+                    <div class="skeleton docs-skeleton-file-icon"></div>
+                    <div class="docs-skeleton-file-text">
+                      <div class="skeleton docs-skeleton-file-name"></div>
+                      <div class="skeleton docs-skeleton-uploader"></div>
+                    </div>
+                  </div>
+                  <div class="skeleton docs-skeleton-badge"></div>
+                  <div class="skeleton docs-skeleton-size"></div>
+                  <div class="skeleton docs-skeleton-date"></div>
+                  <div class="docs-skeleton-actions">
+                    <div class="skeleton docs-skeleton-action"></div>
+                    <div class="skeleton docs-skeleton-action"></div>
+                    <div class="skeleton docs-skeleton-action"></div>
+                  </div>
+                </div>
+              {/each}
+            </div>
+          </div>
+        </div>
+      </div>
     {:else}
       <div class="stats-row">
         <div class="stat-card stat-card--folders">
@@ -910,28 +1028,40 @@
                 <button 
                   class="filter-tab" 
                   class:active={documentFilter === 'all'}
-                  on:click={() => documentFilter = 'all'}
+                  on:click={() => {
+                    documentFilter = 'all';
+                    closeDocumentFolder_();
+                  }}
                 >
                   All Documents
                 </button>
                 <button 
                   class="filter-tab" 
                   class:active={documentFilter === 'my'}
-                  on:click={() => documentFilter = 'my'}
+                  on:click={() => {
+                    documentFilter = 'my';
+                    closeDocumentFolder_();
+                  }}
                 >
                   My Documents
                 </button>
                 <button 
                   class="filter-tab" 
                   class:active={documentFilter === 'shared'}
-                  on:click={() => documentFilter = 'shared'}
+                  on:click={() => {
+                    documentFilter = 'shared';
+                    closeDocumentFolder_();
+                  }}
                 >
                   Shared with Me
                 </button>
                 <button 
                   class="filter-tab" 
                   class:active={documentFilter === 'folders'}
-                  on:click={() => documentFilter = 'folders'}
+                  on:click={() => {
+                    documentFilter = 'folders';
+                    closeDocumentFolder_();
+                  }}
                 >
                   Folders
                 </button>
@@ -955,7 +1085,7 @@
                     Cancel
                   </button>
                 {:else}
-                  <span class="docs-count">{filteredDocuments.length} items</span>
+                  <span class="docs-count">{isFolderOpen ? folderDocuments.length : filteredDocuments.length} items</span>
                   <button class="btn btn-ghost" on:click={() => (showCreateFolderModal = true)}>
                     <Folder size={14} />
                     <span>Create Folder</span>
@@ -990,12 +1120,12 @@
                     </tr>
                   </thead>
                   <tbody>
-                    {#each folderStructure.root.subfolders as folder (folder)}
-                      {@const folderDocs = documents.filter(doc => doc.folder === '/' + folder)}
+                    {#each currentChildFolders as folder (folder)}
+                      {@const folderDocs = documents.filter(doc => normalizeFolderPath_(doc.folder) === folder)}
                       <tr 
                         class="table-row"
                         class:active={selectedFolderInTab === folder}
-                        on:click={() => selectedFolderInTab = selectedFolderInTab === folder ? null : folder}
+                        on:click={() => openDocumentFolder_(folder)}
                         style="cursor: pointer;"
                       >
                         <td class="col-name">
@@ -1003,17 +1133,17 @@
                             <div class="file-icon">
                               <Folder size={16} />
                             </div>
-                            <span class="file-name">{folder}</span>
+                            <span class="file-name">{getFolderNameFromPath_(folder)}</span>
                           </div>
                         </td>
                         <td class="col-creator">
-                          <span class="creator-name">—</span>
+                          <span class="creator-name">â€”</span>
                         </td>
                         <td class="col-files">
                           <span class="files-count">{folderDocs.length}</span>
                         </td>
                       </tr>
-                      {#if selectedFolderInTab === folder}
+                      {#if false && selectedFolderInTab === folder}
                         <tr class="folder-details-row">
                           <td colspan="3">
                             {#if folderDocs.length > 0}
@@ -1055,11 +1185,11 @@
                                             </button>
                                           </div>
                                         </td>
-                                        <td class="col-creator">{doc.created_by || '—'}</td>
+                                        <td class="col-creator">{doc.created_by || 'â€”'}</td>
                                         <td class="col-type">
                                           <span class="type-badge">{doc.isLink ? 'Link' : 'File'}</span>
                                         </td>
-                                        <td class="col-size">{doc.size || '—'}</td>
+                                        <td class="col-size">{doc.size || 'â€”'}</td>
                                         <td class="col-date">{formatDate(doc.uploadedDate || doc.created_date)}</td>
                                         <td class="col-actions">
                                           <div class="action-buttons">
@@ -1114,13 +1244,27 @@
                     {/each}
                   </tbody>
                 </table>
-                {#if folderStructure.root.subfolders.length === 0}
+                {#if currentChildFolders.length === 0}
                   <p class="no-folders-message">No folders available</p>
                 {/if}
               </div>
             {/if}
 
-            {#if documentFilter !== 'folders' && filteredDocuments.length > 0}
+            {#if isFolderOpen}
+              <div class="folder-open-header">
+                <button type="button" class="folder-back-btn" on:click={closeDocumentFolder_}>
+                  <FolderOpen size={14} />
+                  <span>Folders</span>
+                </button>
+                <ChevronRight size={14} />
+                <div class="folder-open-title">
+                  <Folder size={16} />
+                  <span>{currentFolderName}</span>
+                </div>
+              </div>
+            {/if}
+
+            {#if (documentFilter !== 'folders' || isFolderOpen) && filteredDocuments.length > 0}
               <div class="sort-bar">
                 <div class="sort-controls">
                   <span class="sort-label">Sort by:</span>
@@ -1152,7 +1296,7 @@
               </div>
             {/if}
 
-            {#if filteredDocuments.length > 0 && documentFilter !== 'folders'}
+            {#if filteredDocuments.length > 0 && (documentFilter !== 'folders' || isFolderOpen)}
               <div class="table-wrapper">
                 <table class="documents-table">
                   <thead>
@@ -1160,12 +1304,12 @@
                       {#if showBulkActions}
                         <th class="col-checkbox"></th>
                       {/if}
-                      <th>Name</th>
-                      <th>Uploaded By</th>
-                      <th>Type</th>
-                      <th>Size</th>
-                      <th>Uploaded</th>
-                      <th>Actions</th>
+                      <th class="col-name-header">Name</th>
+                      <th class="col-uploader-header">Uploaded By</th>
+                      <th class="col-type-header">Type</th>
+                      <th class="col-size-header">Size</th>
+                      <th class="col-date-header">Uploaded</th>
+                      <th class="col-actions-header">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1215,7 +1359,7 @@
                           </div>
                         </td>
                         <td class="col-uploader">
-                          <span class="uploader-name">{doc.created_by_name || '—'}</span>
+                          <span class="uploader-name">{doc.created_by_name || 'â€”'}</span>
                         </td>
                         <td class="col-type">
                           <span class="type-badge">{doc.isLink ? 'Link' : 'File'}</span>
@@ -1224,7 +1368,7 @@
                           {#if doc.size}
                             {doc.size}
                           {:else}
-                            —
+                            â€”
                           {/if}
                         </td>
                         <td class="col-date">{formatDate(doc.uploadedDate)}</td>
@@ -1274,12 +1418,12 @@
                   </tbody>
                 </table>
               </div>
-            {:else if documentFilter !== 'folders' && filteredDocuments.length === 0}
+            {:else if (documentFilter !== 'folders' || isFolderOpen) && filteredDocuments.length === 0}
               <div class="empty-state">
                 <div class="empty-icon-wrap">
                   <FileText size={28} />
                 </div>
-                <div class="empty-title">No documents yet</div>
+                <div class="empty-title">{isFolderOpen ? 'This folder is empty' : 'No documents yet'}</div>
                 <div class="empty-sub">Upload a document or add a link to get started</div>
               </div>
             {/if}
@@ -1294,15 +1438,18 @@
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div class="modal-overlay" on:click={closeUploadModal}>
-      <div class="modal" on:click={(e) => e.stopPropagation()}>
+      <div class="modal modal-upload" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
-          <h2>Upload Document</h2>
+          <div class="modal-title-stack">
+            <h2>Upload Document</h2>
+            <p>Choose a folder, then upload your file.</p>
+          </div>
           <button class="close-btn" on:click={closeUploadModal}>×</button>
         </div>
 
-        <div class="modal-body">
+        <div class="modal-body modal-upload-body">
           <!-- Folder Selection with Search -->
-          <div class="form-group">
+          <div class="form-group upload-folder-section">
             <span class="label-heading">Select Folder (Optional)</span>
             
             <!-- Search Box -->
@@ -1332,28 +1479,27 @@
                 <span class="folder-name">None</span>
               </button>
 
-              {#each folderStructure.root.subfolders.filter(f => f.toLowerCase().includes(folderSearchQuery.toLowerCase())) as folder (folder)}
-                {@const folderPath = '/' + folder}
+              {#each normalizedFolders.filter(f => f.toLowerCase().includes(folderSearchQuery.toLowerCase())) as folderPath (folderPath)}
                 <button
                   type="button"
                   class="folder-card"
                   class:active={uploadToFolder === folderPath}
                   on:click|stopPropagation={() => (uploadToFolder = folderPath)}
-                  title={folder}
+                  title={folderPath}
                 >
                   <Folder size={20} />
-                  <span class="folder-name">{folder}</span>
+                  <span class="folder-name">{folderPath.substring(1)}</span>
                 </button>
               {/each}
             </div>
 
-            {#if folderStructure.root.subfolders.filter(f => f.toLowerCase().includes(folderSearchQuery.toLowerCase())).length === 0 && folderStructure.root.subfolders.length > 0}
+            {#if normalizedFolders.filter(f => f.toLowerCase().includes(folderSearchQuery.toLowerCase())).length === 0 && normalizedFolders.length > 0}
               <div class="no-folders-message">No folders match your search</div>
             {/if}
           </div>
 
           <!-- Upload Area -->
-          <div class="upload-area">
+          <div class="upload-area upload-dropzone">
             <input
               type="file"
               id="fileInput"
@@ -1371,7 +1517,7 @@
         </div>
 
         <div class="modal-footer">
-          <button class="btn btn-secondary" on:click={closeUploadModal}>Cancel</button>
+          <button class="btn btn-secondary" on:click={closeUploadModal}>Close</button>
         </div>
       </div>
     </div>
@@ -1382,19 +1528,19 @@
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div class="modal-overlay" on:click={() => !isUploading && cancelUpload()}>
-      <div class="modal" on:click={(e) => e.stopPropagation()}>
+      <div class="modal modal-create-folder" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
           <h2>Review Document</h2>
-          <button class="close-btn" on:click={() => cancelUpload()} disabled={isUploading}>×</button>
+          <button class="close-btn" on:click={() => cancelUpload()} disabled={isUploading}>Ã—</button>
         </div>
 
         <div class="modal-body">
           <div class="preview-content">
             <div class="preview-icon">
               {#if pendingFilePreview.type === 'pdf' || pendingFilePreview.type.includes('pdf')}
-                <div class="icon-pdf">📄</div>
+                <div class="icon-pdf">ðŸ“„</div>
               {:else}
-                <div class="icon-file">📋</div>
+                <div class="icon-file">ðŸ“‹</div>
               {/if}
             </div>
 
@@ -1412,7 +1558,7 @@
               <div class="preview-section">
                 <label for="preview-folder">Upload Folder</label>
                 <p class="preview-value" id="preview-folder">
-                  {pendingFilePreview.folder.substring(1)}
+                  {pendingFilePreview.folder === '/' ? 'No Folder' : pendingFilePreview.folder.substring(1)}
                 </p>
               </div>
             </div>
@@ -1443,7 +1589,7 @@
       <div class="modal" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
           <h2>Add Link</h2>
-          <button class="close-btn" on:click={() => (showLinkModal = false)}>×</button>
+          <button class="close-btn" on:click={() => (showLinkModal = false)}>Ã—</button>
         </div>
 
         <div class="modal-body">
@@ -1462,8 +1608,7 @@
                 <span>None</span>
               </button>
 
-              {#each folderStructure.root.subfolders as folder (folder)}
-                {@const folderPath = '/' + folder}
+              {#each normalizedFolders as folderPath (folderPath)}
                 <button
                   type="button"
                   class="folder-tab"
@@ -1471,7 +1616,7 @@
                   on:click|stopPropagation={() => (uploadToFolder = folderPath)}
                 >
                   <Folder size={16} />
-                  <span>{folder}</span>
+                  <span>{folderPath.substring(1)}</span>
                 </button>
               {/each}
             </div>
@@ -1522,14 +1667,17 @@
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div class="modal-overlay" on:click={() => !isCreatingFolder && (showCreateFolderModal = false)}>
-      <div class="modal" on:click={(e) => e.stopPropagation()}>
+      <div class="modal modal-folder-create" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
-          <h2>Create Folder</h2>
+          <div class="modal-title-stack">
+            <h2>Create Folder</h2>
+            <p>Create a folder inside the current directory.</p>
+          </div>
           <button class="close-btn" on:click={() => (showCreateFolderModal = false)} disabled={isCreatingFolder}>×</button>
         </div>
 
-        <div class="modal-body">
-          <div class="form-group">
+        <div class="modal-body modal-folder-create-body">
+          <div class="form-group folder-create-form-group">
             <label for="folderName">Folder Name</label>
             <input
               id="folderName"
@@ -1554,6 +1702,7 @@
               const response = await callBackend_('create_folder', {
                 user_id: userId,
                 folder_name: folderName,
+                parent_path: currentFolder,
               });
 
               if (!response?.ok) {
@@ -1562,7 +1711,11 @@
               }
 
               await loadFolders_();
-              uploadToFolder = '/' + folderName;
+              const createdPath = normalizeFolderPath_(response?.folder?.path || currentFolder + '/' + folderName);
+              uploadToFolder = createdPath;
+              documentFilter = 'folders';
+              currentFolder = createdPath;
+              selectedFolderInTab = createdPath;
               newFolderName = '';
               showCreateFolderModal = false;
               showActionMessage_('Folder created.');
@@ -1594,7 +1747,7 @@
       <div class="modal" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
           <h2>Rename Folder</h2>
-          <button class="close-btn" on:click={() => (showRenameFolderModal = false)}>×</button>
+          <button class="close-btn" on:click={() => (showRenameFolderModal = false)}>Ã—</button>
         </div>
 
         <div class="modal-body">
@@ -1629,7 +1782,7 @@
       <div class="modal" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
           <h2>Delete Folder</h2>
-          <button class="close-btn" on:click={() => (showDeleteFolderConfirm = false)}>×</button>
+          <button class="close-btn" on:click={() => (showDeleteFolderConfirm = false)}>Ã—</button>
         </div>
 
         <div class="modal-body">
@@ -1660,7 +1813,7 @@
             <Trash2 size={24} />
           </div>
           <h2>Delete Document</h2>
-          <button class="close-btn" on:click={() => (showDeleteConfirm = false)}>×</button>
+          <button class="close-btn" on:click={() => (showDeleteConfirm = false)}>Ã—</button>
         </div>
 
         <div class="modal-body">
@@ -1674,7 +1827,7 @@
           <button class="btn btn-secondary" on:click={() => (showDeleteConfirm = false)} disabled={isDeleting}>Cancel</button>
           <button class="btn btn-danger" on:click={() => deleteDocument(documentToDelete.id)} disabled={isDeleting}>
             {#if isDeleting}
-              <Loader2 size={16} class="spinning-icon" />
+              <span class="spinning-icon"><Loader2 size={16} /></span>
             {:else}
               <Trash2 size={16} />
             {/if}
@@ -1696,7 +1849,7 @@
             <Trash2 size={24} />
           </div>
           <h2>Delete Documents</h2>
-          <button class="close-btn" on:click={() => (showBulkDeleteConfirm = false)}>×</button>
+          <button class="close-btn" on:click={() => (showBulkDeleteConfirm = false)}>Ã—</button>
         </div>
 
         <div class="modal-body">
@@ -1710,7 +1863,7 @@
           <button class="btn btn-secondary" on:click={() => (showBulkDeleteConfirm = false)} disabled={isDeleteBulkProcessing}>Cancel</button>
           <button class="btn btn-danger" on:click={confirmBulkDelete} disabled={isDeleteBulkProcessing}>
             {#if isDeleteBulkProcessing}
-              <Loader2 size={16} class="spinning-icon" />
+              <span class="spinning-icon"><Loader2 size={16} /></span>
             {:else}
               <Trash2 size={16} />
             {/if}
@@ -1729,7 +1882,7 @@
       <div class="modal" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
           <h2>Share "{selectedDocForShare.name}"</h2>
-          <button class="close-btn" on:click={() => (showShareModal = false)}>×</button>
+          <button class="close-btn" on:click={() => (showShareModal = false)}>Ã—</button>
         </div>
 
         <div class="modal-body">
@@ -1792,7 +1945,7 @@
                 <div class="share-item">
                   <div class="share-info">
                     <div class="share-email">{share.email}</div>
-                    <div class="share-role">{share.role} • Shared {formatDate(share.sharedDate)}</div>
+                    <div class="share-role">{share.role} â€¢ Shared {formatDate(share.sharedDate)}</div>
                   </div>
                   <button
                     class="remove-share-btn"
@@ -1956,6 +2109,28 @@
     animation: spin 1s linear infinite;
   }
 
+  .modal-title-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+
+  .modal-title-stack p {
+    margin: 0;
+    font-size: 0.82rem;
+    line-height: 1.35;
+    font-weight: 500;
+    color: #8ea1bb;
+  }
+
+  .modal-upload .modal-header,
+  .modal-folder-create .modal-header {
+    align-items: flex-start;
+  }
+
+  :global(html:not(.dark)) .modal-title-stack p {
+    color: #5f7188;
+  }
   @keyframes spin {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
@@ -1965,6 +2140,28 @@
     animation: spin 0.9s linear infinite;
   }
 
+  .modal-title-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+
+  .modal-title-stack p {
+    margin: 0;
+    font-size: 0.82rem;
+    line-height: 1.35;
+    font-weight: 500;
+    color: #8ea1bb;
+  }
+
+  .modal-upload .modal-header,
+  .modal-folder-create .modal-header {
+    align-items: flex-start;
+  }
+
+  :global(html:not(.dark)) .modal-title-stack p {
+    color: #5f7188;
+  }
   @keyframes spin {
     from {
       transform: rotate(0deg);
@@ -2065,8 +2262,8 @@
     align-items: center;
     gap: 0.6rem;
     padding: 0 0.75rem;
-    background: #f8f9fa;
-    border: 1px solid #e0e6ed;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 8px;
     margin-bottom: 1rem;
     height: 2.5rem;
@@ -2083,13 +2280,13 @@
     background: transparent;
     outline: none;
     font-size: 0.9rem;
-    color: #1f2937;
+    color: var(--doc-text);
     padding: 0;
     height: 100%;
   }
 
   .folder-search-input::placeholder {
-    color: #9ca3af;
+    color: var(--doc-muted);
   }
 
   .folder-grid {
@@ -2106,29 +2303,28 @@
     justify-content: center;
     gap: 0.6rem;
     padding: 1.2rem 1rem;
-    background: #f8f9fa;
-    border: 2px solid #e0e6ed;
-    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
     cursor: pointer;
     font-size: 0.85rem;
     font-weight: 500;
-    color: #4f657f;
+    color: #cbd5e1;
     transition: all 0.2s ease;
     text-align: center;
   }
 
   .folder-card:hover {
-    border-color: #0f6cbd;
-    color: #0f6cbd;
-    background: #e0efff;
-    transform: translateY(-2px);
+    border-color: rgba(96, 165, 250, 0.6);
+    color: #e2e8f0;
+    background: rgba(59, 130, 246, 0.1);
   }
 
   .folder-card.active {
-    background: linear-gradient(135deg, #0f6cbd 0%, #0ea5e9 100%);
+    background: rgba(59, 130, 246, 0.2);
     color: white;
-    border-color: transparent;
-    box-shadow: 0 4px 12px rgba(15, 108, 189, 0.3);
+    border-color: rgba(96, 165, 250, 0.9);
+    box-shadow: none;
   }
 
   .folder-card .folder-name {
@@ -2617,7 +2813,8 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
+    background: rgba(5, 10, 18, 0.72);
+    backdrop-filter: blur(2px);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2625,20 +2822,29 @@
   }
 
   .modal {
-    background: var(--doc-surface);
-    border-radius: 12px;
-    box-shadow: 0 20px 25px rgba(15, 23, 42, 0.18);
+    background: #0f1c2f;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.48);
     max-width: 500px;
     width: 90%;
     max-height: 90vh;
     overflow-y: auto;
   }
 
+  .modal-upload {
+    max-width: 760px;
+  }
+
+  .modal-create-folder {
+    max-width: 560px;
+  }
+
   .modal-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 1.5rem;
+    padding: 1.1rem 1.4rem;
     border-bottom: 1px solid var(--doc-border);
   }
 
@@ -2646,15 +2852,15 @@
     margin: 0;
     font-size: 1.25rem;
     font-weight: 700;
-    color: var(--doc-text);
+    color: #e2e8f0;
   }
 
   .close-btn {
     background: none;
     border: none;
-    font-size: 2rem;
+    font-size: 1.8rem;
     cursor: pointer;
-    color: var(--doc-muted);
+    color: #94a3b8;
     padding: 0;
     width: 2rem;
     height: 2rem;
@@ -2664,24 +2870,25 @@
   }
 
   .close-btn:hover {
-    color: var(--doc-text);
+    color: #e2e8f0;
   }
 
   .modal-body {
-    padding: 2rem 1.5rem;
+    padding: 1.2rem 1.4rem;
   }
 
   .upload-area {
-    border: 2px dashed #bfd5ec;
-    border-radius: 12px;
-    padding: 2rem;
+    border: 1px dashed rgba(96, 165, 250, 0.6);
+    border-radius: 8px;
+    padding: 1.6rem 1.25rem;
+    background: rgba(255, 255, 255, 0.02);
     text-align: center;
-    transition: all 0.3s ease;
+    transition: border-color 0.2s ease, background 0.2s ease;
   }
 
   .upload-area:hover {
-    border-color: #0f6cbd;
-    background: #e0efff;
+    border-color: rgba(96, 165, 250, 0.9);
+    background: rgba(59, 130, 246, 0.08);
   }
 
   .upload-label {
@@ -2690,18 +2897,18 @@
     align-items: center;
     gap: 0.75rem;
     cursor: pointer;
-    color: #0f6cbd;
+    color: #93c5fd;
   }
 
   .upload-label p {
     margin: 0;
     font-weight: 600;
-    color: var(--doc-text);
+    color: #e2e8f0;
   }
 
   .upload-label span {
     font-size: 0.9rem;
-    color: var(--doc-muted);
+    color: #94a3b8;
   }
 
   .file-hint {
@@ -2725,11 +2932,13 @@
 
   .form-group input {
     padding: 0.75rem;
-    border: 1px solid var(--doc-border);
-    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
     font-size: 0.95rem;
+    background: rgba(255, 255, 255, 0.04);
+    color: #e2e8f0;
     outline: none;
-    transition: border-color 0.2s ease;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
   }
 
   .form-group input:focus {
@@ -2780,7 +2989,7 @@
     display: flex;
     gap: 0.75rem;
     justify-content: flex-end;
-    padding: 1.5rem;
+    padding: 1rem 1.4rem;
     border-top: 1px solid var(--doc-border);
   }
 
@@ -2848,15 +3057,15 @@
   }
 
   :global(.dark) .folder-card:hover {
-    border-color: #5bb1ff;
-    color: #5bb1ff;
+    border-color: rgba(96, 165, 250, 0.7);
+    color: #e2e8f0;
     background: rgba(91, 177, 255, 0.1);
   }
 
   :global(.dark) .folder-card.active {
-    background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
-    border-color: transparent;
-    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);
+    background: rgba(59, 130, 246, 0.2);
+    border-color: rgba(96, 165, 250, 0.9);
+    box-shadow: none;
   }
 
   :global(.dark) .no-folders-message {
@@ -3036,12 +3245,7 @@
   }
 
   .topbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 18px 0;
-    border-bottom: 0;
-    gap: 12px;
+    display: none;
   }
 
   .page-title-group {
@@ -3083,7 +3287,7 @@
     display: flex;
     flex-direction: column;
     gap: 0;
-    padding: 28px 0;
+    padding: 12px 0;
   }
 
   .btn {
@@ -3197,6 +3401,173 @@
     border-radius: 12px;
     height: 400px;
     margin-top: 24px;
+  }
+
+  .docs-skeleton-stat-card {
+    min-height: 112px;
+  }
+
+  .docs-skeleton-label {
+    width: 118px;
+    height: 12px;
+    border-radius: 999px;
+  }
+
+  .docs-skeleton-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+  }
+
+  .docs-skeleton-value {
+    width: 34px;
+    height: 26px;
+    border-radius: 6px;
+    margin-top: 16px;
+  }
+
+  .docs-skeleton-sub {
+    width: 138px;
+    max-width: 70%;
+    height: 12px;
+    border-radius: 999px;
+    margin-top: 8px;
+  }
+
+  .docs-skeleton-search {
+    width: 100%;
+    height: 39px;
+    border-radius: 8px;
+  }
+
+  .docs-skeleton-panel {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .docs-skeleton-tabs,
+  .docs-skeleton-controls {
+    pointer-events: none;
+  }
+
+  .docs-skeleton-tab {
+    width: 118px;
+    height: 30px;
+    border-radius: 6px;
+  }
+
+  .docs-skeleton-count {
+    width: 58px;
+    height: 26px;
+    border-radius: 6px;
+  }
+
+  .docs-skeleton-button {
+    width: 124px;
+    height: 32px;
+    border-radius: 8px;
+  }
+
+  .docs-skeleton-button-primary {
+    width: 160px;
+  }
+
+  .docs-skeleton-select {
+    width: 60px;
+    height: 32px;
+    border-radius: 8px;
+  }
+
+  .docs-skeleton-sort {
+    justify-content: flex-start;
+    gap: 8px;
+  }
+
+  .docs-skeleton-sort-label {
+    width: 48px;
+    height: 14px;
+    border-radius: 999px;
+  }
+
+  .docs-skeleton-sort-btn {
+    width: 56px;
+    height: 34px;
+    border-radius: 6px;
+  }
+
+  .docs-skeleton-list {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .docs-skeleton-row {
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr) 90px 90px 120px 104px;
+    align-items: center;
+    gap: 18px;
+    min-height: 60px;
+    padding: 12px 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .docs-skeleton-row-main {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .docs-skeleton-file-icon,
+  .docs-skeleton-action {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    flex-shrink: 0;
+  }
+
+  .docs-skeleton-file-text {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .docs-skeleton-file-name {
+    width: min(280px, 78%);
+    height: 14px;
+    border-radius: 999px;
+  }
+
+  .docs-skeleton-uploader {
+    width: 110px;
+    height: 12px;
+    border-radius: 999px;
+  }
+
+  .docs-skeleton-badge {
+    width: 42px;
+    height: 24px;
+    border-radius: 999px;
+  }
+
+  .docs-skeleton-size {
+    width: 54px;
+    height: 14px;
+    border-radius: 999px;
+  }
+
+  .docs-skeleton-date {
+    width: 86px;
+    height: 14px;
+    border-radius: 999px;
+  }
+
+  .docs-skeleton-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
   }
 
   .btn-primary {
@@ -3574,6 +3945,41 @@
     padding: 12px 22px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.07);
     background: rgba(15, 23, 42, 0.5);
+  }
+
+  .folder-open-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 22px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    color: #94a3b8;
+    font-size: 13px;
+  }
+
+  .folder-back-btn,
+  .folder-open-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .folder-back-btn {
+    border: 0;
+    background: transparent;
+    color: #60a5fa;
+    cursor: pointer;
+    font: inherit;
+    padding: 0;
+  }
+
+  .folder-back-btn:hover {
+    color: #93c5fd;
+  }
+
+  .folder-open-title {
+    color: #e2e8f0;
+    font-weight: 600;
   }
 
   .folder-selector-grid {
@@ -4204,13 +4610,11 @@
 
   @media (max-width: 720px) {
     .topbar {
-      padding: 16px 0;
-      flex-wrap: wrap;
-      gap: 12px;
+      display: none;
     }
 
     .documents-container {
-      padding: 16px 0;
+      padding: 12px 0;
     }
 
     .stats-row {
@@ -4219,6 +4623,220 @@
 
     .folders-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .search-filter-bar {
+      margin-bottom: 12px;
+    }
+
+    .search-wrap {
+      min-width: 0;
+    }
+
+    .bottom-area,
+    .bottom-area > div,
+    .docs-panel,
+    .docs-panel-header {
+      min-width: 0;
+      max-width: 100%;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    .docs-panel {
+      overflow: hidden;
+    }
+
+    .docs-panel-header {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0;
+    }
+
+    .filter-tabs {
+      flex: none;
+      min-width: 0;
+      max-width: 100%;
+      box-sizing: border-box;
+      width: 100%;
+      padding: 10px 14px;
+      border-right: 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      overflow-y: hidden;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+
+    .filter-tabs::-webkit-scrollbar {
+      display: none;
+    }
+
+    .header-controls {
+      width: 100%;
+      padding: 10px 14px;
+      justify-content: flex-start;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .header-controls .btn,
+    .header-controls .select-btn {
+      padding: 7px 12px;
+      font-size: 12px;
+      flex: 0 0 auto;
+    }
+
+    .docs-skeleton-tabs {
+      flex-wrap: nowrap;
+    }
+
+    .docs-skeleton-controls {
+      display: flex;
+      width: 100%;
+      flex-wrap: wrap;
+    }
+
+    .docs-skeleton-button {
+      width: 118px;
+    }
+
+    .docs-skeleton-button-primary {
+      width: 150px;
+    }
+
+    .sort-bar {
+      padding: 10px 14px;
+      justify-content: flex-start;
+    }
+
+    .folder-open-header {
+      padding: 10px 14px;
+      flex-wrap: wrap;
+    }
+
+    .sort-controls {
+      flex-wrap: wrap;
+      row-gap: 6px;
+    }
+
+    .table-wrapper {
+      width: 100%;
+      max-width: 100%;
+      overflow: hidden;
+    }
+
+    .documents-table,
+    .documents-table tbody,
+    .documents-table tr,
+    .documents-table td {
+      display: block;
+      width: 100%;
+    }
+
+    .documents-table {
+      border-collapse: separate;
+      border-spacing: 0;
+    }
+
+    .documents-table thead {
+      display: none;
+    }
+
+    .documents-table tbody tr {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      height: auto;
+      padding: 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .documents-table td {
+      padding: 0;
+      border: 0;
+    }
+
+    .col-uploader,
+    .col-size,
+    .col-date,
+    .col-uploader-header,
+    .col-size-header,
+    .col-date-header {
+      display: none;
+    }
+
+    .col-name {
+      max-width: none;
+      width: 100%;
+    }
+
+    .col-type {
+      margin-top: 0;
+      width: fit-content;
+      display: inline-flex;
+      vertical-align: middle;
+    }
+
+    .col-actions {
+      display: flex;
+      width: 100%;
+      float: none;
+      clear: both;
+      margin-top: 2px;
+      justify-content: flex-end;
+    }
+
+    .action-buttons {
+      gap: 4px;
+      justify-content: flex-end;
+    }
+
+    .icon-btn {
+      width: 26px;
+      height: 26px;
+    }
+
+    .file-name {
+      max-width: calc(100vw - 140px);
+      display: inline-block;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .docs-skeleton-row {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+      min-height: 0;
+      padding: 12px;
+    }
+
+    .docs-skeleton-row-main {
+      width: 100%;
+    }
+
+    .docs-skeleton-file-name {
+      width: min(220px, 78%);
+    }
+
+    .docs-skeleton-badge {
+      width: 38px;
+      height: 24px;
+    }
+
+    .docs-skeleton-size,
+    .docs-skeleton-date {
+      width: 72px;
+    }
+
+    .docs-skeleton-actions {
+      width: 100%;
+      justify-content: flex-end;
+      margin-top: 2px;
     }
   }
 
@@ -4229,6 +4847,80 @@
 
     .stats-row {
       grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .filter-tabs {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      min-width: 0;
+      max-width: 100%;
+      box-sizing: border-box;
+      padding: 10px 10px;
+      gap: 6px;
+      overflow: visible;
+    }
+
+    .filter-tab {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 34px;
+      width: 100%;
+      padding: 7px 8px;
+      font-size: 12px;
+      text-align: center;
+      white-space: nowrap;
+      line-height: 1.2;
+    }
+
+    .header-controls {
+      display: grid;
+      grid-template-columns: 1fr;
+      padding: 8px 10px;
+      gap: 6px;
+    }
+
+    .docs-count {
+      display: none;
+    }
+
+    .header-controls .btn,
+    .header-controls .select-btn {
+      width: 100%;
+      padding: 6px 10px;
+      font-size: 11.5px;
+      flex: none;
+      justify-content: center;
+    }
+
+    .docs-skeleton-tabs {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+      padding: 10px;
+    }
+
+    .docs-skeleton-tab {
+      width: 100%;
+      height: 34px;
+    }
+
+    .docs-skeleton-controls {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 6px;
+      padding: 8px 10px;
+    }
+
+    .docs-skeleton-count {
+      display: none;
+    }
+
+    .docs-skeleton-button,
+    .docs-skeleton-button-primary,
+    .docs-skeleton-select {
+      width: 100%;
+      height: 28px;
     }
   }
 
@@ -4466,6 +5158,277 @@
     transform-origin: center;
   }
 
+  /* Upload modal polish (scoped to upload modal only) */
+  .modal-upload {
+    max-width: 780px;
+    border-radius: 14px;
+  }
+
+  .modal-upload .modal-header {
+    padding: 1.25rem 1.5rem;
+  }
+
+  .modal-upload .modal-header h2 {
+    font-size: 1.45rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  .modal-upload .modal-upload-body {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding: 1.2rem 1.5rem;
+  }
+
+  .modal-upload .upload-folder-section {
+    margin: 0;
+    padding: 0.9rem;
+    border-radius: 12px;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    background: rgba(15, 23, 42, 0.34);
+  }
+
+  .modal-upload .label-heading {
+    display: inline-block;
+    margin-bottom: 0.65rem;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #dbe7ff;
+  }
+
+  .modal-upload .folder-search-wrapper {
+    height: 42px;
+    border-radius: 10px;
+    padding: 0 0.75rem;
+    background: rgba(30, 41, 59, 0.8);
+    border: 1px solid rgba(148, 163, 184, 0.25);
+  }
+
+  .modal-upload .folder-grid {
+    margin-bottom: 0;
+    grid-template-columns: repeat(auto-fill, minmax(146px, 1fr));
+    gap: 0.65rem;
+  }
+
+  .modal-upload .folder-card {
+    min-height: 92px;
+    border-radius: 12px;
+    border: 1px solid rgba(148, 163, 184, 0.3);
+    background: rgba(15, 23, 42, 0.4);
+  }
+
+  .modal-upload .folder-card:hover {
+    border-color: rgba(56, 189, 248, 0.75);
+    background: rgba(14, 116, 144, 0.22);
+  }
+
+  .modal-upload .folder-card.active {
+    border-color: rgba(96, 165, 250, 0.95);
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.3), rgba(37, 99, 235, 0.24));
+  }
+
+  .modal-upload .upload-dropzone {
+    border-radius: 12px;
+    padding: 2rem 1.4rem;
+    border: 1px dashed rgba(125, 211, 252, 0.7);
+    background: rgba(15, 23, 42, 0.36);
+  }
+
+  .modal-upload .upload-label {
+    gap: 0.65rem;
+  }
+
+  .modal-upload .upload-label p {
+    font-size: 1rem;
+    font-weight: 700;
+  }
+
+  .modal-upload .upload-label span {
+    font-size: 0.92rem;
+  }
+
+  .modal-upload .file-hint {
+    font-size: 0.86rem;
+    font-weight: 600;
+  }
+
+  .modal-upload .modal-footer {
+    padding: 0.95rem 1.5rem 1.2rem;
+  }
+
+  .modal-upload .btn-secondary {
+    min-width: 116px;
+  }
+
+  :global(html:not(.dark)) .modal-upload .upload-folder-section {
+    border-color: #d8e2ef;
+    background: #f8fbff;
+  }
+
+  :global(html:not(.dark)) .modal-upload .label-heading {
+    color: #0f172a;
+  }
+
+  :global(html:not(.dark)) .modal-upload .folder-search-wrapper {
+    background: #eef5fc;
+    border-color: #d8e2ef;
+  }
+
+  :global(html:not(.dark)) .modal-upload .folder-card {
+    background: #ffffff;
+    border-color: #d8e2ef;
+    color: #0f172a;
+  }
+
+  :global(html:not(.dark)) .modal-upload .folder-card:hover {
+    background: #edf4ff;
+    border-color: #93c5fd;
+  }
+
+  :global(html:not(.dark)) .modal-upload .folder-card.active {
+    background: #dbeafe;
+    border-color: #60a5fa;
+    color: #0f172a;
+  }
+
+  :global(html:not(.dark)) .modal-upload .upload-dropzone {
+    background: #f6faff;
+    border-color: #93c5fd;
+  }
+
+  @media (max-width: 640px) {
+    .modal-upload {
+      width: 96%;
+      max-width: 96%;
+      border-radius: 12px;
+    }
+
+    .modal-upload .modal-header,
+    .modal-upload .modal-upload-body,
+    .modal-upload .modal-footer {
+      padding-left: 0.9rem;
+      padding-right: 0.9rem;
+    }
+
+    .modal-upload .folder-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  /* Create folder modal polish */
+  .modal-folder-create {
+    max-width: 560px;
+    border-radius: 14px;
+  }
+
+  .modal-folder-create .modal-header {
+    padding: 1.2rem 1.4rem;
+  }
+
+  .modal-folder-create .modal-header h2 {
+    font-size: 1.55rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  .modal-folder-create .modal-folder-create-body {
+    padding: 1.2rem 1.4rem 1rem;
+  }
+
+  .modal-folder-create .folder-create-form-group {
+    margin: 0;
+    padding: 0.9rem;
+    border-radius: 12px;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    background: rgba(15, 23, 42, 0.3);
+  }
+
+  .modal-folder-create .folder-create-form-group label {
+    font-size: 0.96rem;
+    font-weight: 700;
+    color: #dbe7ff;
+  }
+
+  .modal-folder-create .folder-create-form-group input {
+    height: 46px;
+    border-radius: 10px;
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    background: rgba(30, 41, 59, 0.82);
+  }
+
+  .modal-folder-create .folder-create-form-group input::placeholder {
+    color: #7f93ad;
+  }
+
+  .modal-folder-create .modal-footer {
+    padding: 0.9rem 1.4rem 1.2rem;
+  }
+
+  .modal-folder-create .btn-secondary {
+    min-width: 96px;
+  }
+
+  .modal-folder-create .btn-primary {
+    min-width: 146px;
+  }
+
+  :global(html:not(.dark)) .modal-folder-create .folder-create-form-group {
+    border-color: #d8e2ef;
+    background: #f8fbff;
+  }
+
+  :global(html:not(.dark)) .modal-folder-create .folder-create-form-group label {
+    color: #0f172a;
+  }
+
+  :global(html:not(.dark)) .modal-folder-create .folder-create-form-group input {
+    background: #eef5fc;
+    border-color: #d8e2ef;
+    color: #0f172a;
+  }
+
+  :global(html:not(.dark)) .modal-folder-create .folder-create-form-group input::placeholder {
+    color: #6b7f98;
+  }
+
+  @media (max-width: 640px) {
+    .modal-folder-create {
+      width: 94%;
+      max-width: 94%;
+      border-radius: 12px;
+    }
+
+    .modal-folder-create .modal-header,
+    .modal-folder-create .modal-folder-create-body,
+    .modal-folder-create .modal-footer {
+      padding-left: 0.9rem;
+      padding-right: 0.9rem;
+    }
+  }
+
+  .modal-title-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+
+  .modal-title-stack p {
+    margin: 0;
+    font-size: 0.82rem;
+    line-height: 1.35;
+    font-weight: 500;
+    color: #8ea1bb;
+  }
+
+  .modal-upload .modal-header,
+  .modal-folder-create .modal-header {
+    align-items: flex-start;
+  }
+
+  :global(html:not(.dark)) .modal-title-stack p {
+    color: #5f7188;
+  }
   @keyframes spin {
     0% {
       transform: rotate(0deg);
@@ -4475,3 +5438,7 @@
     }
   }
 </style>
+
+
+
+

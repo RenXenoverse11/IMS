@@ -1142,7 +1142,7 @@
         </div>
         <button class="tl-btn-primary" type="button" on:click={handleLogin} disabled={!canLogin || isLoggingIn}>
           {#if isLoggingIn}
-            <Loader2 size={14} class="tl-spin" />
+            <span class="tl-spin"><Loader2 size={14} /></span>
             Logging In...
           {:else}
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -1191,7 +1191,7 @@
 
         <button class="tl-btn-danger" class:tl-btn-disabled={!canLogout || isLoggingOut} type="button" on:click={handleLogout} disabled={!canLogout || isLoggingOut}>
           {#if isLoggingOut}
-            <Loader2 size={14} class="tl-spin" />
+            <span class="tl-spin"><Loader2 size={14} /></span>
             Logging Out...
           {:else}
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
@@ -1235,7 +1235,7 @@
           </label>
           <button class="tl-export-btn" type="button" on:click={exportAttendanceSheetPdf} disabled={isExportingAttendance || attendanceEntriesForExport.length === 0}>
             {#if isExportingAttendance}
-              <Loader2 size={14} class="tl-spin" />
+              <span class="tl-spin"><Loader2 size={14} /></span>
               Exporting...
             {:else}
               Export Attendance Sheet

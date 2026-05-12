@@ -4672,7 +4672,7 @@ function handleGetAllDocuments_(payload) {
         id: String(row.id || '').trim(),
         user_id: String(row.user_id || '').trim(),
         name: String(row.name || '').trim(),
-        folder: String(row.folder || '/').trim() || '/',
+        folder: normalizeDocumentFolderPath_(row.folder || '/'),
         type: String(row.type || 'file').trim() || 'file',
         size: String(row.size || '').trim(),
         url: String(row.url || '').trim(),
@@ -4703,7 +4703,7 @@ function handleUploadDocument_(payload) {
   try {
     var userId = String(payload.user_id || '').trim();
     var name = String(payload.name || '').trim();
-    var folder = String(payload.folder || '/').trim();
+    var folder = normalizeDocumentFolderPath_(payload.folder || '/');
     var type = String(payload.type || 'file').trim().toLowerCase();
     var size = String(payload.size || '').trim();
     var url = String(payload.url || '#').trim();
@@ -4949,14 +4949,21 @@ function handleCreateFolder_(payload) {
   try {
     var userId = String(payload.user_id || '').trim();
     var folderName = String(payload.folder_name || '').trim();
+    var parentPath = normalizeDocumentFolderPath_(payload.parent_path || '/');
 
     if (!userId || !folderName) {
       return { ok: false, error: 'Missing user_id or folder_name.' };
     }
 
+    folderName = folderName.replace(/[\\\/]+/g, ' ').trim();
+    if (!folderName) {
+      return { ok: false, error: 'Folder name is invalid.' };
+    }
+
     var sheet = getOrCreateSheetWithHeaders_(DOCUMENT_FOLDERS_SHEET_, DOCUMENT_FOLDERS_HEADERS_);
     var rows = readSheetObjects_(sheet);
-    var normalizedFolderName = folderName.toLowerCase();
+    var folderPath = normalizeDocumentFolderPath_(parentPath + '/' + folderName);
+    var normalizedFolderPath = folderPath.toLowerCase();
 
     for (var i = 0; i < rows.length; i++) {
       var row = rows[i];
@@ -4964,14 +4971,13 @@ function handleCreateFolder_(payload) {
         continue;
       }
 
-      var existingName = String(row.folder_name || '').trim().toLowerCase();
-      if (existingName === normalizedFolderName) {
+      var existingPath = normalizeDocumentFolderPath_(row.path || row.folder_name || '').toLowerCase();
+      if (existingPath === normalizedFolderPath) {
         return { ok: false, error: 'Folder already exists.' };
       }
     }
 
     var folderId = 'fld_' + Date.now();
-    var folderPath = '/' + folderName;
     var createdDate = formatDateYMD_(new Date());
 
     sheet.appendRow([
@@ -5027,19 +5033,32 @@ function getFoldersByGroupMemberIds_(groupMemberIds) {
       continue;
     }
 
-    var name = String(row.folder_name || '').trim();
-    if (!name) {
+    var path = normalizeDocumentFolderPath_(row.path || row.folder_name || '');
+    if (!path || path === '/') {
       continue;
     }
 
-    var key = name.toLowerCase();
+    var key = path.toLowerCase();
     if (seen[key]) {
       continue;
     }
     seen[key] = true;
-    folders.push(name);
+    folders.push(path);
   }
   return folders;
+}
+
+function normalizeDocumentFolderPath_(value) {
+  var raw = String(value || '').trim();
+  if (!raw || raw === '/') return '/';
+  var parts = raw
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '')
+    .replace(/\/+$/, '')
+    .split('/')
+    .map(function(part) { return String(part || '').trim(); })
+    .filter(function(part) { return !!part; });
+  return parts.length ? '/' + parts.join('/') : '/';
 }
 
 function handleGetDocumentsBootstrapData_(payload) {
