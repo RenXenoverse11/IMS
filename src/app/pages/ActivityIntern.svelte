@@ -220,6 +220,7 @@ import { getCurrentUser, subscribeToCurrentUser } from '../lib/auth.js';
 import {
   AlertCircle,
   CheckCircle2,
+  Archive,
   ChevronDown,
   Clock,
   Clock3,
@@ -1831,25 +1832,25 @@ let assignedTasksError = '';
       label: 'Pending',
       value: pendingCount,
       icon: Clock,
-      tone: 'indigo',
+      tone: 'amber',
     },
     {
       label: 'Total Tasks',
       value: totalTaskCount,
       icon: Clock3,
-      tone: 'green',
+      tone: 'blue',
     },
     {
       label: 'Completed',
       value: completedCount,
       icon: CheckCircle2,
-      tone: 'blue',
+      tone: 'green',
     },
     {
       label: 'Overdue',
       value: overdueCount,
       icon: AlertCircle,
-      tone: 'violet',
+      tone: 'red',
     },
   ];
   $: todayDate = normalizeDate(new Date());
@@ -1881,32 +1882,36 @@ let assignedTasksError = '';
 
 </script>
 
-<section class="activity-shell documents-page">
-
-  <style>
-    /* Use Segoe UI for this page for a professional look */
-    .activity-shell {
-      font-family: 'Segoe UI', system-ui, -apple-system, 'Roboto', 'Helvetica Neue', Arial, sans-serif;
-    }
-  </style>
+<section class="activity-shell documents-page projects-page">
   <div class="stats-grid">
     {#each summaryCards as card}
       <article class={`stat-card tone-card-${card.tone}`}>
         <div class={`stat-icon tone-${card.tone}`}>
           <svelte:component this={card.icon} size={17} />
         </div>
-        <div>
-          <p class="stat-value">{card.value}</p>
+        <div class="stat-body">
           <p class="stat-label">{card.label}</p>
+          <p class="stat-value">{card.value}</p>
+          <p class="stat-sub">
+            {card.label === 'Pending'
+              ? 'Tasks waiting to start'
+              : card.label === 'Total Tasks'
+                ? 'All assigned tasks'
+                : card.label === 'Completed'
+                  ? 'Finished tasks'
+                  : 'Needs immediate attention'}
+          </p>
         </div>
       </article>
     {/each}
   </div>
 
-  <div class="controls-bar">
-    <div class="view-toggle" role="tablist" aria-label="View mode">
+  <section class="quick-panel">
+    <div class="quick-head">
+      <div class="view-toggle view-controls" role="tablist" aria-label="View mode">
       <button
         type="button"
+        class="btn btn-ghost"
         role="tab"
         class:active={activeView === 'Overview'}
         aria-selected={activeView === 'Overview'}
@@ -1917,6 +1922,7 @@ let assignedTasksError = '';
       </button>
       <button
         type="button"
+        class="btn btn-ghost"
         role="tab"
         class:active={activeView === 'List'}
         aria-selected={activeView === 'List'}
@@ -1927,20 +1933,22 @@ let assignedTasksError = '';
       </button>
       <button
         type="button"
+        class="btn btn-ghost"
         role="tab"
         class:active={activeView === 'Archive'}
         aria-selected={activeView === 'Archive'}
         on:click={openArchiveView}
       >
-        <Clock size={14} />
+        <Archive size={14} />
         <span>Archive</span>
       </button>
     </div>
 
-    <div class="controls-right">
-      <label class="search-control" aria-label="Search tasks">
+    <div class="controls-right quick-actions">
+      <label class="search-control search-wrap" aria-label="Search tasks">
         <Search size={15} />
         <input
+          class="search-input"
           type="text"
           placeholder="Search"
           bind:value={searchQuery}
@@ -1948,23 +1956,22 @@ let assignedTasksError = '';
       </label>
 
       <label class="status-control" aria-label="Status filter">
-        <select bind:value={statusFilter}>
+        <select class="quick-status" bind:value={statusFilter}>
           {#each statusOptions as option}
             <option value={option}>{option}</option>
           {/each}
         </select>
       </label>
 
-      <button class="new-task-btn" type="button" on:click={toggleAddTaskForm}>
+      <button class="new-task-btn primary" type="button" on:click={toggleAddTaskForm}>
         <Plus size={15} />
         <span>Add Task</span>
       </button>
     </div>
-  </div>
+    </div>
+  </section>
 
-  {#if isLoadingAssignedTasks}
-    <p class="empty-state">Loading saved tasks...</p>
-  {:else if assignedTasksError}
+  {#if assignedTasksError && !isLoadingAssignedTasks}
     <p class="task-form-error">{assignedTasksError}</p>
   {/if}
 
@@ -2137,17 +2144,67 @@ let assignedTasksError = '';
   {/if}
 
   <div class="documents-grid">
+    {#if isLoadingAssignedTasks}
+      <section class="tasks-loading-shell" aria-label="Loading tasks">
+        <div class="task-loading-grid">
+          <article class="task-loading-card">
+            <div class="task-loading-head">
+              <div class="act-skeleton shimmer" style="width: 26px; height: 26px; border-radius: 8px;"></div>
+              <div class="act-skeleton shimmer" style="width: 120px; height: 14px;"></div>
+            </div>
+            <div class="task-loading-lines">
+              <div class="act-skeleton shimmer" style="width: 100%; height: 12px;"></div>
+              <div class="act-skeleton shimmer" style="width: 78%; height: 12px;"></div>
+              <div class="act-skeleton shimmer" style="width: 56%; height: 12px;"></div>
+            </div>
+          </article>
+          <article class="task-loading-card">
+            <div class="task-loading-head">
+              <div class="act-skeleton shimmer" style="width: 26px; height: 26px; border-radius: 8px;"></div>
+              <div class="act-skeleton shimmer" style="width: 100px; height: 14px;"></div>
+            </div>
+            <div class="task-loading-lines">
+              <div class="act-skeleton shimmer" style="width: 100%; height: 12px;"></div>
+              <div class="act-skeleton shimmer" style="width: 74%; height: 12px;"></div>
+              <div class="act-skeleton shimmer" style="width: 52%; height: 12px;"></div>
+            </div>
+          </article>
+          <article class="task-loading-card">
+            <div class="task-loading-head">
+              <div class="act-skeleton shimmer" style="width: 26px; height: 26px; border-radius: 8px;"></div>
+              <div class="act-skeleton shimmer" style="width: 132px; height: 14px;"></div>
+            </div>
+            <div class="task-loading-lines">
+              <div class="act-skeleton shimmer" style="width: 100%; height: 12px;"></div>
+              <div class="act-skeleton shimmer" style="width: 82%; height: 12px;"></div>
+              <div class="act-skeleton shimmer" style="width: 58%; height: 12px;"></div>
+            </div>
+          </article>
+        </div>
+        <div class="task-loading-focus">
+          <div class="task-loading-focus-head">
+            <div class="act-skeleton shimmer" style="width: 140px; height: 16px;"></div>
+            <div class="act-skeleton shimmer" style="width: 84px; height: 22px; border-radius: 999px;"></div>
+          </div>
+          <div class="task-loading-lines">
+            <div class="act-skeleton shimmer" style="width: 100%; height: 12px;"></div>
+            <div class="act-skeleton shimmer" style="width: 92%; height: 12px;"></div>
+            <div class="act-skeleton shimmer" style="width: 80%; height: 12px;"></div>
+            <div class="act-skeleton shimmer" style="width: 64%; height: 12px;"></div>
+          </div>
+        </div>
+      </section>
+    {:else}
     <section class="panel tasks-panel">
-      <header class="panel-header tasks-header">
-        <h3>My Tasks</h3>
-        {#if activeView === 'Archive'}
+      {#if activeView === 'Archive'}
+        <header class="panel-header tasks-header">
           <div class="tasks-header-columns" aria-hidden="true">
             <span>Status</span>
             <span>{activeView === 'Archive' ? 'Restore' : 'Attachment'}</span>
             <span>Due Date</span>
           </div>
-        {/if}
-      </header>
+        </header>
+      {/if}
 
       {#if activeView === 'Overview'}
         <div class="overview-shell">
@@ -2447,13 +2504,11 @@ let assignedTasksError = '';
         </div>
       {/if}
     </section>
+    {/if}
 
     {#if activeView === 'Overview'}
     <!-- Daily Work Logs Card -->
-    <section class="panel daily-logs-panel">
-      <header class="panel-header">
-        <h3>Daily Work Logs</h3>
-      </header>
+    <section class="daily-logs-panel">
       <div class="daily-logs-content">
         <!-- Add Work Log Card -->
         <div class="worklog-card worklog-form-card">
@@ -2527,8 +2582,16 @@ let assignedTasksError = '';
               <input class="wl-date-input" type="date" bind:value={workLogFilterDate} />
             </div>
           </div>
-          {#if filteredWorkLogs.length === 0}
-            <p class="worklogs-empty">No work logs found for current filter.</p>
+          <div class="worklog-list-scroll">
+          {#if isLoadingWorkLogs}
+            <div class="worklogs-loading-center" aria-live="polite" aria-busy="true">
+              <span class="spinning-icon"><Loader2 size={18} /></span>
+              <span>Loading...</span>
+            </div>
+          {:else if filteredWorkLogs.length === 0}
+            <div class="worklogs-empty-center">
+              <p class="worklogs-empty">No work logs found for current filter.</p>
+            </div>
           {:else}
             <div class="worklogs-accordion-list">
               {#each filteredWorkLogs as log, idx}
@@ -2613,6 +2676,7 @@ let assignedTasksError = '';
               {/each}
             </div>
           {/if}
+          </div>
         </div>
 
       <style>
@@ -4953,48 +5017,60 @@ let assignedTasksError = '';
     border: 0;
   }
 
-  .tone-indigo {
-    color: #0f6cbd;
-    background: #edf4fb;
+  .stat-icon :global(svg) {
+    color: currentColor;
   }
 
-  .tone-green {
-    color: #059669;
-    background: #ecfdf5;
+  .tone-amber {
+    background: rgba(245, 158, 11, 0.14);
+    color: #f59e0b;
+    border: 1px solid rgba(245, 158, 11, 0.22);
   }
 
   .tone-blue {
-    color: #2563eb;
-    background: #eff6ff;
+    background: rgba(59, 130, 246, 0.14);
+    color: #3b82f6;
+    border: 1px solid rgba(59, 130, 246, 0.22);
   }
 
-  .tone-violet {
-    color: #0891b2;
-    background: #ecfeff;
+  .tone-green {
+    background: rgba(34, 197, 94, 0.14);
+    color: #22c55e;
+    border: 1px solid rgba(34, 197, 94, 0.22);
   }
 
-  :global(html.dark) .tone-indigo,
-  :global(body.dark) .tone-indigo {
-    color: #38bdf8 !important;
-    background: rgba(56, 189, 248, 0.12) !important;
+  .tone-red {
+    background: rgba(239, 68, 68, 0.14);
+    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.22);
   }
 
-  :global(html.dark) .tone-green,
-  :global(body.dark) .tone-green {
-    color: #34d399 !important;
-    background: rgba(52, 211, 153, 0.12) !important;
+  :global(html.dark) .tone-amber,
+  :global(body.dark) .tone-amber {
+    background: rgba(245, 158, 11, 0.14) !important;
+    color: #f59e0b !important;
+    border: 1px solid rgba(245, 158, 11, 0.22) !important;
   }
 
   :global(html.dark) .tone-blue,
   :global(body.dark) .tone-blue {
-    color: #60a5fa !important;
-    background: rgba(96, 165, 250, 0.12) !important;
+    background: rgba(59, 130, 246, 0.14) !important;
+    color: #3b82f6 !important;
+    border: 1px solid rgba(59, 130, 246, 0.22) !important;
   }
 
-  :global(html.dark) .tone-violet,
-  :global(body.dark) .tone-violet {
-    color: #22d3ee !important;
-    background: rgba(34, 211, 238, 0.12) !important;
+  :global(html.dark) .tone-green,
+  :global(body.dark) .tone-green {
+    background: rgba(34, 197, 94, 0.14) !important;
+    color: #22c55e !important;
+    border: 1px solid rgba(34, 197, 94, 0.22) !important;
+  }
+
+  :global(html.dark) .tone-red,
+  :global(body.dark) .tone-red {
+    background: rgba(239, 68, 68, 0.14) !important;
+    color: #ef4444 !important;
+    border: 1px solid rgba(239, 68, 68, 0.22) !important;
   }
 
   .stat-value {
@@ -5787,7 +5863,425 @@ let assignedTasksError = '';
     color: #60a5fa !important;
   }
 
+  /* ProjectsIntern visual-alignment overrides */
+  .activity-shell.projects-page {
+    gap: 14px;
+    font-family: inherit;
+  }
+
+  .activity-shell.projects-page .stats-grid {
+    gap: 14px;
+  }
+
+  .activity-shell.projects-page .stat-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
+    padding: 18px 20px;
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .activity-shell.projects-page .stat-card::before {
+    display: none;
+  }
+
+  :global(body.dark) .activity-shell.projects-page .stat-card {
+    background: #161c27 !important;
+    border-color: rgba(255, 255, 255, 0.06) !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18) !important;
+  }
+
+  .activity-shell.projects-page .stat-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .activity-shell.projects-page .stat-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+  }
+
+  .activity-shell.projects-page .stat-label {
+    margin: 0;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: #000000;
+  }
+
+  :global(body.dark) .activity-shell.projects-page .stat-label {
+    color: #ffffff !important;
+  }
+
+  .activity-shell.projects-page .stat-value {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: -0.8px;
+    line-height: 1;
+    color: #0f172a;
+    text-shadow: none;
+  }
+
+  :global(body.dark) .activity-shell.projects-page .stat-value {
+    color: #f1f5f9 !important;
+  }
+
+  .activity-shell.projects-page .stat-sub {
+    margin: 0;
+    font-size: 11.5px;
+    color: #64748b;
+    line-height: 1.25;
+  }
+
+  :global(body.dark) .activity-shell.projects-page .stat-sub {
+    color: #94a3b8 !important;
+  }
+
+  .activity-shell.projects-page .quick-panel {
+    background: transparent !important;
+    padding: 0;
+    border-radius: 0;
+    border: none !important;
+    box-shadow: none !important;
+  }
+
+  .activity-shell.projects-page .quick-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    gap: 0.75rem;
+    flex-wrap: nowrap;
+  }
+
+  .activity-shell.projects-page .view-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+  }
+
+  .activity-shell.projects-page .view-controls .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border-radius: 0.7rem;
+    padding: 0.32rem 0.72rem;
+    background: transparent;
+    border: 1px solid var(--color-border);
+    color: var(--color-muted);
+    font-size: 0.84rem;
+    height: 2.15rem;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .activity-shell.projects-page .view-controls .btn.active {
+    background: var(--color-soft);
+    color: var(--color-heading);
+    border-color: var(--color-border);
+  }
+
+  :global(body.dark) .activity-shell.projects-page .view-controls .btn.active {
+    background: #1e2736 !important;
+    color: #e5edf8 !important;
+    border-color: #ffffff1a !important;
+  }
+
+  .activity-shell.projects-page .quick-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-left: auto;
+    flex-wrap: nowrap;
+  }
+
+  .activity-shell.projects-page .quick-actions .search-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0 0.7rem;
+    color: var(--color-muted);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 0.7rem;
+    height: 2.15rem;
+  }
+
+  .activity-shell.projects-page .quick-actions .search-input {
+    border: 0;
+    background: transparent;
+    color: var(--color-text);
+    font-size: 0.85rem;
+    width: 11.5rem;
+    outline: none;
+    padding: 0;
+    height: 100%;
+  }
+
+  .activity-shell.projects-page .quick-actions .quick-status {
+    padding: 0 1.85rem 0 0.75rem;
+    border-radius: 0.7rem;
+    font-size: 0.85rem;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-text);
+    height: 2.15rem;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+  }
+
+  .activity-shell.projects-page .quick-actions .primary {
+    padding: 0 0.95rem;
+    font-size: 0.85rem;
+    border-radius: 0.7rem;
+    background: #2563eb;
+    color: #fff;
+    border: none;
+    height: 2.15rem;
+    display: inline-flex;
+    align-items: center;
+    font-weight: 600;
+    white-space: nowrap;
+    box-shadow: none;
+  }
+
+  .activity-shell.projects-page .documents-grid {
+    gap: 14px;
+  }
+
+  .activity-shell.projects-page .tasks-panel {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    overflow: visible;
+  }
+
+  :global(body.dark) .activity-shell.projects-page .tasks-panel {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+
+  .activity-shell.projects-page .tasks-header {
+    padding: 0 0 0.2rem;
+    border: none;
+    background: transparent;
+  }
+
+  :global(body.dark) .activity-shell.projects-page .tasks-header {
+    background: transparent !important;
+    border: none !important;
+  }
+
+  .activity-shell.projects-page .panel {
+    border-radius: 14px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
+  }
+
+  .activity-shell.projects-page .panel-header {
+    padding: 0.85rem 1rem;
+  }
+
+  .activity-shell.projects-page .overview-shell,
+  .activity-shell.projects-page .daily-logs-content {
+    gap: 14px;
+    padding: 14px;
+  }
+
+  .activity-shell.projects-page .daily-logs-panel {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    overflow: visible;
+  }
+
+  .activity-shell.projects-page .daily-logs-panel > .panel-header {
+    padding: 0 0 0.2rem;
+    border: none;
+    background: transparent;
+  }
+
+  :global(body.dark) .activity-shell.projects-page .daily-logs-panel > .panel-header {
+    background: transparent !important;
+    border: none !important;
+  }
+
+  .activity-shell.projects-page .daily-logs-content {
+    background: transparent;
+    padding: 0;
+  }
+
+  :global(body.dark) .activity-shell.projects-page .daily-logs-content {
+    background: transparent !important;
+  }
+
+  .activity-shell.projects-page .overview-shell {
+    background: transparent;
+    padding: 0;
+  }
+
+  :global(body.dark) .activity-shell.projects-page .overview-shell {
+    background: transparent !important;
+  }
+
+  .activity-shell.projects-page .overview-panels {
+    gap: 14px;
+  }
+
+  .activity-shell.projects-page .overview-panel,
+  .activity-shell.projects-page .overview-tracker,
+  .activity-shell.projects-page .worklog-card,
+  .activity-shell.projects-page .task-accordion-item,
+  .activity-shell.projects-page .worklog-accordion-item,
+  .activity-shell.projects-page .task-row {
+    border-radius: 12px;
+  }
+
+  .activity-shell.projects-page .worklog-list-card {
+    height: 540px;
+    min-height: 540px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .activity-shell.projects-page .worklog-list-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .activity-shell.projects-page .worklog-list-scroll::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none;
+  }
+
+  .activity-shell.projects-page .worklogs-loading-center {
+    min-height: 100%;
+    display: grid;
+    place-items: center;
+    gap: 0.55rem;
+    color: var(--color-muted);
+    font-size: 0.92rem;
+    text-align: center;
+  }
+
+  .activity-shell.projects-page .worklogs-empty-center {
+    min-height: 100%;
+    display: grid;
+    place-items: center;
+    padding: 0 1rem;
+    text-align: center;
+  }
+
+  .activity-shell.projects-page .worklogs-empty-center .worklogs-empty {
+    margin: 0;
+    padding: 0;
+  }
+
+  .activity-shell.projects-page .task-list {
+    padding: 0.4rem;
+    gap: 0.4rem;
+    background: var(--color-soft);
+  }
+
+  .tasks-loading-shell {
+    display: grid;
+    gap: 14px;
+    background: transparent;
+  }
+
+  .task-loading-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  .task-loading-card,
+  .task-loading-focus {
+    border-radius: 12px;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    padding: 14px;
+  }
+
+  .task-loading-head,
+  .task-loading-focus-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .task-loading-head {
+    justify-content: flex-start;
+  }
+
+  .task-loading-lines {
+    display: grid;
+    gap: 8px;
+  }
+
+  .act-skeleton {
+    position: relative;
+    overflow: hidden;
+    border-radius: 7px;
+    background: #e2e8f0;
+  }
+
+  :global(body.dark) .act-skeleton {
+    background: #1e293b;
+  }
+
+  .shimmer::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.42), transparent);
+    animation: actShimmer 1.5s infinite;
+  }
+
+  :global(body.dark) .shimmer::after {
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+  }
+
+  @keyframes actShimmer {
+    100% { transform: translateX(100%); }
+  }
+
   @media (max-width: 980px) {
+    .activity-shell.projects-page .worklog-list-card {
+      height: auto;
+      min-height: 0;
+    }
+
+    .activity-shell.projects-page .worklog-list-scroll {
+      overflow: visible;
+    }
+
+    .task-loading-grid {
+      grid-template-columns: 1fr;
+    }
+
     .overview-panels,
     .daily-logs-content {
       grid-template-columns: 1fr;
@@ -5824,6 +6318,39 @@ let assignedTasksError = '';
     .daily-logs-content,
     .overview-shell {
       padding: 12px;
+    }
+
+    .activity-shell.projects-page .quick-head {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0.65rem;
+    }
+
+    .activity-shell.projects-page .quick-actions {
+      margin-left: 0;
+      width: 100%;
+      flex-wrap: wrap;
+      justify-content: flex-start;
+      gap: 0.5rem;
+    }
+
+    .activity-shell.projects-page .quick-actions > * {
+      width: 100%;
+    }
+
+    .activity-shell.projects-page .quick-actions .search-wrap,
+    .activity-shell.projects-page .quick-actions .quick-status,
+    .activity-shell.projects-page .quick-actions .primary {
+      width: 100%;
+      height: 2.35rem;
+      min-height: 2.35rem;
+      border-radius: 0.72rem;
+      box-sizing: border-box;
+    }
+
+    .activity-shell.projects-page .quick-actions .search-input {
+      width: 100%;
+      font-size: 0.9rem;
     }
   }
 </style>
