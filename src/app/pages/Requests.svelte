@@ -853,6 +853,13 @@
     selectedRequests = new Set(selectedRequests);
   }
 
+  function handleKeyboardActivate(event, callback) {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      callback();
+    }
+  }
+
   async function archiveSelectedRequests() {
     if (selectedRequests.size === 0) return;
     isArchiving = true;
@@ -1299,7 +1306,13 @@
       {:else}
         <div class="requests-list">
           {#if showBulkActions && selectableFilteredRequests.length > 0}
-            <div class="select-all-row" on:click={toggleSelectAll} role="button" tabindex="0">
+            <div
+              class="select-all-row"
+              on:click={toggleSelectAll}
+              on:keydown={(event) => handleKeyboardActivate(event, toggleSelectAll)}
+              role="button"
+              tabindex="0"
+            >
               <input
                 type="checkbox"
                 bind:checked={selectAllChecked}
@@ -1326,7 +1339,11 @@
               class:request-card-rejected={statusTone === "rejected"}
               class:request-card-selected={selectedRequests.has(getRequestId(request))}
               on:click={() => { if (showBulkActions) toggleRequestSelection(request); }}
-              role={showBulkActions ? "button" : "article"}
+              on:keydown={(event) => {
+                if (!showBulkActions) return;
+                handleKeyboardActivate(event, () => toggleRequestSelection(request));
+              }}
+              role="button"
               tabindex={showBulkActions ? 0 : -1}
             >
               {#if showBulkActions && isSelectableRequest(request)}
@@ -2398,18 +2415,6 @@
     white-space: nowrap;
     flex-shrink: 0;
   }
-  .req-duration-info .info-label {
-    color: var(--text3);
-    font-weight: 500;
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-  }
-  .req-duration-info .info-value {
-    color: var(--text);
-    font-weight: 600;
-    font-size: 13px;
-  }
   .req-card-footer {
     display: flex;
     justify-content: flex-end;
@@ -3080,11 +3085,85 @@
 
   /* ========== RESPONSIVE ========== */
   @media (max-width: 640px) {
-    .stat-cards {
+    .tab-row {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 8px;
+    }
+    .tab-btn {
+      width: 100%;
+      justify-content: center;
+    }
+    .stat-cards {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .stat-card {
+      padding: 12px;
+      gap: 10px;
+      min-height: 116px;
+      align-items: flex-start;
+    }
+    .stat-icon {
+      width: 36px;
+      height: 36px;
+    }
+    .stat-body {
+      min-width: 0;
+    }
+    .stat-label {
+      font-size: 10px;
+      letter-spacing: 0.04em;
     }
     .stat-value {
       font-size: 18px;
+    }
+    .stat-sub {
+      font-size: 10.5px;
+      line-height: 1.35;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .filter-row {
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: flex-start;
+    }
+    .bulk-action-buttons {
+      width: 100%;
+      display: flex;
+      justify-content: flex-end;
+    }
+    .request-card-header {
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: flex-start;
+    }
+    .request-info-inline {
+      order: 3;
+      width: 100%;
+      gap: 12px;
+      overflow-x: visible;
+      flex-wrap: wrap;
+    }
+    .request-info-item {
+      max-width: 100%;
+    }
+    .req-card-footer {
+      justify-content: stretch;
+      flex-wrap: wrap;
+    }
+    .btn-edit,
+    .btn-delete,
+    .btn-approve,
+    .btn-reject,
+    .btn-archive,
+    .action-btn {
+      flex: 1 1 calc(50% - 4px);
+      justify-content: center;
+      min-height: 34px;
     }
     .row-2 {
       grid-template-columns: 1fr;

@@ -2044,7 +2044,7 @@
                           </div>
                           <div class="ief-row-2">
                             <div class="ief-group">
-                              <label class="ief-label">Members</label>
+                              <div class="ief-label">Members</div>
                               <!-- svelte-ignore a11y-click-events-have-key-events -->
                               <!-- svelte-ignore a11y-no-static-element-interactions -->
                               <div class="members-input ief-input" on:click={() => showInlineMembersPanel = !showInlineMembersPanel}>
@@ -2075,8 +2075,19 @@
                               {/if}
                             </div>
                             <div class="ief-group">
-                              <label class="ief-label">Supervisor</label>
-                              <div class="members-input ief-input" on:click={() => showInlineSupervisorPanel = !showInlineSupervisorPanel} role="button" tabindex="0">
+                              <div class="ief-label">Supervisor</div>
+                              <div
+                                class="members-input ief-input"
+                                on:click={() => showInlineSupervisorPanel = !showInlineSupervisorPanel}
+                                on:keydown={(event) => {
+                                  if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault();
+                                    showInlineSupervisorPanel = !showInlineSupervisorPanel;
+                                  }
+                                }}
+                                role="button"
+                                tabindex="0"
+                              >
                                 <div>{(inlineForm.supervisor && inlineForm.supervisor.length) ? inlineForm.supervisor.map(id => SUPERVISOR_OPTIONS.find(o => o.value === id)?.label || id).join(', ') : 'Select supervisor(s)'}</div>
                                 <div class="muted">{(inlineForm.supervisor || []).length}</div>
                               </div>
@@ -2149,11 +2160,11 @@
                         <div class="proj-detail-read">
                           <!-- edit button moved to footer for consistency -->
                           <div class="pdr-group">
-                            <label class="pdr-label">Project Title</label>
+                            <div class="pdr-label">Project Title</div>
                             <div class="pdr-box">{p.title || '—'}</div>
                           </div>
                           <div class="pdr-group">
-                            <label class="pdr-label">Description</label>
+                            <div class="pdr-label">Description</div>
                             <div class="pdr-box pdr-box-desc">
                               <div class="detail-description" class:collapsed={expandedDescriptionId !== p.id}>{p.description || '—'}</div>
                               {#if p.description && p.description.length > 160}
@@ -2164,22 +2175,22 @@
                           
                           <div class="pdr-row-2">
                             <div class="pdr-group">
-                              <label class="pdr-label">Members</label>
+                              <div class="pdr-label">Members</div>
                               <div class="pdr-box">{(p.members && p.members.length) ? p.members.map(id => MEMBER_OPTIONS.find(o => o.value === id)?.label || id).join(', ') : 'No members'}</div>
                             </div>
                             <div class="pdr-group">
-                              <label class="pdr-label">Supervisor</label>
+                              <div class="pdr-label">Supervisor</div>
                               <div class="pdr-box">{(p.supervisors && p.supervisors.length) ? p.supervisors.map(id => SUPERVISOR_OPTIONS.find(o => o.value === id)?.label || id).join(', ') : (p.supervisor || '—')}</div>
                             </div>
                           </div>
 
                           <div class="pdr-row-2">
                             <div class="pdr-group">
-                              <label class="pdr-label">Priority Level</label>
+                              <div class="pdr-label">Priority Level</div>
                               <div class="pdr-box">{getPriorityLabel(p.priority_level) || '—'}</div>
                             </div>
                             <div class="pdr-group">
-                              <label class="pdr-label">Status</label>
+                              <div class="pdr-label">Status</div>
                               <div class="pdr-box">{(STATUS_META[p.status] || {}).label || p.status || '—'}</div>
                             </div>
                           </div>
@@ -2187,18 +2198,18 @@
                           
                           <div class="pdr-row-2">
                             <div class="pdr-group">
-                              <label class="pdr-label">Timeline (Start)</label>
+                              <div class="pdr-label">Timeline (Start)</div>
                               <div class="pdr-box">{p.timeline_start ? formatDate(p.timeline_start) : '—'}</div>
                             </div>
                             <div class="pdr-group">
-                              <label class="pdr-label">Timeline (End)</label>
+                              <div class="pdr-label">Timeline (End)</div>
                               <div class="pdr-box">{p.timeline_end ? formatDate(p.timeline_end) : '—'}</div>
                             </div>
                           </div>
 
                           <!-- progress bar (derived from status or explicit percent) -->
                           <div class="pdr-group">
-                            <label class="pdr-label">Progress</label>
+                            <div class="pdr-label">Progress</div>
                             <div style="display:flex; align-items:center; gap:10px;">
                               <div style="flex:1"><div class="progress-bar-outer"><div class="progress-bar-inner" style="width:{p.progress_percent != null ? p.progress_percent : statusToProgress(p.status)}%"></div></div></div>
                               <div style="width:56px;text-align:right;font-weight:700">{p.progress_percent != null ? p.progress_percent : statusToProgress(p.status)}%</div>
@@ -2723,7 +2734,7 @@
       </div>
 
       <div class="form-group">
-        <label class="form-label">Members</label>
+        <div class="form-label">Members</div>
         <div class="members-select" bind:this={membersSelectEl}>
           <div class="members-input form-input" on:click={toggleMembersDropdown} role="button" tabindex="0" aria-expanded={showMembersPanel}>
             <div class="members-value">
@@ -2775,7 +2786,7 @@
       </div>
 
       <div class="form-group">
-        <label class="form-label">Supervisor</label>
+        <div class="form-label">Supervisor</div>
         <div class="members-select" bind:this={supervisorsSelectEl}>
           <div class="members-input form-input" on:click={toggleSupervisorsDropdown} role="button" tabindex="0" aria-expanded={showSupervisorsPanel}>
             <div class="members-value">
@@ -3183,7 +3194,6 @@
   .add-milestone-bar .input { padding:0.45rem 0.75rem; border-radius:6px; border:1px solid var(--color-border); background:var(--color-surface); color:var(--color-heading); font-size:0.87rem; font-family:inherit; }
   .add-milestone-btn { display:inline-flex; align-items:center; gap:0.5rem; padding:0.4rem 0.9rem; border-radius:8px; background:transparent; border:1px solid var(--color-border); color:var(--color-heading); font-size:0.87rem; font-family:inherit; }
   .add-milestone-btn .icon { color:#7c3aed; }
-  .add-milestone-bar .btn-primary { background:linear-gradient(90deg,#7c3aed,#6d28d9); color:#fff; border:none; font-size:0.87rem; font-family:inherit; }
 
   /* Status dropdown styling to match action buttons */
   .status-select {
@@ -3209,7 +3219,6 @@
   .milestone-text { font-size: 0.88rem; font-family: inherit; color: var(--color-text); }
 
   /* Ensure edit-mode inputs match view-mode text sizing */
-  .milestone-row .input { font-size:0.88rem; font-family:inherit; }
 
   .submission-card {
     display:flex; justify-content:space-between; align-items:center;
@@ -4076,28 +4085,6 @@
   /* ── Status breakdown bars ── */
   .ov-status-bars { display: flex; flex-direction: column; gap: 0.5rem; }
 
-  .ov-milestone-card .ov-milestone-list {
-    height: var(--ov-fixed-list-height);
-    overflow-y: auto;
-    padding-right: 0.35rem;
-    scrollbar-width: none;
-    scrollbar-color: transparent transparent;
-  }
-
-  .ov-milestone-card .ov-milestone-list::-webkit-scrollbar {
-    width: 0 !important;
-    height: 0 !important;
-    display: none !important;
-  }
-
-  .ov-milestone-card .ov-milestone-list::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  .ov-milestone-card .ov-milestone-list::-webkit-scrollbar-thumb {
-    background: transparent;
-    border-radius: 999px;
-  }
 
   .ov-bar-row {
     display: grid;
@@ -4215,33 +4202,6 @@
     scrollbar-gutter: stable;
   }
 
-  .ov-activity-card .ov-activity-feed {
-    max-height: calc(3.35rem * 3);
-    overflow-y: auto;
-    padding-right: 0.35rem;
-    scrollbar-width: none;
-    scrollbar-color: transparent transparent;
-  }
-
-  .ov-activity-card .ov-act-row {
-    min-height: 3.35rem;
-    flex: 0 0 auto;
-  }
-
-  .ov-activity-card .ov-activity-feed::-webkit-scrollbar {
-    width: 0 !important;
-    height: 0 !important;
-    display: none !important;
-  }
-
-  .ov-activity-card .ov-activity-feed::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  .ov-activity-card .ov-activity-feed::-webkit-scrollbar-thumb {
-    background: transparent;
-    border-radius: 999px;
-  }
 
   /* Expanded activity card styles (removed) */
 
@@ -4391,7 +4351,6 @@
   .ov-ms-section-title { font-size: 0.77rem; font-weight: 700; color: var(--color-sidebar-text); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.1rem; }
   .ov-ms-row { display: flex; align-items: center; gap: 0.55rem; }
   .ov-ms-row-name { font-size: 0.78rem; color: var(--color-heading); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; flex-shrink: 0; }
-  .ov-ms-row .ov-bar-track { flex: 1; height: 5px; }
   .ov-ms-row-count { font-size: 0.77rem; color: var(--color-sidebar-text); white-space: nowrap; }
   .ov-ms-done { font-weight: 700; color: var(--color-heading); }
 

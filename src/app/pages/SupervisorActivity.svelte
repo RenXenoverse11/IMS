@@ -2268,9 +2268,6 @@ function toggleEditAssigneeDropdown() {
     padding-bottom: 1rem;
   }
 
-  .log-card h4 {
-    margin: 0;
-  }
 
   .log-meta {
     display: flex;
@@ -2461,11 +2458,6 @@ function toggleEditAssigneeDropdown() {
     overflow: hidden;
   }
 
-  .progress-bar span {
-    display: block;
-    height: 100%;
-    background: linear-gradient(90deg, #0f6cbd, #3b82f6);
-  }
 
   .progress-value {
     font-size: 0.8rem;
@@ -2494,8 +2486,6 @@ function toggleEditAssigneeDropdown() {
   .task-row .col-due, .task-row .col-status { text-align:center }
   .task-row .col-actions { text-align:center }
 
-  .col-actions .action-link { background: transparent; border: none; padding: 0; margin: 0 0.4rem; font-size: 0.85rem; color: var(--muted); cursor: pointer }
-  .col-actions .action-link:hover { text-decoration: underline; color: var(--accent) }
 
   .intern-panel .panel-head-inner { padding-left: 1.05rem }
   .intern-panel .filters { padding-right: 1.05rem }
@@ -2564,8 +2554,6 @@ function toggleEditAssigneeDropdown() {
   /* Modal */
   .modal-backdrop { position:fixed; inset:0; background:rgba(2,6,23,0.4); border:none }
   .modal { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); width: min(calc(720px - 1.5rem), 96%); background:var(--surface); border-radius:0.8rem; padding:1rem; z-index:60; box-shadow:none; border:1px solid var(--border) }
-  .modal label { display:block; margin-top:0.6rem; margin-bottom:0.25rem; font-weight:600 }
-  .modal input[type="text"], .modal input[type="date"], .modal textarea { width:100%; padding:0.5rem; border-radius:0.5rem; border:1px solid var(--border); background:var(--soft) }
   .modal-actions { display:flex; justify-content:flex-end; gap:0.6rem; margin-top:0.8rem }
 
 
@@ -2708,8 +2696,7 @@ function toggleEditAssigneeDropdown() {
   }
 
   /* Ensure checklist header inside nested container matches other labels */
-  .task-view-section .task-view-section-head span,
-  .task-view-section .task-view-section-head .row-label {
+  .task-view-section .task-view-section-head span {
     color: var(--muted);
     font-size: 0.74rem;
     font-weight: 600;
@@ -2734,10 +2721,7 @@ function toggleEditAssigneeDropdown() {
 
   .task-view-grid input,
   .task-view-grid select,
-  .task-view-description textarea,
-  .modal input,
-  .modal select,
-  .modal textarea {
+  .task-view-description textarea {
     width: 100%;
     border: 1px solid var(--border);
     border-radius: 0.55rem;
@@ -2811,7 +2795,6 @@ function toggleEditAssigneeDropdown() {
   .assignee-name { font-size: 0.82rem; color: var(--ink); font-family: inherit; line-height:1.15 }
 
   /* ensure the standalone description label in Add Task matches grid labels */
-  label[for="task-desc"],
   .task-view-description span {
     color: var(--muted);
     font-size: 0.74rem;

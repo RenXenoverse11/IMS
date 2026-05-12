@@ -1133,12 +1133,12 @@
           Time In
         </div>
         <div class="tl-field">
-          <label>Date</label>
-          <input type="date" bind:value={date} />
+          <label for="tl-date">Date</label>
+          <input id="tl-date" type="date" bind:value={date} />
         </div>
         <div class="tl-field">
-          <label>Login Time <span class="tl-req">*</span></label>
-          <input type="time" bind:value={timeIn} />
+          <label for="tl-time-in">Login Time <span class="tl-req">*</span></label>
+          <input id="tl-time-in" type="time" bind:value={timeIn} />
         </div>
         <button class="tl-btn-primary" type="button" on:click={handleLogin} disabled={!canLogin || isLoggingIn}>
           {#if isLoggingIn}
@@ -1162,8 +1162,8 @@
           Log Out
         </div>
         <div class="tl-field">
-          <label>Logout Time <span class="tl-req">*</span></label>
-          <input type="time" bind:value={timeOut} disabled={!isLoggedIn} />
+          <label for="tl-time-out">Logout Time <span class="tl-req">*</span></label>
+          <input id="tl-time-out" type="time" bind:value={timeOut} disabled={!isLoggedIn} />
         </div>
 
         {#if isLoggedIn && timeIn && timeOut && formHours > 0}
@@ -1340,7 +1340,19 @@
   {/if}
 
   {#if showDeleteConfirm && deleteConfirmEntry}
-    <div class="tl-modal-overlay" on:click|self={cancelDelete}>
+    <div
+      class="tl-modal-overlay"
+      on:click|self={cancelDelete}
+      on:keydown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          cancelDelete();
+        }
+      }}
+      role="button"
+      tabindex="0"
+      aria-label="Close delete confirmation"
+    >
       <div class="tl-modal" role="dialog" aria-modal="true" aria-labelledby="tl-modal-title">
         <div class="tl-modal-header">
           <h2 id="tl-modal-title" class="tl-modal-title">Confirm Delete</h2>

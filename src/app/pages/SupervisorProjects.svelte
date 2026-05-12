@@ -2475,7 +2475,6 @@
   .ms-picker-label { font-size:0.83rem; font-weight:600; color:var(--color-heading); }
   .ms-picker-empty { font-size:0.82rem; color:var(--color-sidebar-text); }
   .ms-picker-item { display:flex; align-items:center; gap:8px; cursor:pointer; padding:3px 0; }
-  .ms-picker-item input[type=checkbox] { accent-color:var(--color-primary,#6366f1); cursor:pointer; }
   .ms-picker-name { font-size:0.85rem; color:var(--color-heading); flex:1; }
   .ms-picker-folder { font-size:0.75rem; color:var(--color-sidebar-text); }
 
