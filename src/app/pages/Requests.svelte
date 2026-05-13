@@ -1105,7 +1105,8 @@
   ).length;
   $: resolvedRequests = requests.filter((request) => {
     const status = String(request?.status || "").toLowerCase();
-    return status === "approved" || status === "rejected";
+    // Include approved, rejected, and archived requests (archived = already resolved)
+    return status === "approved" || status === "rejected" || status === "archived";
   }).length;
   $: archivedRequests = requests.filter(
     (request) => String(request?.status || "").toLowerCase() === "archived",

@@ -1097,6 +1097,15 @@
 
           <div class="docs-panel">
             <div class="docs-panel-header">
+              {#if currentFolder !== '/'}
+                <div class="folder-nav-bar">
+                  <button class="btn-back" on:click={goToParentFolder_} title="Go back">
+                    <ChevronRight size={18} style="transform: rotate(180deg);" />
+                    <span>Back</span>
+                  </button>
+                  <span class="folder-breadcrumb">{currentFolderName}</span>
+                </div>
+              {/if}
               <div class="filter-tabs">
                 <button 
                   class="filter-tab" 
@@ -3996,6 +4005,45 @@
     padding: 0;
     border-bottom: 1px solid rgba(255, 255, 255, 0.07);
     gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .folder-nav-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 22px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .btn-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border: 1px solid rgba(148, 163, 184, 0.3);
+    background: rgba(59, 130, 246, 0.1);
+    color: #3b82f6;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-family: inherit;
+  }
+
+  .btn-back:hover {
+    background: rgba(59, 130, 246, 0.2);
+    border-color: rgba(59, 130, 246, 0.5);
+    color: #60a5fa;
+  }
+
+  .folder-breadcrumb {
+    color: #e2e8f0;
+    font-size: 13px;
+    font-weight: 600;
   }
 
   .filter-tabs {
