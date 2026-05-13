@@ -4382,7 +4382,7 @@ var ACT_ATTACHMENTS_SHEET_ = 'act_attachments';
 var ACT_ATTACHMENTS_HEADERS_ = ['id', 'task_id', 'user_id', 'file_type', 'file_size', 'file_name', 'link', 'uploaded_at', 'uploaded_by'];
 var TASK_ATTACHMENTS_FOLDER_ = 'IMS Task Attachments';
 var DOCUMENT_FOLDERS_SHEET_ = 'document_folders';
-var DOCUMENT_FOLDERS_HEADERS_ = ['id', 'user_id', 'folder_name', 'path', 'created_date', 'is_default'];
+var DOCUMENT_FOLDERS_HEADERS_ = ['id', 'user_id', 'folder_name', 'path', 'created_date', 'is_default', 'created_by', 'created_by_name'];
 var DOCUMENT_UPLOADS_FOLDER_ = 'IMS Documents Uploads';
 var WORKLOG_ATTACHMENTS_FOLDER_ = 'IMS Worklog Attachments';
  
@@ -4950,6 +4950,8 @@ function handleCreateFolder_(payload) {
     var userId = String(payload.user_id || '').trim();
     var folderName = String(payload.folder_name || '').trim();
     var parentPath = normalizeDocumentFolderPath_(payload.parent_path || '/');
+    var createdBy = String(payload.created_by || '').trim();
+    var createdByName = String(payload.created_by_name || '').trim();
 
     if (!userId || !folderName) {
       return { ok: false, error: 'Missing user_id or folder_name.' };
@@ -4986,7 +4988,9 @@ function handleCreateFolder_(payload) {
       folderName,
       folderPath,
       createdDate,
-      'false'
+      'false',
+      createdBy,
+      createdByName
     ]);
 
     return {
@@ -4997,7 +5001,9 @@ function handleCreateFolder_(payload) {
         user_id: userId,
         path: folderPath,
         created_date: createdDate,
-        is_default: false
+        is_default: false,
+        created_by: createdBy,
+        created_by_name: createdByName
       }
     };
   } catch (err) {
@@ -5043,7 +5049,14 @@ function getFoldersByGroupMemberIds_(groupMemberIds) {
       continue;
     }
     seen[key] = true;
-    folders.push(path);
+    
+    // Return folder object with creator information
+    folders.push({
+      path: path,
+      name: row.folder_name || '',
+      created_by: row.created_by || '',
+      created_by_name: row.created_by_name || ''
+    });
   }
   return folders;
 }

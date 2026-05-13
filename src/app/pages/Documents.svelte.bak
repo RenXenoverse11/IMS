@@ -336,30 +336,13 @@
     try {
       const response = await callBackend_('get_document_folders', { user_id: userId });
       if (response?.ok && Array.isArray(response.folders) && response.folders.length > 0) {
-        // Load all folders, with or without creator info
-        folderStructure.root.subfolders = response.folders.map((folder) => {
-          // Handle both string paths (legacy) and folder objects
-          if (typeof folder === 'string') {
-            return {
-              path: normalizeFolderPath_(folder),
-              name: folder.substring(1),
-              createdBy: '',
-              createdByName: '–',
-            };
-          }
-          
-          // Extract display name from email if needed
-          let displayName = folder.createdByName || folder.createdBy || '–';
-          if (displayName && displayName !== '–' && displayName.includes('@')) {
-            displayName = displayName.split('@')[0];
-          }
-          return {
-            path: normalizeFolderPath_(folder.path || folder.name),
-            name: folder.name,
-            createdBy: folder.createdBy || '',
-            createdByName: displayName,
-          };
-        });
+        // Only load folders that have creator info, clear the rest
+        folderStructure.root.subfolders = response.folders.filter(folder => folder?.createdBy).map((folder) => ({
+          path: normalizeFolderPath_(folder.path || folder.name),
+          name: folder.name,
+          createdBy: folder.createdBy,
+          createdByName: folder.createdByName || folder.createdBy,
+        }));
       } else {
         folderStructure.root.subfolders = [];
       }
@@ -378,31 +361,14 @@
       const response = await callBackend_('get_documents_bootstrap_data', { user_id: userId });
       
       if (response?.ok) {
-        // Update folders - load all folders
+        // Update folders - only load folders with creator info, clear the rest
         if (Array.isArray(response.folders)) {
-          folderStructure.root.subfolders = response.folders.map((folder) => {
-            // Handle both string paths (legacy) and folder objects
-            if (typeof folder === 'string') {
-              return {
-                path: normalizeFolderPath_(folder),
-                name: folder.substring(1),
-                createdBy: '',
-                createdByName: '–',
-              };
-            }
-            
-            // Extract display name from email if needed
-            let displayName = folder.createdByName || folder.createdBy || '–';
-            if (displayName && displayName !== '–' && displayName.includes('@')) {
-              displayName = displayName.split('@')[0];
-            }
-            return {
-              path: normalizeFolderPath_(folder.path || folder.name),
-              name: folder.name,
-              createdBy: folder.createdBy || '',
-              createdByName: displayName,
-            };
-          });
+          folderStructure.root.subfolders = response.folders.filter(folder => folder?.createdBy).map((folder) => ({
+            path: normalizeFolderPath_(folder.path || folder.name),
+            name: folder.name,
+            createdBy: folder.createdBy,
+            createdByName: folder.createdByName || folder.createdBy,
+          }));
         } else {
           folderStructure.root.subfolders = [];
         }
@@ -847,35 +813,15 @@
     }
 
     // Update folder name in folderStructure
-    const folderIndex = folderStructure.root.subfolders.findIndex(
-      f => {
-        const fPath = typeof f === 'string' ? f : f.path;
-        return fPath === folderToRename;
-      }
-    );
-    
+    const folderIndex = folderStructure.root.subfolders.indexOf(folderToRename);
     if (folderIndex !== -1) {
-      const oldFolder = folderStructure.root.subfolders[folderIndex];
-      const oldPath = typeof oldFolder === 'string' ? oldFolder : oldFolder.path;
-      
-      // Create new folder object with updated name
-      const newFolderObj = typeof oldFolder === 'string' 
-        ? renameFolderInputValue
-        : {
-            ...oldFolder,
-            name: renameFolderInputValue,
-            path: normalizeFolderPath_(renameFolderInputValue),
-          };
-      
-      folderStructure.root.subfolders[folderIndex] = newFolderObj;
+      folderStructure.root.subfolders[folderIndex] = renameFolderInputValue;
       
       // Update all documents that have the old folder path
-      const newPath = typeof newFolderObj === 'string' 
-        ? newFolderObj
-        : newFolderObj.path;
-      
+      const oldPath = '/' + folderToRename;
+      const newPath = '/' + renameFolderInputValue;
       documents = documents.map(doc => 
-        normalizeFolderPath_(doc.folder) === oldPath ? { ...doc, folder: newPath } : doc
+        doc.folder === oldPath ? { ...doc, folder: newPath } : doc
       );
       
       // If the renamed folder was selected, update currentFolder
@@ -891,24 +837,21 @@
     renameFolderInputValue = '';
   }
 
-  function deleteFolder(folderPath) {
-    const normalizedPath = normalizeFolderPath_(folderPath);
+  function deleteFolder(folderName) {
+    const folderPath = '/' + folderName;
     
     // Move all documents from this folder to root
     documents = documents.map(doc =>
-      normalizeFolderPath_(doc.folder) === normalizedPath ? { ...doc, folder: '/' } : doc
+      doc.folder === folderPath ? { ...doc, folder: '/' } : doc
     );
 
     // Remove folder from structure
     folderStructure.root.subfolders = folderStructure.root.subfolders.filter(
-      f => {
-        const fPath = typeof f === 'string' ? f : f.path;
-        return normalizeFolderPath_(fPath) !== normalizedPath;
-      }
+      f => f !== folderName
     );
 
     // Reset currentFolder if it was the deleted folder
-    if (currentFolder === normalizedPath) {
+    if (currentFolder === folderPath) {
       currentFolder = '/';
     }
 
@@ -1208,13 +1151,13 @@
                           </div>
                         </td>
                         <td class="col-creator">
-                          <span class="creator-name">{creatorName}</span>
+                          <span class="creator-name">â€”</span>
                         </td>
                         <td class="col-files">
                           <span class="files-count">{folderDocs.length}</span>
                         </td>
                       </tr>
-                      {#if false && selectedFolderInTab === folderPath}
+                      {#if false && selectedFolderInTab === folder}
                         <tr class="folder-details-row">
                           <td colspan="3">
                             {#if folderDocs.length > 0}
@@ -1770,20 +1713,12 @@
 
             try {
               isCreatingFolder = true;
-              
-              // Extract user display name - use full_name first, fallback to email
-              let displayName = currentUser?.full_name || currentUser?.email || userId;
-              // If it's an email, extract just the name part before @
-              if (displayName && displayName.includes('@')) {
-                displayName = displayName.split('@')[0];
-              }
-              
               const response = await callBackend_('create_folder', {
                 user_id: userId,
                 folder_name: folderName,
                 parent_path: currentFolder,
                 created_by: userId,
-                created_by_name: displayName,
+                created_by_name: currentUser?.name || currentUser?.email || userId,
               });
 
               if (!response?.ok) {
@@ -1793,12 +1728,11 @@
 
               // Add the newly created folder to the local structure immediately
               const createdPath = normalizeFolderPath_(response?.folder?.path || currentFolder + '/' + folderName);
-              
               const newFolderObj = {
                 path: createdPath,
                 name: folderName,
                 createdBy: userId,
-                createdByName: displayName,
+                createdByName: currentUser?.name || currentUser?.email || userId,
               };
               
               // Add to subfolders array
@@ -1806,8 +1740,8 @@
 
               uploadToFolder = createdPath;
               documentFilter = 'folders';
-              currentFolder = '/'; // Stay in root to show all folders
-              selectedFolderInTab = null;
+              currentFolder = createdPath;
+              selectedFolderInTab = createdPath;
               newFolderName = '';
               showCreateFolderModal = false;
               showActionMessage_('Folder created.');
