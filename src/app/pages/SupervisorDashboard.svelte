@@ -349,7 +349,7 @@
   </section>
 {:else}
 <div class="dashboard-root">
-  <section class="dashboard-shell">
+  <section class="dashboard-shell supervisor-dashboard-content">
     {#if errorMessage}
       <div class="error-banner">{errorMessage}</div>
     {/if}
@@ -559,11 +559,16 @@
     font-family: 'DM Sans', sans-serif;
   }
 
-  .dashboard-shell {
+  .dashboard-shell,
+  .supervisor-dashboard-content {
     display: flex;
     flex-direction: column;
-    gap: 14px;
     min-width: 0;
+  }
+
+  .supervisor-dashboard-content {
+    --supervisor-section-gap: 20px;
+    gap: var(--supervisor-section-gap);
   }
 
   .error-banner {
@@ -583,7 +588,8 @@
   .dash-stat-grid {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 14px;
+    gap: 16px;
+    margin: 0;
   }
 
   .dash-stat-card,
@@ -606,8 +612,9 @@
   .dash-stat-card {
     padding: 18px 20px;
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     gap: 14px;
+    min-height: 104px;
   }
 
   .dash-stat-icon,
@@ -623,6 +630,7 @@
   .dash-stat-body {
     display: flex;
     flex-direction: column;
+    justify-content: center;
     gap: 4px;
   }
 
@@ -679,10 +687,11 @@
   .dash-panel {
     min-width: 0;
     overflow: hidden;
+    margin: 0;
   }
 
   .dash-panel-wide .dash-panel-body {
-    padding-top: 2px;
+    padding-top: 12px;
   }
 
   .dash-panel-header {
@@ -690,7 +699,7 @@
     align-items: flex-start;
     justify-content: space-between;
     gap: 10px;
-    padding: 18px 20px 14px;
+    padding: 18px 20px 12px;
   }
 
   .dash-panel-title {
@@ -701,13 +710,13 @@
   }
 
   .dash-panel-subtitle {
-    margin: 6px 0 0;
+    margin: 4px 0 0;
     font-size: 12.5px;
     color: #64748b;
   }
 
   .dash-panel-body {
-    padding: 16px 20px 20px;
+    padding: 12px 20px 18px;
   }
 
   .intern-grid {
@@ -1278,6 +1287,10 @@
   }
 
   @media (max-width: 900px) {
+    .supervisor-dashboard-content {
+      --supervisor-section-gap: 18px;
+    }
+
     .dash-stat-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
@@ -1288,6 +1301,10 @@
   }
 
   @media (max-width: 640px) {
+    .supervisor-dashboard-content {
+      --supervisor-section-gap: 16px;
+    }
+
     .dash-stat-grid {
       grid-template-columns: 1fr;
     }
