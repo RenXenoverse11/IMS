@@ -1,5 +1,26 @@
 // Apps Script: Supervisor helper endpoints
 
+var SUPERVISOR_TASK_HEADERS_ = [
+  'sup_taskid',
+  'task',
+  'description',
+  'due_date',
+  'status',
+  'supervisor_archived',
+  'supervisor_archived_previous_status',
+  'assigned_to',
+  'daily_checklist',
+  'created_at',
+  'created_by',
+  'updated_by'
+];
+
+function isSupervisorTaskArchivedValue_(value) {
+  if (value === true) return true;
+  var normalized = String(value || '').trim().toLowerCase();
+  return normalized === 'true' || normalized === '1' || normalized === 'yes';
+}
+
 // Return a list of all non-supervisor users (students) with minimal fields
 function getAllStudents() {
   try {
@@ -45,17 +66,19 @@ function createSupervisorTasks(payload) {
     // Also record a supervisor-level task record in 'supervisor_task' sheet
       var supRow = null;
     try {
-      var supSheet = getOrCreateSheetWithHeaders_('supervisor_task', ['sup_taskid','task','description','due_date','status','assigned_to','daily_checklist','created_at','created_by','updated_by']);
-      supRow = {
-        sup_taskid: createId_('SUP'),
-        task: title,
-        description: description,
-        due_date: dueDate,
-        status: String(payload.status || 'Pending').trim(),
-        assigned_to: JSON.stringify(assignees || []),
-        daily_checklist: JSON.stringify(Array.isArray(payload.dailyChecklist) ? payload.dailyChecklist : (payload.daily_checklist || [])),
-        created_at: now,
-        created_by: supervisorId,
+      var supSheet = getOrCreateSheetWithHeaders_('supervisor_task', SUPERVISOR_TASK_HEADERS_);
+        supRow = {
+          sup_taskid: createId_('SUP'),
+          task: title,
+          description: description,
+          due_date: dueDate,
+          status: String(payload.status || 'Pending').trim(),
+          supervisor_archived: 'false',
+          supervisor_archived_previous_status: '',
+          assigned_to: JSON.stringify(assignees || []),
+          daily_checklist: JSON.stringify(Array.isArray(payload.dailyChecklist) ? payload.dailyChecklist : (payload.daily_checklist || [])),
+          created_at: now,
+          created_by: supervisorId,
         updated_by: supervisorId
       };
       appendObjectRow_(supSheet, supRow);
@@ -114,14 +137,17 @@ function createSupervisorTasks(payload) {
     // If initial attempt to create the supervisor-level row failed, try once more now
     if ((!supRow || !supRow.sup_taskid) && Array.isArray(assignees) && assignees.length) {
       try {
-        var retrySupSheet = getOrCreateSheetWithHeaders_('supervisor_task', ['sup_taskid','task','description','due_date','status','assigned_to','created_at','created_by','updated_by']);
+        var retrySupSheet = getOrCreateSheetWithHeaders_('supervisor_task', SUPERVISOR_TASK_HEADERS_);
         var retryRow = {
           sup_taskid: createId_('SUP'),
           task: title,
           description: description,
           due_date: dueDate,
           status: String(payload.status || 'Pending').trim(),
+          supervisor_archived: 'false',
+          supervisor_archived_previous_status: '',
           assigned_to: JSON.stringify(assignees || []),
+          daily_checklist: JSON.stringify(Array.isArray(payload.dailyChecklist) ? payload.dailyChecklist : (payload.daily_checklist || [])),
           created_at: now,
           created_by: supervisorId,
           updated_by: supervisorId
@@ -142,6 +168,7 @@ function createSupervisorTasks(payload) {
         description: supRow.description,
         due_date: supRow.due_date,
         status: String(supRow.status || '').trim(),
+        supervisor_archived: false,
         assigned_student_ids: (function(){ try { return JSON.parse(String(supRow.assigned_to||'[]')) } catch(e){ return []; } })(),
         dailyChecklist: (function(){ try { return JSON.parse(String(supRow.daily_checklist||'[]')) } catch(e){ return []; } })()
       };
@@ -166,7 +193,7 @@ function getSupervisorTasks(payload) {
       supervisorRecord = null;
       supervisorEmail = '';
     }
-    var sheet = getOrCreateSheetWithHeaders_('supervisor_task', ['sup_taskid','task','description','due_date','status','assigned_to','created_at','created_by','updated_by']);
+    var sheet = getOrCreateSheetWithHeaders_('supervisor_task', SUPERVISOR_TASK_HEADERS_);
     var rows = readSheetObjects_(sheet) || [];
     var tasks = [];
     for (var i = 0; i < rows.length; i++) {
@@ -179,12 +206,21 @@ function getSupervisorTasks(payload) {
       try { assigned = JSON.parse(String(r.assigned_to || '[]')) || []; } catch (e) { assigned = []; }
       var checklist = [];
       try { checklist = JSON.parse(String(r.daily_checklist || r.dailyChecklist || '[]')) || []; } catch (e) { checklist = []; }
+      var archivedPreviousStatus = String(r.supervisor_archived_previous_status || '').trim();
+      var statusValue = String(r.status || '').trim();
+      var isArchived = isSupervisorTaskArchivedValue_(r.supervisor_archived) || String(statusValue || '').toLowerCase() === 'archived';
+      var effectiveStatus = statusValue;
+      if (String(statusValue || '').toLowerCase() === 'archived') {
+        effectiveStatus = archivedPreviousStatus || 'Pending';
+      }
       tasks.push({
         id: String(r.sup_taskid || '').trim(),
         title: String(r.task || '').trim(),
         description: String(r.description || '').trim(),
         due_date: String(r.due_date || '').trim(),
-        status: String(r.status || '').trim(),
+        status: effectiveStatus,
+        supervisor_archived: isArchived,
+        supervisor_archived_previous_status: archivedPreviousStatus,
         assigned_student_ids: Array.isArray(assigned) ? assigned : [],
         daily_checklist: checklist
       });
@@ -261,7 +297,7 @@ function updateSupervisorTask(payload) {
     var supTaskId = String(payload.sup_taskid || '').trim();
     if (!supTaskId) return { ok: false, error: 'sup_taskid is required.' };
 
-    var sheet = getOrCreateSheetWithHeaders_('supervisor_task', ['sup_taskid','task','description','due_date','status','assigned_to','created_at','created_by','updated_by']);
+    var sheet = getOrCreateSheetWithHeaders_('supervisor_task', SUPERVISOR_TASK_HEADERS_);
     var values = getSheetValues_(sheet) || [];
     if (values.length <= 1) return { ok: false, error: 'No rows found.' };
 
@@ -279,18 +315,48 @@ function updateSupervisorTask(payload) {
     }
     if (foundRow === -1) return { ok: false, error: 'Task not found.' };
 
+    var statusIdx = headers.indexOf('status');
+    var archiveIdx = headers.indexOf('supervisor_archived');
+    var archivePrevIdx = headers.indexOf('supervisor_archived_previous_status');
+    var taskIdx = headers.indexOf('task');
+    var createdByIdx = headers.indexOf('created_by');
+
+    var currentStatus = statusIdx !== -1 ? String(values[foundRow - 1][statusIdx] || '').trim() : '';
+    var currentArchivePreviousStatus = archivePrevIdx !== -1 ? String(values[foundRow - 1][archivePrevIdx] || '').trim() : '';
+    var archivePayloadProvided = payload.supervisor_archived !== undefined;
+    var legacyArchiveRequest = !archivePayloadProvided && payload.status !== undefined && String(payload.status || '').trim().toLowerCase() === 'archived';
+    var archiveChangeRequested = archivePayloadProvided || legacyArchiveRequest;
+    var shouldArchiveForSupervisor = archivePayloadProvided
+      ? isSupervisorTaskArchivedValue_(payload.supervisor_archived)
+      : legacyArchiveRequest;
+    var shouldSyncStatusToInterns = payload.status !== undefined && !archiveChangeRequested;
+    var hasChecklistUpdate = payload.dailyChecklist !== undefined || payload.daily_checklist !== undefined;
+
     var obj = {};
     if (payload.title !== undefined) obj.task = String(payload.title || '');
     if (payload.description !== undefined) obj.description = String(payload.description || '');
     if (payload.due_date !== undefined) obj.due_date = String(payload.due_date || '');
-    if (payload.status !== undefined) obj.status = String(payload.status || '');
+    if (shouldSyncStatusToInterns) obj.status = String(payload.status || '');
     if (payload.assigned_student_ids !== undefined) obj.assigned_to = JSON.stringify(payload.assigned_student_ids || []);
-    if (payload.dailyChecklist !== undefined || payload.daily_checklist !== undefined) {
+    if (hasChecklistUpdate) {
       try {
         var dl = payload.dailyChecklist !== undefined ? payload.dailyChecklist : payload.daily_checklist;
         obj.daily_checklist = JSON.stringify(Array.isArray(dl) ? dl : (typeof dl === 'string' && dl ? JSON.parse(dl) : []));
       } catch (e) {
         obj.daily_checklist = JSON.stringify([]);
+      }
+    }
+    if (archiveChangeRequested) {
+      obj.supervisor_archived = shouldArchiveForSupervisor ? 'true' : 'false';
+      if (shouldArchiveForSupervisor) {
+        if (String(currentStatus || '').toLowerCase() !== 'archived') {
+          obj.supervisor_archived_previous_status = currentStatus || currentArchivePreviousStatus || 'Pending';
+        }
+      } else {
+        obj.supervisor_archived_previous_status = '';
+        if (String(currentStatus || '').toLowerCase() === 'archived') {
+          obj.status = currentArchivePreviousStatus || 'Pending';
+        }
       }
     }
     if (payload.updated_by !== undefined) obj.updated_by = String(payload.updated_by || '');
@@ -299,15 +365,6 @@ function updateSupervisorTask(payload) {
     updateObjectRow_(sheet, foundRow, obj);
     // Propagate checklist updates to intern activity_logs so interns see supervisor edits
     try {
-      // determine new checklist array
-      var newDl = [];
-      if (payload.dailyChecklist !== undefined) newDl = payload.dailyChecklist;
-      else if (payload.daily_checklist !== undefined) newDl = payload.daily_checklist;
-      else if (obj.daily_checklist !== undefined) {
-        try { newDl = JSON.parse(String(obj.daily_checklist || '[]')); } catch (e) { newDl = []; }
-      }
-      newDl = Array.isArray(newDl) ? newDl : [];
-
       // determine assigned student ids (try payload.assigned_student_ids, payload.assigned_to, or existing row)
       var assignedList = [];
       try {
@@ -326,12 +383,21 @@ function updateSupervisorTask(payload) {
         }
       } catch (e) { assignedList = []; }
 
-      // determine new status (if provided)
-      var newStatus = '';
-      if (payload.status !== undefined) newStatus = String(payload.status || '');
-      else if (obj && obj.status !== undefined) newStatus = String(obj.status || '');
+      // determine new checklist array
+      var newDl = [];
+      if (hasChecklistUpdate) {
+        if (payload.dailyChecklist !== undefined) newDl = payload.dailyChecklist;
+        else if (payload.daily_checklist !== undefined) newDl = payload.daily_checklist;
+        else if (obj.daily_checklist !== undefined) {
+          try { newDl = JSON.parse(String(obj.daily_checklist || '[]')); } catch (e) { newDl = []; }
+        }
+        newDl = Array.isArray(newDl) ? newDl : [];
+      }
 
-      // find matching activity_logs rows and update their checklist and status columns
+      // determine new status (if provided and meant for interns)
+      var newStatus = shouldSyncStatusToInterns ? String(payload.status || '') : '';
+
+      // find matching activity_logs rows and update their checklist/status columns when those fields changed
       try {
         var actSheet = getSheet_('activity_logs');
         var actValues = getSheetValues_(actSheet) || [];
@@ -342,10 +408,8 @@ function updateSupervisorTask(payload) {
           var actAssignedByIdx = actHeaders.indexOf('assigned_by');
           var actUserIdIdx = actHeaders.indexOf('user_id');
           if (actTaskIdx !== -1 && actAssignedByIdx !== -1) {
-            var supTitle = obj.task !== undefined ? String(obj.task || '').trim() : String(values[foundRow - 1][headers.indexOf('task')] || '').trim();
-            var supCreatedByIdx = -1;
-            for (var hidx = 0; hidx < headers.length; hidx++) { if (String(headers[hidx] || '').toLowerCase() === 'created_by') { supCreatedByIdx = hidx; break; } }
-            var supCreatedBy = supCreatedByIdx !== -1 ? String(values[foundRow - 1][supCreatedByIdx] || '').trim() : '';
+            var supTitle = obj.task !== undefined ? String(obj.task || '').trim() : String(values[foundRow - 1][taskIdx] || '').trim();
+            var supCreatedBy = createdByIdx !== -1 ? String(values[foundRow - 1][createdByIdx] || '').trim() : '';
             for (var ar = 1; ar < actValues.length; ar++) {
               try {
                 var rowTask = String(actValues[ar][actTaskIdx] || '').trim();
@@ -359,10 +423,12 @@ function updateSupervisorTask(payload) {
                 if (assignedList && assignedList.length > 0) {
                   if (rowUserId && assignedList.indexOf(rowUserId) === -1) continue;
                 }
-                // update checklist column on activity_logs row (and status if provided)
-                var updateAct = { checklist: JSON.stringify(newDl) };
+                var updateAct = {};
+                if (hasChecklistUpdate) updateAct.checklist = JSON.stringify(newDl);
                 if (newStatus) updateAct.status = String(newStatus);
-                updateObjectRow_(actSheet, ar + 1, updateAct);
+                if (Object.keys(updateAct).length > 0) {
+                  updateObjectRow_(actSheet, ar + 1, updateAct);
+                }
               } catch (e) {
                 // non-fatal per-row
               }
@@ -513,7 +579,7 @@ function getSupervisorTaskAttachments(payload) {
     //    Then find matching activity_logs rows (intern tasks) linked by task_name + assigned_by,
     //    and return their attachments from act_attachments.
     try {
-      var supTaskSheet = getOrCreateSheetWithHeaders_('supervisor_task', ['sup_taskid','task','description','due_date','status','assigned_to','created_at','created_by','updated_by']);
+      var supTaskSheet = getOrCreateSheetWithHeaders_('supervisor_task', SUPERVISOR_TASK_HEADERS_);
       var supTaskRows = readSheetObjects_(supTaskSheet) || [];
       var supTaskRow = null;
       for (var st = 0; st < supTaskRows.length; st++) {

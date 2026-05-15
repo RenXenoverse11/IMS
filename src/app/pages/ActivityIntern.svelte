@@ -612,6 +612,7 @@ let assignedTasksError = '';
   let isViewTaskModalOpen = false;
   let viewedTaskTitle = '';
   let isEditingViewedTask = false;
+  let isSavingViewedTask = false;
   let taskViewEditForm = {
     title: '',
     status: 'Pending',
@@ -652,7 +653,7 @@ let assignedTasksError = '';
       return true;
     }
 
-    return task.status === filter;
+    return getTaskStatusLabel(task) === filter;
   }
 
   function matchesSearch(task, query) {
@@ -957,6 +958,22 @@ let assignedTasksError = '';
     });
   }
 
+  function callSetActivityTaskArchiveStatus(payload) {
+    return new Promise((resolve, reject) => {
+      const run = globalThis?.google?.script?.run;
+      if (!run) {
+        reject(new Error('Apps Script runtime is not available in this view.'));
+        return;
+      }
+      run
+        .withSuccessHandler(resolve)
+        .withFailureHandler((error) => {
+          reject(new Error(error?.message || String(error)));
+        })
+        .setActivityTaskArchiveStatus(payload);
+    });
+  }
+
   function parseTaskItems(value) {
     if (Array.isArray(value)) {
       return value;
@@ -1030,6 +1047,7 @@ let assignedTasksError = '';
       userId: String(source.user_id || source.userId || defaultValue.user_id || defaultValue.userId || '').trim(),
       title: String(source.task_name || source.title || defaultValue.task_name || defaultValue.title || '').trim(),
       status: String(source.status || defaultValue.status || 'Pending'),
+      archivedPreviousStatus: String(source.archived_previous_status || source.archivedPreviousStatus || defaultValue.archived_previous_status || defaultValue.archivedPreviousStatus || '').trim(),
       dueDate: dueDateValue,
       owner: String(source.assigned_by || source.owner || defaultValue.assigned_by || defaultValue.owner || ''),
       priority: String(source.priority || defaultValue.priority || 'medium'),
@@ -1042,11 +1060,24 @@ let assignedTasksError = '';
     };
   }
 
+  function isArchivedActivityTask(task) {
+    return String(task?.status || '').trim().toLowerCase() === 'archived';
+  }
+
+  function getTaskStatusLabel(task) {
+    if (isArchivedActivityTask(task)) {
+      return task?.archivedPreviousStatus || 'Pending';
+    }
+
+    return task?.status || 'Pending';
+  }
+
   async function fetchAssignedTasks() {
     const user = getCurrentUser();
 
     if (!user?.user_id) {
       assignedTasks = [];
+      archivedTasks = [];
       assignedTasksError = '';
       return;
     }
@@ -1064,9 +1095,11 @@ let assignedTasksError = '';
         throw new Error(result?.error || 'Unable to load tasks.');
       }
 
-      assignedTasks = Array.isArray(result.tasks)
+      const loadedTasks = Array.isArray(result.tasks)
         ? result.tasks.map((task) => mapCreatedTaskToUi(task))
         : [];
+      assignedTasks = loadedTasks.filter((task) => !isArchivedActivityTask(task));
+      archivedTasks = loadedTasks.filter((task) => isArchivedActivityTask(task));
 
       if (
         selectedOverviewTaskTitle &&
@@ -1080,6 +1113,7 @@ let assignedTasksError = '';
       }
     } catch (error) {
       assignedTasks = [];
+      archivedTasks = [];
       assignedTasksError = error?.message || 'Unable to load tasks.';
     } finally {
       isLoadingAssignedTasks = false;
@@ -1308,6 +1342,7 @@ let assignedTasksError = '';
     isViewTaskModalOpen = false;
     viewedTaskTitle = '';
     isEditingViewedTask = false;
+    isSavingViewedTask = false;
     taskViewEditForm = {
       title: '',
       status: 'Pending',
@@ -1511,12 +1546,13 @@ let assignedTasksError = '';
   }
 
   async function saveTaskEditFromView() {
-    if (!viewedTask) {
+    if (!viewedTask || isSavingViewedTask) {
       return;
     }
 
     const originalTitle = viewedTask.title;
     const payload = buildTaskUpdatePayload(viewedTask, taskViewEditForm);
+    isSavingViewedTask = true;
 
     try {
       const result = await callUpdateActivityTask(payload);
@@ -1569,17 +1605,19 @@ let assignedTasksError = '';
       }
     } catch (error) {
       alert('Failed to save task: ' + (error?.message || error));
+    } finally {
+      isSavingViewedTask = false;
     }
   }
 
-  function archiveTaskFromView() {
+  async function archiveTaskFromView() {
     if (!viewedTask) {
       return;
     }
 
     const targetTitle = viewedTask.title;
     closeTaskViewForm();
-    archiveTask(targetTitle);
+    await archiveTask(targetTitle);
 
     if (expandedListTaskTitle === targetTitle) {
       expandedListTaskTitle = '';
@@ -1685,33 +1723,97 @@ let assignedTasksError = '';
     }
   }
 
-  function archiveTask(targetTitle) {
+  async function archiveTask(targetTitle) {
     const taskToArchive = assignedTasks.find((task) => task.title === targetTitle);
 
     if (!taskToArchive) {
-      return;
+      return false;
     }
 
-    archivedTasks = [taskToArchive, ...archivedTasks.filter((task) => task.title !== targetTitle)];
+    const previousAssignedTasks = assignedTasks;
+    const previousArchivedTasks = archivedTasks;
+    const user = getCurrentUser();
+    const archivedTask = {
+      ...taskToArchive,
+      status: 'Archived',
+      archivedPreviousStatus: getTaskStatusLabel(taskToArchive),
+    };
+
+    archivedTasks = [archivedTask, ...archivedTasks.filter((task) => task.title !== targetTitle)];
     assignedTasks = assignedTasks.filter((task) => task.title !== targetTitle);
 
     if (selectedOverviewTaskTitle === targetTitle) {
       selectedOverviewTaskTitle = '';
     }
+
+    try {
+      const result = await callSetActivityTaskArchiveStatus({
+        id: taskToArchive.id,
+        user_id: taskToArchive.userId || user?.user_id || '',
+        archived: true,
+        updated_by: user?.user_id || '',
+      });
+
+      if (!result?.ok) {
+        throw new Error(result?.error || 'Unable to archive task.');
+      }
+
+      const savedTask = mapCreatedTaskToUi(result.task, archivedTask);
+      archivedTasks = archivedTasks.map((task) =>
+        task.id === savedTask.id || task.title === targetTitle ? savedTask : task
+      );
+      return true;
+    } catch (error) {
+      assignedTasks = previousAssignedTasks;
+      archivedTasks = previousArchivedTasks;
+      alert('Failed to archive task: ' + (error?.message || error));
+      return false;
+    }
   }
 
-  function restoreArchivedTask(targetTitle) {
+  async function restoreArchivedTask(targetTitle) {
     const taskToRestore = archivedTasks.find((task) => task.title === targetTitle);
 
     if (!taskToRestore) {
       return;
     }
 
-    assignedTasks = [taskToRestore, ...assignedTasks.filter((task) => task.title !== targetTitle)];
+    const previousAssignedTasks = assignedTasks;
+    const previousArchivedTasks = archivedTasks;
+    const user = getCurrentUser();
+    const restoredTask = {
+      ...taskToRestore,
+      status: getTaskStatusLabel(taskToRestore),
+      archivedPreviousStatus: '',
+    };
+
+    assignedTasks = [restoredTask, ...assignedTasks.filter((task) => task.title !== targetTitle)];
     archivedTasks = archivedTasks.filter((task) => task.title !== targetTitle);
+
+    try {
+      const result = await callSetActivityTaskArchiveStatus({
+        id: taskToRestore.id,
+        user_id: taskToRestore.userId || user?.user_id || '',
+        archived: false,
+        updated_by: user?.user_id || '',
+      });
+
+      if (!result?.ok) {
+        throw new Error(result?.error || 'Unable to restore task.');
+      }
+
+      const savedTask = mapCreatedTaskToUi(result.task, restoredTask);
+      assignedTasks = assignedTasks.map((task) =>
+        task.id === savedTask.id || task.title === targetTitle ? savedTask : task
+      );
+    } catch (error) {
+      assignedTasks = previousAssignedTasks;
+      archivedTasks = previousArchivedTasks;
+      alert('Failed to restore task: ' + (error?.message || error));
+    }
   }
 
-  function handleTrackerAction(action) {
+  async function handleTrackerAction(action) {
     if (action === 'edit') {
       openTrackerEdit();
       return;
@@ -1734,7 +1836,7 @@ let assignedTasksError = '';
     const targetTitle = selectedOverviewTask.title;
 
     if (action === 'archive') {
-      archiveTask(targetTitle);
+      await archiveTask(targetTitle);
     }
 
     trackerMenuOpen = false;
@@ -2196,16 +2298,6 @@ let assignedTasksError = '';
       </section>
     {:else}
     <section class="panel tasks-panel">
-      {#if activeView === 'Archive'}
-        <header class="panel-header tasks-header">
-          <div class="tasks-header-columns" aria-hidden="true">
-            <span>Status</span>
-            <span>{activeView === 'Archive' ? 'Restore' : 'Attachment'}</span>
-            <span>Due Date</span>
-          </div>
-        </header>
-      {/if}
-
       {#if activeView === 'Overview'}
         <div class="overview-shell">
           <div class="overview-panels">
@@ -2493,7 +2585,7 @@ let assignedTasksError = '';
             {#each filteredArchivedTasks as task}
               <div class="task-row archived-row" role="row">
                 <span role="cell" class="task-name">{task.title}</span>
-                <span role="cell" class={`status-pill ${statusClassMap[task.status]}`}>{task.status}</span>
+                <span role="cell" class={`status-pill ${statusClassMap[getTaskStatusLabel(task)]}`}>{getTaskStatusLabel(task)}</span>
                 <button role="cell" type="button" class="attachment-btn" on:click={() => restoreArchivedTask(task.title)}>
                   Restore
                 </button>
@@ -3034,7 +3126,18 @@ let assignedTasksError = '';
         <h4>Task Details</h4>
         <div class="task-view-head-actions">
           {#if isEditingViewedTask}
-            <button type="button" class="task-view-action" on:click={saveTaskEditFromView}>Save</button>
+            <button
+              type="button"
+              class="task-view-action"
+              style="display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;"
+              on:click={saveTaskEditFromView}
+              disabled={isSavingViewedTask}
+            >
+              {#if isSavingViewedTask}
+                <span class="spinning-icon"><Loader2 size={16} /></span>
+              {/if}
+              <span>{isSavingViewedTask ? 'Saving...' : 'Save'}</span>
+            </button>
             <button type="button" class="task-view-action" on:click={cancelTaskEditFromView}>Cancel</button>
           {:else}
             <button type="button" class="task-view-action" on:click={openTaskEditFromView}>Edit Task</button>
@@ -3740,23 +3843,6 @@ let assignedTasksError = '';
     border-color: #ffffff0f !important;
   }
 
-  .tasks-header {
-    border-bottom: 1px solid var(--color-border);
-    padding-bottom: 0.9rem;
-  }
-
-  .tasks-header-columns {
-    display: inline-grid;
-    grid-template-columns: 8rem 7.5rem 8.75rem;
-    align-items: center;
-    gap: 1.1rem;
-    margin-right: 0.8rem;
-    color: var(--color-heading);
-    font-size: 1rem;
-    font-weight: 650;
-    letter-spacing: -0.01em;
-  }
-
   .overview-shell {
     display: grid;
     gap: 1rem;
@@ -4441,6 +4527,11 @@ let assignedTasksError = '';
     cursor: pointer;
   }
 
+  .task-view-action:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+  }
+
   .task-view-action.danger {
     border-color: var(--color-border);
     color: var(--color-text);
@@ -4554,19 +4645,6 @@ let assignedTasksError = '';
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-  }
-
-  .tasks-header-columns span:nth-child(1) {
-    justify-self: center;
-  }
-
-  .tasks-header-columns span:nth-child(3) {
-    justify-self: center;
-  }
-
-  .tasks-header-columns span:nth-child(2) {
-    justify-self: center;
-    margin-left: 0;
   }
 
   .task-due {
@@ -4864,13 +4942,6 @@ let assignedTasksError = '';
       grid-template-columns: 1fr;
     }
 
-    .tasks-header-columns {
-      grid-template-columns: 7rem 7rem 8rem;
-      gap: 0.8rem;
-      margin-right: 0;
-    }
-
-    .tasks-header-columns span:nth-child(2),
     .attachment-btn {
       margin-left: 0;
     }
@@ -6074,17 +6145,6 @@ let assignedTasksError = '';
     background: transparent !important;
     border: none !important;
     box-shadow: none !important;
-  }
-
-  .activity-shell.projects-page .tasks-header {
-    padding: 0 0 0.2rem;
-    border: none;
-    background: transparent;
-  }
-
-  :global(body.dark) .activity-shell.projects-page .tasks-header {
-    background: transparent !important;
-    border: none !important;
   }
 
   .activity-shell.projects-page .panel {

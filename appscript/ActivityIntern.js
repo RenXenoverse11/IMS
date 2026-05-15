@@ -552,7 +552,7 @@ function getSupervisorActivityOverview(payload) {
 				supervisorRecord = null;
 				supervisorEmail = '';
 			}
-			var supervisorSheet = getOrCreateSheetWithHeaders_('supervisor_task', ['sup_taskid','task','description','due_date','assigned_to','created_at','created_by','updated_by']);
+			var supervisorSheet = getOrCreateSheetWithHeaders_('supervisor_task', SUPERVISOR_TASK_HEADERS_);
 			var supRows = readSheetObjects_(supervisorSheet);
 			supervisorTasks = supRows.filter(function (row) {
 				var createdBy = String(row.created_by || '').trim();
@@ -718,6 +718,7 @@ function getActivityTasks(payload) {
 				task_name: String(row.task_name || row.title || '').trim(),
 				due_date: String(row.due_date || '').trim(),
 				status: String(row.status || 'Pending').trim(),
+				archived_previous_status: String(row.archived_previous_status || '').trim(),
 				description: String(row.description || '').trim(),
 				assigned_by: String(row.assigned_by || '').trim(),
 				checklist: parseActivityJsonArray_(row.checklist),
@@ -770,6 +771,7 @@ function getActivityTasks(payload) {
 				task_name: String(row.task_name || row.title || '').trim(),
 				due_date: String(row.due_date || '').trim(),
 				status: String(row.status || 'Pending').trim(),
+				archived_previous_status: String(row.archived_previous_status || '').trim(),
 				description: String(row.description || '').trim(),
 				assigned_by: String(row.assigned_by || '').trim(),
 				checklist: parseActivityJsonArray_(row.checklist),
@@ -827,7 +829,7 @@ function getActivityTasks(payload) {
 	// Match intern tasks to supervisor_task rows by (task_name == supervisor_task.task AND assigned_by == supervisor_task.created_by).
 	// This makes attachments uploaded by the supervisor visible to assigned interns when they view a task.
 	try {
-		var supTaskSheet = getOrCreateSheetWithHeaders_('supervisor_task', ['sup_taskid','task','description','due_date','status','assigned_to','created_at','created_by','updated_by']);
+		var supTaskSheet = getOrCreateSheetWithHeaders_('supervisor_task', SUPERVISOR_TASK_HEADERS_);
 		var supTaskRows = readSheetObjects_(supTaskSheet) || [];
 		// Build map: normalised title -> array of sup_taskid for tasks assigned to this intern
 		var supTaskTitleToIds = {};
@@ -1023,6 +1025,92 @@ function updateActivityTask(payload) {
 	}
 	return { ok: false, error: 'Task not found.' };
 }
+
+// Archive/restore only the intern-facing activity task row.
+// This intentionally does not sync to supervisor_task; archiving here is an intern UI control.
+function setActivityTaskArchiveStatus(payload) {
+	try {
+		var sheet = getSheet_('activity_logs');
+		ensureSheetColumns_(sheet, ['archived_previous_status']);
+
+		var id = String(payload.id || payload.activity_id || '').trim();
+		if (!id) {
+			return { ok: false, error: 'id is required.' };
+		}
+
+		var requestedUserId = String(payload.user_id || '').trim();
+		var shouldArchive = payload.archived === true || String(payload.status || '').trim().toLowerCase() === 'archived';
+		var data = sheet.getDataRange().getValues();
+		if (!data.length) {
+			return { ok: false, error: 'activity_logs sheet is empty.' };
+		}
+
+		var headers = data[0];
+		var idIdx = findColumnIndex_(headers, 'id');
+		var userIdIdx = findColumnIndex_(headers, 'user_id');
+		if (idIdx === 0) {
+			return { ok: false, error: 'Sheet missing id column.' };
+		}
+
+		for (var i = 1; i < data.length; i++) {
+			if (String(data[i][idIdx - 1] || '').trim() !== id) {
+				continue;
+			}
+
+			var existingTask = mapRowValuesToObject_(headers, data[i]);
+			var existingUserId = String(existingTask.user_id || '').trim();
+			if (requestedUserId && userIdIdx > 0 && existingUserId !== requestedUserId) {
+				return { ok: false, error: 'You can only archive your own task.' };
+			}
+
+			var currentStatus = String(existingTask.status || 'Pending').trim() || 'Pending';
+			var previousStatus = String(existingTask.archived_previous_status || '').trim();
+			var nextStatus = shouldArchive
+				? 'Archived'
+				: (previousStatus && previousStatus.toLowerCase() !== 'archived' ? previousStatus : 'Pending');
+			var nextPreviousStatus = shouldArchive && currentStatus.toLowerCase() !== 'archived'
+				? currentStatus
+				: '';
+			var updatedAt = isoNow_();
+			var updatedBy = String(payload.updated_by || existingTask.updated_by || '').trim();
+
+			updateObjectRow_(sheet, i + 1, {
+				status: nextStatus,
+				archived_previous_status: nextPreviousStatus,
+				updated_at: updatedAt,
+				updated_by: updatedBy
+			});
+
+			return {
+				ok: true,
+				message: shouldArchive ? 'Task archived.' : 'Task restored.',
+				task: {
+					id: String(existingTask.id || id).trim(),
+					user_id: existingUserId,
+					task_name: String(existingTask.task_name || existingTask.title || '').trim(),
+					due_date: String(existingTask.due_date || '').trim(),
+					status: nextStatus,
+					archived_previous_status: nextPreviousStatus,
+					description: String(existingTask.description || '').trim(),
+					assigned_by: String(existingTask.assigned_by || '').trim(),
+					checklist: parseActivityJsonArray_(existingTask.checklist),
+					attachments: parseActivityJsonArray_(existingTask.attachments),
+					priority: String(existingTask.priority || 'medium').trim(),
+					owner_email: String(existingTask.owner_email || existingTask.email || '').trim(),
+					created_at: String(existingTask.created_at || '').trim(),
+					created_by: String(existingTask.created_by || '').trim(),
+					updated_at: updatedAt,
+					updated_by: updatedBy
+				}
+			};
+		}
+
+		return { ok: false, error: 'Task not found.' };
+	} catch (err) {
+		return { ok: false, error: err.message || String(err) };
+	}
+}
+
 // Helper: Fetch user info from users sheet by email 
 function getUserInfoByEmail_(email) {
 	var usersSheet = getSheet_('users');
@@ -1167,7 +1255,7 @@ function handleCreateActivityTask_(payload) {
 	// `skipSupervisorCreate=true` to avoid duplicates.
 	if (assignedBy && user_id && !payload.skipSupervisorCreate) {
 		try {
-			var supSheet = getOrCreateSheetWithHeaders_('supervisor_task', ['sup_taskid','task','description','due_date','status','assigned_to','created_at','created_by','updated_by']);
+			var supSheet = getOrCreateSheetWithHeaders_('supervisor_task', SUPERVISOR_TASK_HEADERS_);
 			var supTaskId = (typeof createId_ === 'function') ? createId_('SUP') : ('SUP_' + new Date().getTime());
 			appendObjectRow_(supSheet, {
 				sup_taskid: supTaskId,
