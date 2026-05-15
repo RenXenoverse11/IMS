@@ -113,6 +113,60 @@
     return d;
   }
 
+  function firstNonEmptyText(...values) {
+    for (const value of values) {
+      const text = String(value ?? '').trim();
+      if (text) return text;
+    }
+    return '';
+  }
+
+  function formatMaybeDateTime(value, fallback = 'Not available') {
+    const raw = String(value ?? '').trim();
+    if (!raw) return fallback;
+
+    const direct = new Date(raw);
+    if (!Number.isNaN(direct.getTime())) {
+      return new Intl.DateTimeFormat('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      }).format(direct);
+    }
+
+    const dateOnly = raw.includes('T') ? raw.split('T')[0] : raw.split(' ')[0];
+    const parsedDateOnly = new Date(`${dateOnly}T00:00:00`);
+    if (!Number.isNaN(parsedDateOnly.getTime())) {
+      return normalizeDate(dateOnly);
+    }
+
+    return raw;
+  }
+
+  function buildInternMetaLabel(student) {
+    const company = String(student?.company || student?.company_name || '').trim();
+    const school = String(student?.school || student?.school_name || student?.university || '').trim();
+    const program = String(student?.program || student?.course || student?.degree_program || '').trim();
+    const department = normalizeDepartment(student?.department || '');
+
+    const pieces = [company, school, program, department]
+      .map((entry) => String(entry || '').trim())
+      .filter(Boolean);
+
+    if (pieces.length === 0) return 'Not available';
+
+    const unique = [];
+    for (const item of pieces) {
+      if (!unique.some((existing) => existing.toLowerCase() === item.toLowerCase())) {
+        unique.push(item);
+      }
+    }
+
+    return unique.slice(0, 2).join(' • ');
+  }
+
   function calculateDaysRemaining(requiredHours, completedHours) {
     const remainingHours = Math.max(0, toNumber(requiredHours) - toNumber(completedHours));
     return Math.ceil(remainingHours / HOURS_PER_WORKING_DAY);
@@ -450,26 +504,34 @@
     <div class="stats-grid">
       <div class="stat-card stat-blue">
         <div class="stat-icon"><UserRoundCheck size={18} /></div>
-        <p class="stat-value">{totalAssigned}</p>
-        <p class="stat-label">Assigned Interns</p>
+        <div class="stat-copy">
+          <p class="stat-value">{totalAssigned}</p>
+          <p class="stat-label">Assigned Interns</p>
+        </div>
       </div>
 
       <div class="stat-card stat-success">
         <div class="stat-icon"><Check size={18} /></div>
-        <p class="stat-value" title={String(totalCompletedHours)}>{formatHours(totalCompletedHours)}</p>
-        <p class="stat-label">Completed Hours</p>
+        <div class="stat-copy">
+          <p class="stat-value" title={String(totalCompletedHours)}>{formatHours(totalCompletedHours)}</p>
+          <p class="stat-label">Completed Hours</p>
+        </div>
       </div>
 
       <div class="stat-card stat-violet">
         <div class="stat-icon"><TrendingUp size={18} /></div>
-        <p class="stat-value">{averageProgress}%</p>
-        <p class="stat-label">Average Progress</p>
+        <div class="stat-copy">
+          <p class="stat-value">{averageProgress}%</p>
+          <p class="stat-label">Average Progress</p>
+        </div>
       </div>
 
       <div class="stat-card stat-cyan">
         <div class="stat-icon"><Clock3 size={18} /></div>
-        <p class="stat-value" title={String(totalRequiredHours)}>{formatHours(totalRequiredHours)}</p>
-        <p class="stat-label">Required Hours</p>
+        <div class="stat-copy">
+          <p class="stat-value" title={String(totalRequiredHours)}>{formatHours(totalRequiredHours)}</p>
+          <p class="stat-label">Required Hours</p>
+        </div>
       </div>
     </div>
 
@@ -484,13 +546,14 @@
           <button class="btn btn-secondary" type="button" on:click={loadData} disabled={loading || saving}>
             <RefreshCw size={15} />Refresh
           </button>
-          <button class="btn btn-primary" type="button" on:click={() => { bulkSelectedInterns = new Set(); bulkDaysOff = [...DEFAULT_DAYS_OFF]; bulkShiftStart = '09:00'; bulkShiftEnd = '17:00'; showAddModal = true; bulkAssignMode = true; }} disabled={loading || saving} style="display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;">
+          <button class="btn btn-primary btn-with-icon" type="button" on:click={() => { bulkSelectedInterns = new Set(); bulkDaysOff = [...DEFAULT_DAYS_OFF]; bulkShiftStart = '09:00'; bulkShiftEnd = '17:00'; showAddModal = true; bulkAssignMode = true; }} disabled={loading || saving}>
             <Plus size={15} />
             <span>Add Interns</span>
           </button>
         </div>
       </div>
 
+      <div class="card-body-shell">
       {#if errorMessage}
         <p class="alert alert-error">{errorMessage}</p>
       {/if}
@@ -499,17 +562,67 @@
       {/if}
 
       {#if loading}
-        <p class="text-muted">Loading intern accounts...</p>
+        <div class="assigned-grid" role="status" aria-label="Loading assigned interns">
+          {#each [1, 2, 3] as _}
+            <article class="assigned-card assigned-card-skeleton">
+              <div class="card-header-row">
+                <div class="assigned-info">
+                  <div class="assigned-avatar skeleton-circle shimmer"></div>
+                  <div class="info-text">
+                    <div class="sk-line shimmer" style="height: 14px; width: 140px; border-radius: 8px;"></div>
+                    <div class="sk-line shimmer" style="height: 11px; width: 95px; border-radius: 7px; margin-top: 7px;"></div>
+                  </div>
+                </div>
+                <div class="sk-pill shimmer"></div>
+              </div>
+              <div class="card-body">
+                <div class="hours-row">
+                  {#each [1, 2, 3] as __}
+                    <div class="hours-stat skeleton-hours-stat">
+                      <div class="sk-line shimmer" style="height: 10px; width: 68%; border-radius: 7px; margin: 0 auto;"></div>
+                      <div class="sk-line shimmer" style="height: 14px; width: 62%; border-radius: 7px; margin: 8px auto 0;"></div>
+                    </div>
+                  {/each}
+                </div>
+                <div class="progress-bar skeleton-progress">
+                  <div class="progress-fill progress-tone-mid" style="width: 45%;"></div>
+                </div>
+                <div class="days-remaining-display skeleton-days-row">
+                  <div class="sk-line shimmer" style="height: 10px; width: 46%; border-radius: 7px;"></div>
+                  <div class="sk-line shimmer" style="height: 10px; width: 32%; border-radius: 7px;"></div>
+                </div>
+              </div>
+            </article>
+          {/each}
+        </div>
       {:else if assignedStudents.length === 0}
-        <p class="text-muted">No interns assigned yet. Click "Add Interns" to get started.</p>
+        <div class="empty-state">
+          <div class="empty-icon"><UserRoundCheck size={18} /></div>
+          <p class="empty-title">No assigned interns yet.</p>
+          <p class="empty-sub">Add interns to start monitoring their OJT progress.</p>
+          <button class="btn btn-primary btn-with-icon empty-action" type="button" on:click={() => { bulkSelectedInterns = new Set(); bulkDaysOff = [...DEFAULT_DAYS_OFF]; bulkShiftStart = '09:00'; bulkShiftEnd = '17:00'; showAddModal = true; bulkAssignMode = true; }} disabled={loading || saving}>
+            <Plus size={15} />
+            <span>Add Interns</span>
+          </button>
+        </div>
       {:else}
         <div class="assigned-grid">
           {#each assignedStudents as student (student.user_id)}
             {@const required = toNumber(student.required_hours)}
             {@const completed = toNumber(student.completed_hours)}
+            {@const remaining = Math.max(0, required - completed)}
             {@const progress = toPercent(completed, required)}
+            {@const progressTone = progress >= 100 ? 'complete' : progress >= 80 ? 'near' : progress <= 30 ? 'low' : 'mid'}
             {@const daysLeft = calculateDaysRemaining(required, completed)}
             {@const daysStatus = getDaysStatus(daysLeft)}
+            {@const internMetaLabel = buildInternMetaLabel(student)}
+            {@const ojtEndDate = String(student?.estimated_end_date || '').trim()}
+            {@const ojtEndDateDisplay = ojtEndDate ? normalizeDate(ojtEndDate) : 'Not available'}
+            {@const estimatedCompletionRaw = firstNonEmptyText(student?.estimated_completion_date, student?.estimated_completion, student?.projected_completion_date, student?.expected_completion_date)}
+            {@const estimatedCompletionDisplay = estimatedCompletionRaw ? normalizeDate(estimatedCompletionRaw) : 'Not available'}
+            {@const statusText = firstNonEmptyText(student?.status, student?.intern_status, student?.ojt_status, student?.attendance_status, student?.current_status) || 'Not available'}
+            {@const lastActivityRaw = firstNonEmptyText(student?.last_activity, student?.last_time_log, student?.last_timelog, student?.latest_timelog, student?.last_log_date, student?.last_log_at, student?.updated_at)}
+            {@const lastActivityDisplay = lastActivityRaw ? formatMaybeDateTime(lastActivityRaw, 'No recent activity') : 'No recent activity'}
             <article class="assigned-card">
               <div class="card-header-row">
                 <div class="assigned-info">
@@ -522,7 +635,7 @@
                   </div>
                   <div class="info-text">
                     <p class="font-semibold">{student.full_name}</p>
-                    <p class="text-xs text-muted">{normalizeDepartment(student.department) || '-'}</p>
+                    <p class="text-xs text-muted">{internMetaLabel}</p>
                   </div>
                 </div>
                 <button 
@@ -531,6 +644,7 @@
                   on:click={() => handleRemoveIntern(student.user_id)}
                   disabled={removingInternId === student.user_id}
                   title="Remove this intern"
+                  aria-label="Remove this intern"
                 >
                   {#if removingInternId === student.user_id}
                     <Loader2 size={16} />
@@ -551,35 +665,53 @@
                     <p class="value" title={String(required)}>{formatHours(required)}</p>
                   </div>
                   <div class="hours-stat">
-                    <p class="label">Progress</p>
-                    <p class="value">{progress}%</p>
+                    <p class="label">Remaining</p>
+                    <p class="value" title={String(remaining)}>{formatHours(remaining)}</p>
                   </div>
                 </div>
-                <div class="progress-bar"><div class="progress-fill" style={`width:${progress}%`}></div></div>
+                <div class="progress-wrap">
+                  <div class="progress-head">
+                    <span class="progress-label">Progress</span>
+                    <span class="progress-percent">{progress}%</span>
+                  </div>
+                  <div class="progress-bar"><div class={`progress-fill progress-tone-${progressTone}`} style={`width:${progress}%`}></div></div>
+                </div>
                 
-                <div
-                  class="days-remaining-display"
-                  class:status-warning={daysStatus === 'warning'}
-                  class:status-success={daysStatus === 'success'}
-                  class:status-info={daysStatus === 'info'}
-                >
-                  <span class="days-label">OJT Ends In:</span>
-                  <span class="days-value">{formatDaysRemaining(daysLeft)}</span>
-                  <button
-                    type="button"
-                    class="edit-date-btn"
-                    on:click={() => openEditEndDateModal(student)}
-                    title="Edit OJT end date"
-                    aria-label="Edit OJT end date"
+                <div class="card-footer">
+                  <div
+                    class="days-remaining-display"
+                    class:status-warning={daysStatus === 'warning'}
+                    class:status-success={daysStatus === 'success'}
+                    class:status-info={daysStatus === 'info'}
                   >
-                    ✎
-                  </button>
+                    <span class="days-label">OJT Ends In:</span>
+                    <span class="days-value">{formatDaysRemaining(daysLeft)}</span>
+                  </div>
+                  <div class="detail-grid">
+                    <div class="detail-row">
+                      <span class="detail-key">OJT End Date</span>
+                      <span class="detail-value">{ojtEndDateDisplay || '—'}</span>
+                    </div>
+                    <div class="detail-row">
+                      <span class="detail-key">Estimated Completion</span>
+                      <span class="detail-value">{estimatedCompletionDisplay || '—'}</span>
+                    </div>
+                    <div class="detail-row">
+                      <span class="detail-key">Current Status</span>
+                      <span class="detail-value detail-status">{statusText || 'Not available'}</span>
+                    </div>
+                    <div class="detail-row">
+                      <span class="detail-key">Last Activity</span>
+                      <span class="detail-value">{lastActivityDisplay || 'No recent activity'}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </article>
           {/each}
         </div>
       {/if}
+      </div>
     </div>
 
     <!-- Add Intern Modal -->
@@ -650,7 +782,7 @@
                 </div>
               {/if}
 
-              <div class="setup-section" style="margin-top: 1.5rem;">
+              <div class="setup-section setup-section-offset">
                 <div class="setup-label">Days Off</div>
                 <p class="setup-sublabel">Select which days these interns typically have off</p>
                 <div class="days-checkbox-list">
@@ -702,11 +834,10 @@
                   Cancel
                 </button>
                 <button 
-                  class="btn btn-primary" 
+                  class="btn btn-primary btn-with-icon" 
                   type="button" 
                   on:click={confirmBulkAssign}
                   disabled={saving || bulkSelectedInterns.size === 0}
-                  style="display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;"
                 >
                   {#if saving}
                     <span class="spinning-icon"><Loader2 size={15} /></span>
@@ -781,11 +912,10 @@
                   Cancel
                 </button>
                 <button 
-                  class="btn btn-primary" 
+                  class="btn btn-primary btn-with-icon" 
                   type="button" 
                   on:click={confirmAddIntern}
                   disabled={saving}
-                  style="display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;"
                 >
                   {#if saving}
                     <span class="spinning-icon"><Loader2 size={15} /></span>
@@ -909,15 +1039,18 @@
   :root {
     --text-primary: #0f172a;
     --text-secondary: #1f2937;
-    --text-muted: #6b7280;
-    --border: #d7e3f1;
+    --text-muted: #64748b;
+    --border: #e2e8f0;
     --surface: #ffffff;
+    --surface-soft: #f8fafc;
+    --surface-tint: rgba(148, 163, 184, 0.06);
+    --surface-tint-strong: rgba(148, 163, 184, 0.1);
   }
 
   .content {
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
+    gap: 20px;
   }
 
   .warning-alert {
@@ -933,104 +1066,96 @@
 
   .stats-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 1rem;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px;
   }
 
   .stat-card {
-    position: relative;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 1rem;
-    padding: 1.25rem;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-    overflow: hidden;
-    transition: transform 0.18s ease, box-shadow 0.18s ease;
-  }
-
-  .stat-blue {
-    border-top-color: #2563eb;
-  }
-
-  .stat-success {
-    border-top-color: #059669;
-  }
-
-  .stat-violet {
-    border-top-color: #7c3aed;
-  }
-
-  .stat-cyan {
-    border-top-color: #0891b2;
+    border-radius: 14px;
+    padding: 18px 20px;
+    min-height: 104px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
   }
 
   .stat-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 2.2rem;
-    height: 2.2rem;
-    border-radius: 0.75rem;
-    color: #fff;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+  }
+
+  .stat-icon :global(svg) {
+    color: currentColor;
+    stroke: currentColor;
   }
 
   .stat-blue .stat-icon {
-    background: #2563eb;
+    background: rgba(59, 130, 246, 0.14);
+    color: #3b82f6;
+    border: 1px solid rgba(59, 130, 246, 0.22);
   }
 
   .stat-success .stat-icon {
-    background: #059669;
+    background: rgba(34, 197, 94, 0.14);
+    color: #22c55e;
+    border: 1px solid rgba(34, 197, 94, 0.22);
   }
 
   .stat-violet .stat-icon {
-    background: #7c3aed;
+    background: rgba(139, 92, 246, 0.14);
+    color: #8b5cf6;
+    border: 1px solid rgba(139, 92, 246, 0.22);
   }
 
   .stat-cyan .stat-icon {
-    background: #0891b2;
+    background: rgba(245, 158, 11, 0.14);
+    color: #f59e0b;
+    border: 1px solid rgba(245, 158, 11, 0.22);
   }
 
   .stat-value {
-    margin: 0.25rem 0 0.25rem;
+    margin: 0;
     color: var(--text-primary);
-    font-size: 1.7rem;
-    font-weight: 800;
+    font-size: 24px;
+    font-weight: 700;
     line-height: 1;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.8px;
   }
 
   .stat-label {
-    margin: 0.15rem 0 0;
-    color: var(--text-muted);
-    font-size: 0.86rem;
-    font-weight: 700;
+    margin: 0;
+    color: #0f172a;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
   }
 
-  .stat-card::before {
-    content: '';
-    position: absolute;
-    left: 0; top: 0;
-    width: 100%; height: 3px; opacity: 0.95;
+  .stat-copy {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
   }
-
-  .stat-blue::before { background: linear-gradient(90deg, #0f6cbd, #38bdf8); }
-  .stat-success::before { background: linear-gradient(90deg, #0d9488, #10b981); }
-  .stat-violet::before { background: linear-gradient(90deg, #7c3aed, #a78bfa); }
-  .stat-cyan::before { background: linear-gradient(90deg, #0891b2, #22d3ee); }
-
-  .stat-card:hover { transform: translateY(-3px); box-shadow: 0 10px 28px rgba(15,23,42,0.12); }
 
   .card {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 1rem;
-    padding: 1.5rem;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    border-radius: 14px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
+    overflow: hidden;
   }
 
   .card-title {
-    margin: 0 0 0.5rem 0;
-    font-size: 1.125rem;
+    margin: 0;
+    font-size: 15px;
     font-weight: 600;
     color: var(--text-primary);
   }
@@ -1039,17 +1164,22 @@
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 1rem;
-    margin-bottom: 1.5rem;
+    gap: 12px;
+    padding: 18px 20px 12px;
+  }
+
+  .card-header .text-sm {
+    margin: 4px 0 0;
+    font-size: 12.5px;
   }
 
   .alert {
     padding: 0.75rem 1rem;
-    border-radius: 0.75rem;
+    border-radius: 10px;
     border: 1px solid;
     font-size: 0.875rem;
     font-weight: 500;
-    margin-bottom: 1rem;
+    margin: 0;
   }
 
   .alert-error {
@@ -1062,6 +1192,13 @@
     background: #ecfdf5;
     border-color: #a7f3d0;
     color: #065f46;
+  }
+
+  .card-body-shell {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px 20px 18px;
   }
 
   .search-wrap {
@@ -1118,32 +1255,36 @@
 
   .assigned-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 1.25rem;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    align-items: stretch;
+    grid-auto-rows: 1fr;
   }
 
   .assigned-card {
     border: 1px solid var(--border);
-    border-radius: 1rem;
-    padding: 1.25rem;
-    background: var(--surface);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-    transition: all 0.2s;
+    border-radius: 14px;
+    padding: 16px;
+    background: var(--surface-tint);
+    box-shadow: none;
+    transition: border-color 0.2s ease, background-color 0.2s ease;
+    display: flex;
+    flex-direction: column;
+    min-height: 360px;
+    height: 100%;
   }
 
   .assigned-card:hover {
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-    transform: translateY(-2px);
+    border-color: rgba(96, 165, 250, 0.28);
+    background: rgba(37, 99, 235, 0.04);
   }
 
   .card-header-row {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 1rem;
-    margin-bottom: 1rem;
-    padding-bottom: 1rem;
-    border-bottom: 1px solid var(--border);
+    gap: 10px;
+    margin-bottom: 12px;
   }
 
   .assigned-info {
@@ -1163,7 +1304,8 @@
   }
 
   .info-text .font-semibold {
-    font-size: 0.95rem;
+    font-size: 15px;
+    font-weight: 700;
     color: var(--text-primary);
   }
 
@@ -1191,20 +1333,22 @@
   .card-body {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 10px;
+    flex: 1;
   }
 
   .hours-row {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 0.75rem;
+    gap: 8px;
   }
 
   .hours-stat {
     text-align: center;
-    padding: 0.6rem 0.5rem;
-    border-radius: 0.5rem;
-    background: #f3f4f6;
+    padding: 8px 6px;
+    border-radius: 8px;
+    border: 1px solid rgba(148, 163, 184, 0.15);
+    background: var(--surface-tint-strong);
   }
 
   .hours-stat .label {
@@ -1217,8 +1361,34 @@
   }
 
   .hours-stat .value {
-    margin: 0.3rem 0 0 0;
-    font-size: 1.1rem;
+    margin: 6px 0 0;
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+
+  .progress-wrap {
+    display: grid;
+    gap: 6px;
+  }
+
+  .progress-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .progress-label {
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+
+  .progress-percent {
+    font-size: 13px;
     font-weight: 700;
     color: var(--text-primary);
   }
@@ -1227,19 +1397,20 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 2rem;
-    height: 2rem;
-    border: none;
-    border-radius: 0.5rem;
-    background: #fee2e2;
-
-    color: #dc2626;
+    width: 30px;
+    height: 30px;
+    border: 1px solid rgba(239, 68, 68, 0.16);
+    border-radius: 8px;
+    background: rgba(239, 68, 68, 0.08);
+    color: #ef4444;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
   }
 
   .btn-remove:hover:not(:disabled) {
-    background: #fecaca;
+    background: rgba(239, 68, 68, 0.16);
+    border-color: rgba(239, 68, 68, 0.35);
+    color: #dc2626;
   }
 
   .btn-remove:disabled {
@@ -1406,6 +1577,10 @@
     margin-bottom: 1.5rem;
   }
 
+  .setup-section-offset {
+    margin-top: 1.5rem;
+  }
+
   .setup-label {
     display: block;
     font-weight: 600;
@@ -1514,6 +1689,12 @@
     to { transform: rotate(360deg); }
   }
 
+  @keyframes card-shimmer {
+    100% {
+      transform: translateX(100%);
+    }
+  }
+
   :global(.dark) .setup-section {
     border-color: #2b3c57;
   }
@@ -1567,15 +1748,6 @@
     border-color: #3b82f6;
   }
 
-  :global(.dark) .btn-remove {
-    background: #7f1d1d;
-    color: #fca5a5;
-  }
-
-  :global(.dark) .btn-remove:hover:not(:disabled) {
-    background: #991b1b;
-  }
-
   :global(.dark) .days-remaining-display {
     background: #223653;
     border-color: #334b6b;
@@ -1596,14 +1768,6 @@
     border-color: rgba(99, 102, 241, 0.3);
   }
 
-  :global(.dark) .edit-date-btn {
-    background: rgba(255, 255, 255, 0.1);
-  }
-
-  :global(.dark) .edit-date-btn:hover {
-    background: rgba(255, 255, 255, 0.2);
-  }
-
   :global(.dark) .days-label {
     color: #9ba3af;
   }
@@ -1612,74 +1776,70 @@
     color: #e5edf8;
   }
 
+  :global(.dark) .progress-label {
+    color: #94a3b8;
+  }
+
+  :global(.dark) .progress-percent {
+    color: #e5edf8;
+  }
+
 
   .progress-bar {
-    height: 0.5rem;
-    background: #e2edf9;
+    height: 8px;
+    background: rgba(148, 163, 184, 0.22);
     border-radius: 9999px;
     overflow: hidden;
-    margin: 0.5rem 0;
+    margin: 2px 0;
+    border: 1px solid rgba(148, 163, 184, 0.2);
   }
 
   .progress-fill {
     height: 100%;
-    background: linear-gradient(90deg, #0f6cbd, #0ea5e9);
+    border-radius: inherit;
+    transition: width 0.25s ease, background-color 0.2s ease;
+  }
+
+  .progress-tone-low {
+    background: linear-gradient(90deg, #1d4ed8, #3b82f6);
+  }
+
+  .progress-tone-mid {
+    background: linear-gradient(90deg, #0ea5e9, #38bdf8);
+  }
+
+  .progress-tone-near,
+  .progress-tone-complete {
+    background: linear-gradient(90deg, #16a34a, #22c55e);
   }
 
   .days-remaining-display {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0.75rem;
-    border-radius: 0.5rem;
-    margin-top: 0.75rem;
-    background: #eaf3ff;
-    border: 1px solid #bfdbfe;
+    padding: 10px;
+    border-radius: 10px;
+    margin-top: 4px;
+    background: rgba(59, 130, 246, 0.1);
+    border: 1px solid rgba(96, 165, 250, 0.2);
     font-size: 0.875rem;
     font-weight: 500;
     gap: 0.5rem;
   }
 
   .days-remaining-display.status-warning {
-    background: #fef3c7;
-    border-color: #fcd34d;
+    background: rgba(245, 158, 11, 0.14);
+    border-color: rgba(245, 158, 11, 0.28);
   }
 
   .days-remaining-display.status-success {
-    background: #d1fae5;
-    border-color: #6ee7b7;
+    background: rgba(16, 185, 129, 0.14);
+    border-color: rgba(16, 185, 129, 0.28);
   }
 
   .days-remaining-display.status-info {
-    background: #e0e7ff;
-    border-color: #c7d2fe;
-  }
-
-  .edit-date-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.5rem;
-    height: 1.5rem;
-    border: none;
-    background: rgba(255, 255, 255, 0.5);
-    border-radius: 0.3rem;
-    color: inherit;
-    cursor: pointer;
-    font-size: 0.8rem;
-    font-weight: 600;
-    transition: all 0.2s;
-    margin-left: auto;
-    flex-shrink: 0;
-  }
-
-  .edit-date-btn:hover {
-    background: rgba(255, 255, 255, 0.8);
-    transform: scale(1.1);
-  }
-
-  .edit-date-btn:active {
-    transform: scale(0.95);
+    background: rgba(99, 102, 241, 0.12);
+    border-color: rgba(99, 102, 241, 0.22);
   }
 
   .days-label {
@@ -1696,63 +1856,216 @@
     color: var(--text-primary);
   }
 
+  .card-footer {
+    margin-top: 2px;
+    display: grid;
+    gap: 8px;
+  }
+
+  .detail-grid {
+    display: grid;
+    gap: 6px;
+    padding: 10px;
+    border-radius: 10px;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    background: rgba(148, 163, 184, 0.08);
+  }
+
+  .detail-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 12px;
+  }
+
+  .detail-key {
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+
+  .detail-value {
+    color: var(--text-primary);
+    font-weight: 600;
+    text-align: right;
+  }
+
+  .detail-status {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid rgba(99, 102, 241, 0.25);
+    background: rgba(99, 102, 241, 0.12);
+    border-radius: 999px;
+    padding: 2px 9px;
+    line-height: 1.25;
+  }
+
+  .empty-state {
+    border: 1px dashed #cbd5e1;
+    border-radius: 12px;
+    padding: 24px 16px;
+    display: grid;
+    justify-items: center;
+    gap: 8px;
+    text-align: center;
+    background: var(--surface-tint);
+  }
+
+  .empty-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    display: grid;
+    place-items: center;
+    color: #64748b;
+    background: var(--surface-soft);
+    border: 1px solid var(--border);
+  }
+
+  .empty-title {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .empty-sub {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .empty-action {
+    margin-top: 4px;
+  }
+
+  .assigned-card-skeleton {
+    border-color: rgba(148, 163, 184, 0.12);
+    background: rgba(148, 163, 184, 0.06);
+  }
+
+  .skeleton-circle {
+    background: rgba(148, 163, 184, 0.14);
+    border: 1px solid rgba(148, 163, 184, 0.18);
+  }
+
+  .skeleton-hours-stat {
+    background: rgba(148, 163, 184, 0.06);
+    border-color: rgba(148, 163, 184, 0.16);
+  }
+
+  .skeleton-progress {
+    border-color: rgba(148, 163, 184, 0.16);
+  }
+
+  .skeleton-days-row {
+    background: rgba(148, 163, 184, 0.08);
+    border-color: rgba(148, 163, 184, 0.14);
+  }
+
+  .sk-line,
+  .sk-pill {
+    display: inline-block;
+    background: rgba(148, 163, 184, 0.14);
+    border: 1px solid rgba(148, 163, 184, 0.16);
+  }
+
+  .sk-pill {
+    width: 64px;
+    height: 22px;
+    border-radius: 999px;
+    flex-shrink: 0;
+  }
+
+  .shimmer {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+  }
+
+  .shimmer::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+      90deg,
+      rgba(148, 163, 184, 0) 0%,
+      rgba(148, 163, 184, 0.2) 50%,
+      rgba(148, 163, 184, 0) 100%
+    );
+    animation: card-shimmer 1.55s ease-in-out infinite;
+  }
+
   .btn {
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
-    padding: 0.5rem 1rem;
-    border: none;
-    border-radius: 0.5rem;
-    font-weight: 600;
-    font-size: 0.875rem;
+    justify-content: center;
+    padding: 8px 14px;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: 12px;
     cursor: pointer;
-    transition: all 0.2s;
+    line-height: 1.2;
+    transition: all 0.2s ease;
     white-space: nowrap;
   }
 
   .btn:disabled {
-    opacity: 0.5;
+    opacity: 0.6;
     cursor: not-allowed;
   }
 
+  .btn-with-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+  }
+
   .btn-primary {
-    background: linear-gradient(90deg, #0f6cbd, #0ea5e9);
-    color: white;
-    box-shadow: 0 4px 12px rgba(15, 108, 189, 0.3);
+    background: linear-gradient(90deg, #2563eb, #3b82f6);
+    border-color: rgba(37, 99, 235, 0.4);
+    color: #ffffff;
+    box-shadow: 0 3px 10px rgba(37, 99, 235, 0.28);
   }
 
   .btn-primary:hover:not(:disabled) {
     transform: translateY(-1px);
-    box-shadow: 0 6px 16px rgba(15, 108, 189, 0.4);
+    box-shadow: 0 6px 16px rgba(37, 99, 235, 0.35);
   }
 
   .btn-secondary {
-    background: #edf4fb;
-    border: 1px solid var(--border);
+    background: var(--surface-soft);
+    border-color: var(--border);
     color: var(--text-primary);
   }
 
   .btn-secondary:hover:not(:disabled) {
-    background: #e0eef9;
+    background: rgba(59, 130, 246, 0.08);
+    border-color: rgba(96, 165, 250, 0.32);
   }
 
   .btn-cancel {
-    background: #edf4fb;
+    background: var(--surface-soft);
     border: 1px solid var(--border);
     color: var(--text-primary);
-    padding: 0.6rem 1.2rem;
-    border-radius: 0.5rem;
-    font-weight: 600;
-    font-size: 0.875rem;
+    padding: 8px 14px;
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: 12px;
     cursor: pointer;
     transition: all 0.2s;
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 0.4rem;
   }
 
   .btn-cancel:hover:not(:disabled) {
-    background: #e0eef9;
+    background: rgba(59, 130, 246, 0.08);
   }
 
   .btn-cancel:disabled {
@@ -1761,24 +2074,25 @@
   }
 
   .btn-save {
-    background: linear-gradient(90deg, #0f6cbd, #0ea5e9);
+    background: linear-gradient(90deg, #2563eb, #3b82f6);
     color: white;
-    border: none;
-    padding: 0.6rem 1.2rem;
-    border-radius: 0.5rem;
-    font-weight: 600;
-    font-size: 0.875rem;
+    border: 1px solid rgba(37, 99, 235, 0.4);
+    padding: 8px 14px;
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: 12px;
     cursor: pointer;
     transition: all 0.2s;
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 0.4rem;
-    box-shadow: 0 4px 12px rgba(15, 108, 189, 0.3);
+    box-shadow: 0 3px 10px rgba(37, 99, 235, 0.28);
   }
 
   .btn-save:hover:not(:disabled) {
     transform: translateY(-1px);
-    box-shadow: 0 6px 16px rgba(15, 108, 189, 0.4);
+    box-shadow: 0 6px 16px rgba(37, 99, 235, 0.35);
   }
 
   .btn-save:disabled {
@@ -1830,16 +2144,19 @@
 
   .btn-group {
     display: flex;
-    gap: 0.5rem;
+    gap: 8px;
     flex-wrap: wrap;
   }
 
   :global(.dark) {
     --text-primary: #e5edf8;
     --text-secondary: #cfdceb;
-    --text-muted: #9ba3af;
-    --border: #2b3c57;
-    --surface: #162338;
+    --text-muted: #94a3b8;
+    --border: rgba(255, 255, 255, 0.08);
+    --surface: #161c27;
+    --surface-soft: #1a2332;
+    --surface-tint: rgba(51, 65, 85, 0.12);
+    --surface-tint-strong: rgba(71, 85, 105, 0.16);
   }
 
   :global(.dark) .warning-alert {
@@ -1848,21 +2165,21 @@
     color: #92400e;
   }
 
-  :global(.dark) .search-input,
-  :global(.dark) .assigned-card {
-    background: #1a2c45;
+  :global(.dark) .stat-label {
+    color: #ffffff;
+  }
+
+  :global(.dark) .search-input {
+    background: #1a2332;
   }
 
   :global(.dark) .assigned-card {
-    border-color: #2b3c57;
-  }
-
-  :global(.dark) .card-header-row {
-    border-color: #2b3c57;
+    border-color: rgba(255, 255, 255, 0.08);
   }
 
   :global(.dark) .hours-stat {
-    background: #223653;
+    background: rgba(71, 85, 105, 0.2);
+    border-color: rgba(148, 163, 184, 0.18);
   }
 
   :global(.dark) .hours-stat .label {
@@ -1878,11 +2195,67 @@
   }
 
   :global(.dark) .btn-secondary {
-    background: #1a2c45;
+    background: #1a2332;
+    border-color: rgba(255, 255, 255, 0.12);
   }
 
   :global(.dark) .btn-secondary:hover:not(:disabled) {
-    background: #223653;
+    background: #243047;
+    border-color: rgba(96, 165, 250, 0.42);
+  }
+
+  :global(.dark) .btn-remove {
+    background: rgba(239, 68, 68, 0.16);
+    border-color: rgba(239, 68, 68, 0.24);
+    color: #fca5a5;
+  }
+
+  :global(.dark) .btn-remove:hover:not(:disabled) {
+    background: rgba(239, 68, 68, 0.28);
+    border-color: rgba(239, 68, 68, 0.4);
+    color: #fecaca;
+  }
+
+  :global(.dark) .empty-state {
+    border-color: rgba(148, 163, 184, 0.28);
+    background: rgba(15, 23, 42, 0.35);
+  }
+
+  :global(.dark) .empty-icon {
+    background: rgba(15, 23, 42, 0.6);
+    border-color: rgba(148, 163, 184, 0.25);
+    color: #94a3b8;
+  }
+
+  :global(.dark) .detail-grid {
+    background: rgba(71, 85, 105, 0.16);
+    border-color: rgba(148, 163, 184, 0.18);
+  }
+
+  :global(.dark) .detail-key {
+    color: #94a3b8;
+  }
+
+  :global(.dark) .detail-value {
+    color: #e2e8f0;
+  }
+
+  :global(.dark) .detail-status {
+    background: rgba(99, 102, 241, 0.2);
+    border-color: rgba(129, 140, 248, 0.34);
+    color: #c7d2fe;
+  }
+
+  :global(.dark) .assigned-card-skeleton {
+    border-color: rgba(148, 163, 184, 0.12);
+    background: rgba(148, 163, 184, 0.06);
+  }
+
+  :global(.dark) .sk-line,
+  :global(.dark) .sk-pill,
+  :global(.dark) .skeleton-circle {
+    background: rgba(148, 163, 184, 0.12);
+    border-color: rgba(148, 163, 184, 0.14);
   }
 
   /* Bulk assign mode styles */
@@ -1957,9 +2330,16 @@
     border-color: #2b3c57;
   }
 
-  @media (max-width: 768px) {
+  @media (max-width: 1200px) {
+    .assigned-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 900px) {
     .card-header {
       flex-direction: column;
+      gap: 10px;
     }
 
     .btn-group {
@@ -1979,13 +2359,13 @@
     .stats-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
-
-    .assigned-grid {
-      grid-template-columns: repeat(2, 1fr);
-    }
   }
 
-  @media (max-width: 540px) {
+  @media (max-width: 640px) {
+    .content {
+      gap: 16px;
+    }
+
     .stats-grid {
       grid-template-columns: 1fr;
     }
@@ -1994,8 +2374,24 @@
       grid-template-columns: 1fr;
     }
 
+    .card-header,
+    .card-body-shell,
+    .stat-card {
+      padding-left: 14px;
+      padding-right: 14px;
+    }
+
     .hours-row {
       grid-template-columns: 1fr;
     }
   }
+
+  @media (prefers-reduced-motion: reduce) {
+    .shimmer::after {
+      animation: none;
+      transform: none;
+      opacity: 0;
+    }
+  }
 </style>
+

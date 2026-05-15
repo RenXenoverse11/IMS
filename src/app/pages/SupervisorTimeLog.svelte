@@ -31,6 +31,13 @@
     return Number.isFinite(parsed) ? parsed : 0;
   }
 
+  function formatHours(value) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return '0';
+    const rounded = Math.round(num * 10) / 10;
+    return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+  }
+
   function toDateOnly(value) {
     const text = String(value || '').trim();
     if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
@@ -333,31 +340,33 @@
 </script>
 
 {#if currentUser && !isSupervisorUser}
-  <section class="rounded-xl border border-amber-300 bg-amber-50 px-5 py-4 text-sm font-medium text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+  <section class="warning-alert">
     This page is available for supervisor accounts only.
   </section>
 {:else}
-  <section class="supervisor-shell flex flex-col gap-6">
-    <!-- Active Sessions Section -->
-    {#if activeSessions.length > 0}
-      <section class="supervisor-card supervisor-panel rounded-2xl border p-6 shadow-md border-emerald-300 bg-emerald-50 dark:border-emerald-500/30 dark:bg-emerald-500/10">
-        <div class="flex items-center gap-3 mb-4">
-          <div class="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-600/10 text-emerald-600">
-            <Clock3 size={18} />
-          </div>
+  <section class="stl-shell">
+    {#if loadingActiveSessions && assignedStudents.length > 0}
+      <section class="stl-card stl-card-success stl-skeleton-panel">
+        <div class="sk-line shimmer" style="height: 14px; width: 180px; border-radius: 8px;"></div>
+        <div class="sk-line shimmer" style="height: 11px; width: 240px; border-radius: 7px; margin-top: 8px;"></div>
+      </section>
+    {:else if activeSessions.length > 0}
+      <section class="stl-card stl-card-success">
+        <div class="section-head">
+          <div class="section-icon icon-green"><Clock3 size={18} /></div>
           <div>
-            <h3 class="supervisor-heading text-base font-semibold text-emerald-900 dark:text-emerald-200">Currently Logged In</h3>
-            <p class="supervisor-sub text-xs text-emerald-700 dark:text-emerald-300 mt-1">{activeSessions.length} {activeSessions.length === 1 ? 'intern is' : 'interns are'} currently logged in today</p>
+            <h3 class="section-title">Currently Logged In</h3>
+            <p class="section-sub">{activeSessions.length} {activeSessions.length === 1 ? 'intern is' : 'interns are'} currently logged in today</p>
           </div>
         </div>
-        <div class="space-y-2">
+        <div class="session-list">
           {#each activeSessions as session (session.session_id)}
-            <div class="flex items-center justify-between rounded-lg bg-white/50 dark:bg-white/5 px-3 py-2 border border-emerald-200 dark:border-emerald-500/20">
-              <div class="flex items-center gap-2">
-                <UserCircle2 size={16} class="text-emerald-600 dark:text-emerald-400" />
+            <div class="session-item">
+              <div class="session-left">
+                <UserCircle2 size={16} />
                 <div>
-                  <p class="text-sm font-medium text-emerald-900 dark:text-emerald-100">{session.student_name}</p>
-                  <p class="text-xs text-emerald-700 dark:text-emerald-400">Logged in at {session.time_in}</p>
+                  <p class="session-name">{session.student_name}</p>
+                  <p class="session-sub">Logged in at {toTimeText(session.time_in)}</p>
                 </div>
               </div>
             </div>
@@ -366,17 +375,17 @@
       </section>
     {/if}
 
-    <section class="supervisor-card supervisor-panel rounded-2xl border p-6 shadow-md">
-      <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+    <section class="stl-card">
+      <div class="control-head">
         <div>
-          <h3 class="supervisor-heading text-lg font-semibold">Intern Time Logs</h3>
-          <p class="supervisor-sub mt-1 text-sm">View and manage entries of interns assigned to you.</p>
+          <h3 class="section-title">Intern Time Logs</h3>
+          <p class="section-sub">View and manage entries of interns assigned to you.</p>
         </div>
 
-        <div class="flex w-full gap-2 lg:w-auto">
-          <label class="relative flex-1 lg:w-[20rem]">
-            <ListFilter size={15} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-(--color-muted)" />
-            <select bind:value={selectedStudentId} class="supervisor-input w-full rounded-lg border px-3 py-2.5 pl-9 outline-none" on:change={loadLogs}>
+        <div class="control-actions">
+          <label class="selector-wrap">
+            <ListFilter size={15} class="selector-icon" />
+            <select bind:value={selectedStudentId} class="stl-input" on:change={loadLogs}>
               {#if loadingStudents}
                 <option value="">Loading intern accounts...</option>
               {:else if assignedStudents.length === 0}
@@ -389,7 +398,7 @@
             </select>
           </label>
 
-          <button type="button" class="btn-light rounded-lg px-3 py-2.5 text-sm font-semibold" on:click={loadAssignedStudents} disabled={loadingStudents || loadingLogs}>
+          <button type="button" class="btn-secondary" on:click={loadAssignedStudents} disabled={loadingStudents || loadingLogs}>
             <RefreshCw size={15} />
             Refresh
           </button>
@@ -398,84 +407,152 @@
     </section>
 
     {#if errorMessage}
-      <p class="rounded-xl border border-red-300 bg-red-100 px-4 py-3 text-sm font-medium text-red-700 dark:border-red-500/40 dark:bg-red-500/15 dark:text-red-300">
-        {errorMessage}
-      </p>
+      <p class="alert alert-error">{errorMessage}</p>
     {/if}
 
     {#if successMessage}
-      <p class="rounded-xl border border-emerald-300 bg-emerald-100 px-4 py-3 text-sm font-medium text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-300">
-        {successMessage}
-      </p>
+      <p class="alert alert-success">{successMessage}</p>
     {/if}
 
     {#if loadingStudents}
-      <section class="supervisor-card supervisor-panel rounded-2xl border p-6 shadow-md">
-        <p class="supervisor-sub text-sm">Loading intern accounts...</p>
+      <div class="stats-grid">
+        {#each [1, 2, 3, 4] as _}
+          <article class="stl-card stat-card skeleton-stat-card">
+            <div class="sk-pill shimmer"></div>
+            <div class="sk-line shimmer" style="height: 22px; width: 55%; border-radius: 8px; margin-top: 18px;"></div>
+            <div class="sk-line shimmer" style="height: 11px; width: 42%; border-radius: 7px; margin-top: 10px;"></div>
+          </article>
+        {/each}
+      </div>
+
+      <section class="stl-card">
+        <h3 class="section-title">Time Log Entries</h3>
+        <p class="section-sub">Loading entries...</p>
+        <div class="table-wrap">
+          <table class="stl-table" style="min-width: 700px;">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Time In</th>
+                <th>Time Out</th>
+                <th>Hours</th>
+                <th>Notes</th>
+                <th class="text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each [1, 2, 3] as __}
+                <tr>
+                  <td><div class="sk-line shimmer" style="height: 11px; width: 90px; border-radius: 7px;"></div></td>
+                  <td><div class="sk-line shimmer" style="height: 11px; width: 64px; border-radius: 7px;"></div></td>
+                  <td><div class="sk-line shimmer" style="height: 11px; width: 64px; border-radius: 7px;"></div></td>
+                  <td><div class="sk-line shimmer" style="height: 11px; width: 40px; border-radius: 7px;"></div></td>
+                  <td><div class="sk-line shimmer" style="height: 11px; width: 70px; border-radius: 7px;"></div></td>
+                  <td class="text-right"><div class="sk-pill shimmer" style="width: 58px;"></div></td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
       </section>
     {:else if selectedStudent}
-      <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <article class="supervisor-card supervisor-stat stat-primary rounded-2xl border p-5 shadow-md">
-          <div class="supervisor-icon icon-blue"><UserCircle2 size={18} /></div>
-          <p class="supervisor-value mt-4 text-lg">{selectedStudent.full_name}</p>
-          <p class="supervisor-label mt-1 text-sm">Selected Intern</p>
+      {@const summaryProgressTone = selectedProgress >= 80 ? 'high' : selectedProgress >= 40 ? 'mid' : 'low'}
+      <div class="stats-grid">
+        <article class="stl-card stat-card">
+          <div class="stat-icon icon-blue"><UserCircle2 size={18} /></div>
+          <p class="stat-value stat-name">{selectedStudent.full_name || 'Intern'}</p>
+          <p class="stat-label">Selected Intern</p>
         </article>
 
-        <article class="supervisor-card supervisor-stat stat-info rounded-2xl border p-5 shadow-md">
-          <div class="supervisor-icon icon-violet"><Users size={18} /></div>
-          <p class="supervisor-value mt-4">{selectedProgress}%</p>
-          <p class="supervisor-label mt-1 text-sm">Overall Progress</p>
+        <article class="stl-card stat-card">
+          <div class="stat-icon icon-violet"><Users size={18} /></div>
+          <p class="stat-value">{selectedProgress}%</p>
+          <p class="stat-label">Overall Progress</p>
+          <div class="progress-inline">
+            <div class="progress-track">
+              <div class={`progress-fill progress-${summaryProgressTone}`} style={`width:${selectedProgress}%`}></div>
+            </div>
+          </div>
         </article>
 
-        <article class="supervisor-card supervisor-stat stat-success rounded-2xl border p-5 shadow-md">
-          <div class="supervisor-icon icon-green"><Clock3 size={18} /></div>
-          <p class="supervisor-value mt-4">{selectedCompletedHours}h</p>
-          <p class="supervisor-label mt-1 text-sm">Completed Hours</p>
+        <article class="stl-card stat-card">
+          <div class="stat-icon icon-green"><Clock3 size={18} /></div>
+          <p class="stat-value">{formatHours(selectedCompletedHours)}h</p>
+          <p class="stat-label">Completed Hours</p>
         </article>
 
-        <article class="supervisor-card supervisor-stat stat-forecast rounded-2xl border p-5 shadow-md">
-          <div class="supervisor-icon icon-cyan"><Clock3 size={18} /></div>
-          <p class="supervisor-value mt-4">{selectedRemainingHours}h</p>
-          <p class="supervisor-label mt-1 text-sm">Remaining Hours</p>
+        <article class="stl-card stat-card">
+          <div class="stat-icon icon-amber"><Clock3 size={18} /></div>
+          <p class="stat-value">{formatHours(selectedRemainingHours)}h</p>
+          <p class="stat-label">Remaining Hours</p>
         </article>
       </div>
 
-      <section class="supervisor-card supervisor-panel rounded-2xl border p-6 shadow-md">
-        <h3 class="supervisor-heading text-base font-semibold">Time Log Entries</h3>
-        <p class="supervisor-sub mt-1 text-sm">You can delete invalid entries from your assigned interns.</p>
+      <section class="stl-card">
+        <h3 class="section-title">Time Log Entries</h3>
+        <p class="section-sub">You can delete invalid entries from your assigned interns.</p>
 
         {#if loadingLogs}
-          <p class="supervisor-sub mt-4 text-sm">Loading entries...</p>
-        {:else if logs.length === 0}
-          <p class="supervisor-sub mt-4 text-sm">No time log entries found for this intern.</p>
-        {:else}
-          <div class="log-table-wrap mt-4 overflow-auto rounded-lg border">
-            <table class="w-full text-left text-sm" style="min-width: 680px;">
-              <thead class="table-head">
+          <div class="table-wrap">
+            <table class="stl-table" style="min-width: 700px;">
+              <thead>
                 <tr>
-                  <th class="px-4 py-3">Date</th>
-                  <th class="px-4 py-3">Time In</th>
-                  <th class="px-4 py-3">Time Out</th>
-                  <th class="px-4 py-3">Hours</th>
-                  <th class="px-4 py-3">Notes</th>
-                  <th class="px-4 py-3 text-right">Action</th>
+                  <th>Date</th>
+                  <th>Time In</th>
+                  <th>Time Out</th>
+                  <th>Hours</th>
+                  <th>Notes</th>
+                  <th class="text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each [1, 2, 3] as __}
+                  <tr>
+                    <td><div class="sk-line shimmer" style="height: 11px; width: 90px; border-radius: 7px;"></div></td>
+                    <td><div class="sk-line shimmer" style="height: 11px; width: 64px; border-radius: 7px;"></div></td>
+                    <td><div class="sk-line shimmer" style="height: 11px; width: 64px; border-radius: 7px;"></div></td>
+                    <td><div class="sk-line shimmer" style="height: 11px; width: 40px; border-radius: 7px;"></div></td>
+                    <td><div class="sk-line shimmer" style="height: 11px; width: 70px; border-radius: 7px;"></div></td>
+                    <td class="text-right"><div class="sk-pill shimmer" style="width: 58px;"></div></td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        {:else if logs.length === 0}
+          <div class="empty-state">
+            <div class="empty-icon"><Clock3 size={18} /></div>
+            <p class="empty-title">No time log entries yet.</p>
+            <p class="empty-sub">Entries for the selected intern will appear here.</p>
+          </div>
+        {:else}
+          <div class="table-wrap">
+            <table class="stl-table" style="min-width: 700px;">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Time In</th>
+                  <th>Time Out</th>
+                  <th>Hours</th>
+                  <th>Notes</th>
+                  <th class="text-right">Action</th>
                 </tr>
               </thead>
               <tbody>
                 {#each logs as row (row.timelog_id)}
-                  <tr class="table-row">
-                    <td class="px-4 py-3">{formatDate(row.log_date)}</td>
-                    <td class="px-4 py-3">{toTimeText(row.time_in)}</td>
-                    <td class="px-4 py-3">{toTimeText(row.time_out)}</td>
-                    <td class="px-4 py-3 font-semibold">{row.hours_rendered}h</td>
-                    <td class="px-4 py-3">{row.notes || '-'}</td>
-                    <td class="px-4 py-3 text-right">
+                  <tr>
+                    <td>{formatDate(row.log_date)}</td>
+                    <td>{toTimeText(row.time_in)}</td>
+                    <td>{toTimeText(row.time_out)}</td>
+                    <td class="font-semibold">{formatHours(row.hours_rendered)}h</td>
+                    <td>{row.notes || '-'}</td>
+                    <td class="text-right">
                       <button
                         type="button"
-                        class="btn-delete rounded-lg px-2.5 py-2 text-xs font-semibold"
+                        class="btn-delete"
                         on:click={() => handleDelete(row.timelog_id)}
                         disabled={deletingId === row.timelog_id}
-                        style="display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;"
+                        aria-label="Delete time log entry"
                       >
                         {#if deletingId === row.timelog_id}
                           <span class="spinning-icon"><Loader2 size={13} /></span>
@@ -491,10 +568,9 @@
             </table>
           </div>
 
-          <!-- Timeline History Section -->
-          <div class="log-history-timeline mt-8">
-            <h4 class="supervisor-heading mb-4 text-base font-semibold">Login/Logout History</h4>
-            <div class="timeline-container">
+          <div class="timeline-wrap">
+            <h4 class="section-title">Login/Logout History</h4>
+            <div class="timeline">
               {#each logs as row, idx (row.timelog_id)}
                 <div class="timeline-item">
                   <div class="timeline-marker">
@@ -504,24 +580,18 @@
                     {/if}
                   </div>
                   <div class="timeline-content">
-                    <div class="timeline-date">{formatDate(row.log_date)}</div>
-                    <div class="timeline-events">
-                      <div class="event login-event">
-                        <div class="event-time">
-                          <span class="event-label">Logged In</span>
-                          <span class="event-hour">{toTimeText(row.time_in)}</span>
-                        </div>
-                      </div>
-                      {#if row.time_out}
-                        <div class="event logout-event">
-                          <div class="event-time">
-                            <span class="event-label">Logged Out</span>
-                            <span class="event-hour">{toTimeText(row.time_out)}</span>
-                          </div>
-                          <div class="event-duration">Duration: {row.hours_rendered}h</div>
-                        </div>
-                      {/if}
+                    <p class="timeline-date">{formatDate(row.log_date)}</p>
+                    <div class="timeline-event login">
+                      <span>Logged In</span>
+                      <strong>{toTimeText(row.time_in)}</strong>
                     </div>
+                    {#if row.time_out}
+                      <div class="timeline-event logout">
+                        <span>Logged Out</span>
+                        <strong>{toTimeText(row.time_out)}</strong>
+                      </div>
+                      <p class="timeline-duration">Duration: {formatHours(row.hours_rendered)}h</p>
+                    {/if}
                   </div>
                 </div>
               {/each}
@@ -530,461 +600,497 @@
         {/if}
       </section>
     {:else}
-      <section class="supervisor-card supervisor-panel rounded-2xl border p-6 shadow-md">
-        <p class="supervisor-sub text-sm">No assigned interns yet. Add assignments first in dashboard.</p>
+      <section class="stl-card">
+        <div class="empty-state">
+          <div class="empty-icon"><Users size={18} /></div>
+          <p class="empty-title">No intern selected.</p>
+          <p class="empty-sub">Choose an assigned intern to view time logs.</p>
+        </div>
       </section>
     {/if}
   </section>
 {/if}
 
 <style>
-  .supervisor-shell {
-    --sp-surface: #ffffff;
-    --sp-surface-soft: #f3f8ff;
-    --sp-border: #d7e3f1;
-    --sp-heading: #0f172a;
-    --sp-text: #1f2937;
+  .warning-alert {
+    border-radius: 12px;
+    border: 1px solid #fcd34d;
+    padding: 14px 16px;
+    background: #fef3c7;
+    color: #92400e;
+    font-size: 14px;
+    font-weight: 500;
+  }
+
+  .stl-shell {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .stl-card {
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    padding: 18px 20px;
+    background: #ffffff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
+  }
+
+  .stl-card-success {
+    border-color: rgba(16, 185, 129, 0.35);
+    background: rgba(16, 185, 129, 0.08);
+  }
+
+  .section-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+
+  .section-title {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 700;
+    color: #0f172a;
+  }
+
+  .section-sub {
+    margin: 4px 0 0;
+    font-size: 13px;
+    color: #64748b;
+  }
+
+  .session-list {
+    display: grid;
+    gap: 8px;
+  }
+
+  .session-item {
+    border: 1px solid rgba(16, 185, 129, 0.22);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.45);
+    padding: 9px 11px;
+  }
+
+  .session-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #047857;
+  }
+
+  .session-name {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: #065f46;
+  }
+
+  .session-sub {
+    margin: 2px 0 0;
+    font-size: 12px;
+    color: #047857;
+  }
+
+  .control-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 14px;
+  }
+
+  .control-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: min(100%, 465px);
+  }
+
+  .selector-wrap {
     position: relative;
-    border-radius: 1.25rem;
-    padding: 0.35rem;
-    isolation: isolate;
+    flex: 1;
   }
 
-  .supervisor-shell::before {
-    content: '';
+  .selector-icon {
     position: absolute;
-    inset: 0;
-    z-index: -2;
-    border-radius: 1.25rem;
-    background: radial-gradient(130% 130% at 0% 0%, #e4f1ff 0%, #f7fbff 58%, #eef4fb 100%);
-  }
-
-  .supervisor-shell::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    z-index: -1;
-    border-radius: 1.25rem;
-    background-image: linear-gradient(112deg, rgba(15, 108, 189, 0.08), transparent 52%);
+    left: 11px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #64748b;
     pointer-events: none;
   }
 
-  .supervisor-card {
-    background: var(--sp-surface);
-    border-color: var(--sp-border);
-    box-shadow: 0 18px 36px -30px rgba(15, 23, 42, 0.42);
+  .stl-input {
+    width: 100%;
+    border: 1px solid #cbd5e1;
+    background: #f8fafc;
+    color: #0f172a;
+    border-radius: 10px;
+    padding: 10px 12px 10px 34px;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
   }
 
-  .supervisor-panel {
-    background: linear-gradient(145deg, #ffffff, #f5f9ff);
+  .stl-input:focus {
+    border-color: #60a5fa;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.16);
   }
 
-  .supervisor-stat {
+  .btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: 1px solid #cbd5e1;
+    background: #f8fafc;
+    color: #0f172a;
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+  }
+
+  .btn-secondary:hover:not(:disabled) {
+    border-color: #93c5fd;
+    background: #f1f5f9;
+  }
+
+  .btn-secondary:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .alert {
+    margin: 0;
+    border-radius: 10px;
+    border: 1px solid;
+    padding: 10px 14px;
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .alert-error {
+    background: #fef2f2;
+    border-color: #fecaca;
+    color: #b91c1c;
+  }
+
+  .alert-success {
+    background: #ecfdf5;
+    border-color: #a7f3d0;
+    color: #047857;
+  }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .stat-card {
+    min-height: 132px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .stat-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+  }
+
+  .icon-blue {
+    background: rgba(59, 130, 246, 0.14);
+    color: #3b82f6;
+    border: 1px solid rgba(59, 130, 246, 0.22);
+  }
+
+  .icon-violet {
+    background: rgba(99, 102, 241, 0.14);
+    color: #4f46e5;
+    border: 1px solid rgba(99, 102, 241, 0.24);
+  }
+
+  .icon-green {
+    background: rgba(34, 197, 94, 0.14);
+    color: #16a34a;
+    border: 1px solid rgba(34, 197, 94, 0.22);
+  }
+
+  .icon-amber {
+    background: rgba(245, 158, 11, 0.14);
+    color: #d97706;
+    border: 1px solid rgba(245, 158, 11, 0.24);
+  }
+
+  .stat-value {
+    margin: 8px 0 0;
+    font-size: 36px;
+    line-height: 1;
+    font-weight: 700;
+    letter-spacing: -0.8px;
+    color: #0f172a;
+  }
+
+  .stat-name {
+    font-size: 30px;
+    line-height: 1.08;
+  }
+
+  .stat-label {
+    margin: 0;
+    font-size: 13px;
+    color: #64748b;
+  }
+
+  .progress-inline {
+    margin-top: auto;
+    padding-top: 6px;
+  }
+
+  .progress-track {
+    height: 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    background: rgba(148, 163, 184, 0.2);
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    border-radius: inherit;
+    transition: width 0.25s ease;
+  }
+
+  .progress-high {
+    background: linear-gradient(90deg, #16a34a, #22c55e);
+  }
+
+  .progress-mid {
+    background: linear-gradient(90deg, #0284c7, #38bdf8);
+  }
+
+  .progress-low {
+    background: linear-gradient(90deg, #2563eb, #3b82f6);
+  }
+
+  .table-wrap {
+    margin-top: 12px;
+    overflow-x: auto;
+    border-radius: 10px;
+    border: 1px solid #e2e8f0;
+    background: #f8fafc;
+  }
+
+  .stl-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+    color: #334155;
+  }
+
+  .stl-table thead th {
+    background: #eff6ff;
+    color: #0f172a;
+    font-weight: 600;
+    padding: 12px 16px;
+    text-align: left;
+    border-bottom: 1px solid #dbeafe;
+  }
+
+  .stl-table td {
+    padding: 12px 16px;
+    border-top: 1px solid #e2e8f0;
+  }
+
+  .stl-table tbody tr:hover {
+    background: #f1f5f9;
+  }
+
+  .text-right {
+    text-align: right;
+  }
+
+  .font-semibold {
+    font-weight: 700;
+  }
+
+  .btn-delete {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: 1px solid rgba(239, 68, 68, 0.24);
+    background: rgba(239, 68, 68, 0.08);
+    color: #b91c1c;
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .btn-delete:hover:not(:disabled) {
+    background: rgba(239, 68, 68, 0.2);
+    border-color: rgba(239, 68, 68, 0.4);
+    color: #991b1b;
+  }
+
+  .btn-delete:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+  }
+
+  .timeline-wrap {
+    margin-top: 20px;
+  }
+
+  .timeline {
+    margin-top: 10px;
+    display: grid;
+    gap: 16px;
+  }
+
+  .timeline-item {
+    display: flex;
+    gap: 12px;
+  }
+
+  .timeline-marker {
+    width: 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex-shrink: 0;
+  }
+
+  .timeline-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    background: #3b82f6;
+  }
+
+  .timeline-line {
+    width: 2px;
+    flex: 1;
+    margin-top: 6px;
+    background: rgba(59, 130, 246, 0.45);
+  }
+
+  .timeline-content {
+    flex: 1;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background: #f8fafc;
+    padding: 10px 12px;
+  }
+
+  .timeline-date {
+    margin: 0 0 8px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #0f172a;
+  }
+
+  .timeline-event {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 7px 9px;
+    border-radius: 8px;
+    font-size: 13px;
+  }
+
+  .timeline-event.login {
+    background: rgba(16, 185, 129, 0.12);
+    color: #047857;
+  }
+
+  .timeline-event.logout {
+    margin-top: 6px;
+    background: rgba(59, 130, 246, 0.12);
+    color: #1d4ed8;
+  }
+
+  .timeline-duration {
+    margin: 8px 0 0;
+    font-size: 12px;
+    color: #64748b;
+    font-weight: 600;
+  }
+
+  .empty-state {
+    border: 1px dashed #cbd5e1;
+    border-radius: 12px;
+    padding: 24px 16px;
+    display: grid;
+    justify-items: center;
+    gap: 8px;
+    text-align: center;
+    margin-top: 12px;
+  }
+
+  .empty-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    display: grid;
+    place-items: center;
+    color: #64748b;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+  }
+
+  .empty-title {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #0f172a;
+  }
+
+  .empty-sub {
+    margin: 0;
+    font-size: 13px;
+    color: #64748b;
+  }
+
+  .sk-line,
+  .sk-pill {
+    display: inline-block;
+    background: rgba(148, 163, 184, 0.12);
+    border: 1px solid rgba(148, 163, 184, 0.16);
+  }
+
+  .sk-pill {
+    width: 68px;
+    height: 24px;
+    border-radius: 999px;
+  }
+
+  .shimmer {
     position: relative;
     overflow: hidden;
   }
 
-  .supervisor-stat::before {
+  .shimmer::after {
     content: '';
     position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    height: 3px;
-  }
-
-  .stat-primary::before {
-    background: linear-gradient(90deg, #0f6cbd, #38bdf8);
-  }
-
-  .stat-success::before {
-    background: linear-gradient(90deg, #0f766e, #10b981);
-  }
-
-  .stat-info::before {
-    background: linear-gradient(90deg, #1d4ed8, #3b82f6);
-  }
-
-  .stat-forecast::before {
-    background: linear-gradient(90deg, #0f766e, #06b6d4);
-  }
-
-  .supervisor-heading,
-  .supervisor-value {
-    color: var(--sp-heading);
-  }
-
-  .supervisor-label,
-  .supervisor-sub,
-  .table-row {
-    color: var(--sp-text);
-  }
-
-  .supervisor-value {
-    font-size: 1.5rem;
-    line-height: 1;
-    font-weight: 700;
-  }
-
-  .supervisor-input {
-    background: #edf4fb;
-    border-color: #bed2e8;
-    color: var(--sp-heading);
-  }
-
-  .supervisor-input:focus {
-    border-color: #60a5fa;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
-  }
-
-  .btn-light,
-  .btn-delete {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    border: 1px solid transparent;
-  }
-
-  .btn-light {
-    background: #edf4fb;
-    border-color: #bed2e8;
-    color: var(--sp-heading);
-  }
-
-  .btn-light:hover:not(:disabled) {
-    background: #e2edf9;
-  }
-
-  .btn-delete {
-    background: linear-gradient(90deg, #dc2626, #f97316);
-    color: #ffffff;
-    border-color: #dc2626;
-  }
-
-  .btn-delete:hover:not(:disabled) {
-    filter: brightness(1.06);
-    transform: translateY(-1px);
-  }
-
-  .log-table-wrap {
-    border-color: var(--sp-border);
-    background: #f8fbff;
-  }
-
-  .table-head {
-    background: #edf4fb;
-    color: var(--sp-heading);
-  }
-
-  .table-row {
-    border-top: 1px solid var(--sp-border);
-  }
-
-  .table-row:hover {
-    background: #f1f7fd;
-  }
-
-  .supervisor-icon {
-    width: 2.2rem;
-    height: 2.2rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 0.8rem;
-  }
-
-  .icon-blue {
-    background: #e0efff;
-    color: #0f6cbd;
-    border: 1px solid #bfdbfe;
-  }
-
-  .icon-violet {
-    background: #dbeafe;
-    color: #1d4ed8;
-    border: 1px solid #93c5fd;
-  }
-
-  .icon-green {
-    background: #dcfce7;
-    color: #0f766e;
-    border: 1px solid #86efac;
-  }
-
-  .icon-cyan {
-    background: #cffafe;
-    color: #0f766e;
-    border: 1px solid #67e8f9;
-  }
-
-  :global(.dark) .supervisor-shell {
-    --sp-surface: #162338;
-    --sp-surface-soft: #1b2a42;
-    --sp-border: #2b3c57;
-    --sp-heading: #e5edf8;
-    --sp-text: #cfdceb;
-  }
-
-  :global(.dark) .supervisor-shell::before {
-    background: radial-gradient(130% 130% at 0% 0%, #173459 0%, #101a2b 48%, #0b1422 100%);
-  }
-
-  :global(.dark) .supervisor-shell::after {
-    background-image: linear-gradient(112deg, rgba(91, 177, 255, 0.12), transparent 55%);
-  }
-
-  :global(.dark) .supervisor-card {
-    box-shadow: 0 20px 38px -30px rgba(2, 8, 23, 0.95);
-  }
-
-  :global(.dark) .supervisor-panel {
-    background: linear-gradient(150deg, rgba(22, 35, 56, 0.96), rgba(19, 30, 49, 0.98));
-  }
-
-  :global(.dark) .supervisor-input,
-  :global(.dark) .btn-light,
-  :global(.dark) .log-table-wrap,
-  :global(.dark) .table-head,
-  :global(.dark) .table-row:hover {
-    background: #1a2c45;
-    border-color: #334b6b;
-    color: #dbe7f5;
-  }
-
-  :global(.dark) .supervisor-input:focus {
-    border-color: #7cc3ff;
-    box-shadow: 0 0 0 3px rgba(91, 177, 255, 0.24);
-  }
-
-  :global(.dark) .btn-light:hover:not(:disabled) {
-    background: #223653;
-  }
-
-  :global(.dark) .btn-delete {
-    background: linear-gradient(90deg, #b91c1c, #ea580c);
-    border-color: #b91c1c;
-  }
-
-  @media (max-width: 768px) {
-    .supervisor-shell {
-      border-radius: 1rem;
-      padding: 0;
-    }
-  }
-
-  :global(.dark) .icon-blue {
-    background: rgba(59, 130, 246, 0.2);
-    color: #bfdbfe;
-  }
-
-
-
-  .supervisor-stat::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    height: 3px;
-  }
-
-  .stat-primary::before {
-    background: linear-gradient(90deg, #0f6cbd, #38bdf8);
-  }
-
-  .stat-success::before {
-    background: linear-gradient(90deg, #0f766e, #10b981);
-  }
-
-  .stat-info::before {
-    background: linear-gradient(90deg, #1d4ed8, #3b82f6);
-  }
-
-  .stat-forecast::before {
-    background: linear-gradient(90deg, #0f766e, #06b6d4);
-  }
-
-  .supervisor-heading,
-  .supervisor-value {
-    color: var(--sp-heading);
-  }
-
-  .supervisor-label,
-  .supervisor-sub,
-  .table-row {
-    color: var(--sp-text);
-  }
-
-  .supervisor-value {
-    font-size: 1.5rem;
-    line-height: 1;
-    font-weight: 700;
-  }
-
-  .supervisor-input {
-    background: #edf4fb;
-    border-color: #bed2e8;
-    color: var(--sp-heading);
-  }
-
-  .supervisor-input:focus {
-    border-color: #60a5fa;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
-  }
-
-  .btn-light,
-  .btn-delete {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    border: 1px solid transparent;
-  }
-
-  .btn-light {
-    background: #edf4fb;
-    border-color: #bed2e8;
-    color: var(--sp-heading);
-  }
-
-  .btn-light:hover:not(:disabled) {
-    background: #e2edf9;
-  }
-
-  .btn-delete {
-    background: linear-gradient(90deg, #dc2626, #f97316);
-    color: #ffffff;
-    border-color: #dc2626;
-  }
-
-  .btn-delete:hover:not(:disabled) {
-    filter: brightness(1.06);
-    transform: translateY(-1px);
-  }
-
-  .log-table-wrap {
-    border-color: var(--sp-border);
-    background: #f8fbff;
-  }
-
-  .table-head {
-    background: #edf4fb;
-    color: var(--sp-heading);
-  }
-
-  .table-row {
-    border-top: 1px solid var(--sp-border);
-  }
-
-  .table-row:hover {
-    background: #f1f7fd;
-  }
-
-  .supervisor-icon {
-    width: 2.2rem;
-    height: 2.2rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 0.8rem;
-  }
-
-  .icon-blue {
-    background: #e0efff;
-    color: #0f6cbd;
-    border: 1px solid #bfdbfe;
-  }
-
-  .icon-violet {
-    background: #dbeafe;
-    color: #1d4ed8;
-    border: 1px solid #93c5fd;
-  }
-
-  .icon-green {
-    background: #dcfce7;
-    color: #0f766e;
-    border: 1px solid #86efac;
-  }
-
-  .icon-cyan {
-    background: #cffafe;
-    color: #0f766e;
-    border: 1px solid #67e8f9;
-  }
-
-  :global(.dark) .supervisor-shell {
-    --sp-surface: #162338;
-    --sp-surface-soft: #1b2a42;
-    --sp-border: #2b3c57;
-    --sp-heading: #e5edf8;
-    --sp-text: #cfdceb;
-  }
-
-  :global(.dark) .supervisor-shell::before {
-    background: radial-gradient(130% 130% at 0% 0%, #173459 0%, #101a2b 48%, #0b1422 100%);
-  }
-
-  :global(.dark) .supervisor-shell::after {
-    background-image: linear-gradient(112deg, rgba(91, 177, 255, 0.12), transparent 55%);
-  }
-
-  :global(.dark) .supervisor-card {
-    box-shadow: 0 20px 38px -30px rgba(2, 8, 23, 0.95);
-  }
-
-  :global(.dark) .supervisor-panel {
-    background: linear-gradient(150deg, rgba(22, 35, 56, 0.96), rgba(19, 30, 49, 0.98));
-  }
-
-  :global(.dark) .supervisor-input,
-  :global(.dark) .btn-light,
-  :global(.dark) .log-table-wrap,
-  :global(.dark) .table-head,
-  :global(.dark) .table-row:hover {
-    background: #1a2c45;
-    border-color: #334b6b;
-    color: #dbe7f5;
-  }
-
-  :global(.dark) .supervisor-input:focus {
-    border-color: #7cc3ff;
-    box-shadow: 0 0 0 3px rgba(91, 177, 255, 0.24);
-  }
-
-  :global(.dark) .btn-light:hover:not(:disabled) {
-    background: #223653;
-  }
-
-  :global(.dark) .btn-delete {
-    background: linear-gradient(90deg, #b91c1c, #ea580c);
-    border-color: #b91c1c;
-  }
-
-  @media (max-width: 768px) {
-    .supervisor-shell {
-      border-radius: 1rem;
-      padding: 0;
-    }
-  }
-
-  :global(.dark) .icon-blue {
-    background: rgba(59, 130, 246, 0.2);
-    color: #bfdbfe;
-  }
-
-  :global(.dark) .icon-violet {
-    background: rgba(139, 92, 246, 0.2);
-    color: #ddd6fe;
-  }
-
-  :global(.dark) .icon-green {
-    background: rgba(16, 185, 129, 0.2);
-    color: #a7f3d0;
-  }
-
-  :global(.dark) .icon-cyan {
-    background: rgba(6, 182, 212, 0.2);
-    color: #a5f3fc;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, rgba(148, 163, 184, 0), rgba(148, 163, 184, 0.2), rgba(148, 163, 184, 0));
+    animation: stl-shimmer 1.45s ease-in-out infinite;
   }
 
   .spinning-icon {
@@ -999,149 +1105,169 @@
     to { transform: rotate(360deg); }
   }
 
-  /* Timeline History Styles */
-  .log-history-timeline {
-    margin-top: 2rem;
+  @keyframes stl-shimmer {
+    100% { transform: translateX(100%); }
   }
 
-  .timeline-container {
-    position: relative;
-    padding: 1rem 0;
+  :global(.dark) .warning-alert {
+    background: #fef3c7;
+    border-color: #fcd34d;
+    color: #92400e;
   }
 
-  .timeline-item {
-    display: flex;
-    gap: 1.5rem;
-    margin-bottom: 2rem;
-    position: relative;
+  :global(.dark) .stl-card {
+    border-color: rgba(255, 255, 255, 0.08);
+    background: #161c27;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
   }
 
-  .timeline-marker {
-    position: relative;
-    width: 2.5rem;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    flex-shrink: 0;
+  :global(.dark) .stl-card-success {
+    border-color: rgba(16, 185, 129, 0.3);
+    background: rgba(16, 185, 129, 0.12);
   }
 
-  .timeline-dot {
-    width: 1rem;
-    height: 1rem;
-    border-radius: 50%;
-    background: #3b82f6;
-    border: 3px solid #ffffff;
-    box-shadow: 0 0 0 2px #3b82f6;
-    position: relative;
-    z-index: 2;
-  }
-
-  .timeline-line {
-    width: 2px;
-    flex: 1;
-    background: linear-gradient(180deg, #3b82f6 0%, #93c5fd 100%);
-    margin-top: 0.5rem;
-  }
-
-  .timeline-content {
-    flex: 1;
-    padding-top: 0.2rem;
-  }
-
-  .timeline-date {
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: var(--sp-heading);
-    margin-bottom: 0.8rem;
-    opacity: 0.8;
-  }
-
-  .timeline-events {
-    display: flex;
-    flex-direction: column;
-    gap: 0.8rem;
-  }
-
-  .event {
-    padding: 0.75rem 1rem;
-    border-radius: 0.6rem;
-    border-left: 3px solid;
-  }
-
-  .login-event {
-    background: #ecfdf5;
-    border-left-color: #10b981;
-  }
-
-  .logout-event {
-    background: #eff6ff;
-    border-left-color: #3b82f6;
-  }
-
-  .event-time {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 1rem;
-  }
-
-  .event-label {
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: var(--sp-text);
-  }
-
-  .event-hour {
-    font-weight: 700;
-    font-family: 'Monaco', 'Menlo', monospace;
-    font-size: 0.95rem;
-  }
-
-  .login-event .event-label {
-    color: #047857;
-  }
-
-  .login-event .event-hour {
-    color: #059669;
-  }
-
-  .logout-event .event-label {
-    color: #1e40af;
-  }
-
-  .logout-event .event-hour {
-    color: #1d4ed8;
-  }
-
-  .event-duration {
-    font-size: 0.8rem;
-    margin-top: 0.5rem;
-    color: var(--sp-text);
-    opacity: 0.7;
-  }
-
-  :global(.dark) .timeline-dot {
-    background: #60a5fa;
-    box-shadow: 0 0 0 2px #60a5fa;
-  }
-
-  :global(.dark) .timeline-line {
-    background: linear-gradient(180deg, #60a5fa 0%, #3b82f6 100%);
-  }
-
-  :global(.dark) .login-event {
-    background: rgba(16, 185, 129, 0.15);
-  }
-
-  :global(.dark) .logout-event {
-    background: rgba(59, 130, 246, 0.15);
-  }
-
+  :global(.dark) .section-title,
+  :global(.dark) .stat-value,
+  :global(.dark) .empty-title,
   :global(.dark) .timeline-date {
-    color: var(--sp-heading);
+    color: #f1f5f9;
   }
 
-  :global(.dark) .event-label {
-    color: var(--sp-text);
+  :global(.dark) .section-sub,
+  :global(.dark) .stat-label,
+  :global(.dark) .empty-sub,
+  :global(.dark) .timeline-duration {
+    color: #94a3b8;
+  }
+
+  :global(.dark) .session-name {
+    color: #d1fae5;
+  }
+
+  :global(.dark) .session-sub,
+  :global(.dark) .session-left {
+    color: #a7f3d0;
+  }
+
+  :global(.dark) .session-item {
+    border-color: rgba(16, 185, 129, 0.25);
+    background: rgba(16, 185, 129, 0.08);
+  }
+
+  :global(.dark) .stl-input,
+  :global(.dark) .btn-secondary {
+    background: #1a2332;
+    border-color: rgba(255, 255, 255, 0.12);
+    color: #e2e8f0;
+  }
+
+  :global(.dark) .selector-icon {
+    color: #94a3b8;
+  }
+
+  :global(.dark) .btn-secondary:hover:not(:disabled) {
+    background: #243047;
+    border-color: rgba(96, 165, 250, 0.42);
+  }
+
+  :global(.dark) .table-wrap {
+    border-color: rgba(255, 255, 255, 0.1);
+    background: #1a2332;
+  }
+
+  :global(.dark) .stl-table {
+    color: #cbd5e1;
+  }
+
+  :global(.dark) .stl-table thead th {
+    background: #1d2a40;
+    color: #e2e8f0;
+    border-bottom-color: rgba(148, 163, 184, 0.2);
+  }
+
+  :global(.dark) .stl-table td {
+    border-top-color: rgba(148, 163, 184, 0.14);
+  }
+
+  :global(.dark) .stl-table tbody tr:hover {
+    background: rgba(59, 130, 246, 0.08);
+  }
+
+  :global(.dark) .timeline-content {
+    border-color: rgba(148, 163, 184, 0.2);
+    background: #1a2332;
+  }
+
+  :global(.dark) .timeline-event.login {
+    background: rgba(16, 185, 129, 0.2);
+    color: #6ee7b7;
+  }
+
+  :global(.dark) .timeline-event.logout {
+    background: rgba(59, 130, 246, 0.2);
+    color: #93c5fd;
+  }
+
+  :global(.dark) .empty-state {
+    border-color: rgba(148, 163, 184, 0.28);
+    background: rgba(15, 23, 42, 0.35);
+  }
+
+  :global(.dark) .empty-icon {
+    background: rgba(15, 23, 42, 0.6);
+    border-color: rgba(148, 163, 184, 0.25);
+    color: #94a3b8;
+  }
+
+  :global(.dark) .sk-line,
+  :global(.dark) .sk-pill {
+    background: rgba(148, 163, 184, 0.1);
+    border-color: rgba(148, 163, 184, 0.12);
+  }
+
+  @media (max-width: 1200px) {
+    .stats-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 900px) {
+    .control-head {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 10px;
+    }
+
+    .control-actions {
+      width: 100%;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .stl-shell {
+      gap: 16px;
+    }
+
+    .stats-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .stl-card {
+      padding-left: 14px;
+      padding-right: 14px;
+    }
+
+    .control-actions {
+      flex-direction: column;
+      align-items: stretch;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .shimmer::after {
+      animation: none;
+      transform: none;
+      opacity: 0;
+    }
   }
 </style>
