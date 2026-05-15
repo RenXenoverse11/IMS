@@ -111,12 +111,24 @@
   let now = new Date();
   // Track in-progress updates per-worklog so UI buttons disable per-item instead of globally.
   let updatingWorklogMap = {};
+  // Track per-task archive state so the archive icon can show a spinner while saving.
+  let archivingTaskMap = {};
+  // Track per-task restore state so restore buttons can lock and show progress.
+  let restoringTaskMap = {};
 
   // artificial frontend delay (ms) to smooth perceived loading/saving time
   const ARTIFICIAL_DELAY_MS = 500;
   let enableArtificialDelay = true;
   function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
   function maybeDelay() { return enableArtificialDelay ? sleep(ARTIFICIAL_DELAY_MS) : Promise.resolve(); }
+
+  function isSupervisorArchivedTask(task) {
+    if (!task) return false;
+    if (task.supervisor_archived === true) return true;
+    const archivedValue = String(task.supervisor_archived || '').trim().toLowerCase();
+    if (archivedValue === 'true' || archivedValue === '1' || archivedValue === 'yes') return true;
+    return String(task.status || '').trim().toLowerCase() === 'archived';
+  }
 
   function updateNow() {
     now = new Date();
@@ -310,11 +322,12 @@
             // tolerate multiple possible server field names for due date
             due_date: String(t.due_date || t.dueDate || t.due || t.date || t.due_date_formatted || t.dueDateFormatted || ''),
             status: String(t.status || ''),
+            supervisor_archived: t.supervisor_archived === true || ['true', '1', 'yes'].includes(String(t.supervisor_archived || '').trim().toLowerCase()),
             assigned_student_ids: Array.isArray(t.assigned_student_ids) ? t.assigned_student_ids : (Array.isArray(t.assigned_ids) ? t.assigned_ids : []),
             daily_checklist: Array.isArray(t.daily_checklist) ? t.daily_checklist : (Array.isArray(t.dailyChecklist) ? t.dailyChecklist : [])
           }));
-          supervisorTasks = mapped.filter(x => String(x.status || '').toLowerCase() !== 'archived');
-          archivedSupervisorTasks = mapped.filter(x => String(x.status || '').toLowerCase() === 'archived');
+          supervisorTasks = mapped.filter((x) => !isSupervisorArchivedTask(x));
+          archivedSupervisorTasks = mapped.filter((x) => isSupervisorArchivedTask(x));
           // Pre-fetch all attachments in parallel so task details open instantly.
           // Await completion here so clicking a task finds attachments in cache immediately.
           const allTaskIds = mapped.map(t => t.id).filter(Boolean);
@@ -367,11 +380,6 @@
 
   async function approveWorklog(log) {
     if (!log || !log.task_id) return;
-    // optimistic status update so it moves to archive immediately
-    // Update the local workLogs array reactively so Svelte updates computed lists immediately.
-    const tid = String(log.task_id || '');
-    workLogs = workLogs.map(w => (String(w.task_id || '') === tid ? { ...w, status: 'Approved' } : w));
-    // persist to server (still awaited so failures can be handled)
     await handleWorklogStatus(log.task_id, 'Approved');
   }
 
@@ -715,6 +723,7 @@
   // --- End attachment helpers ---
 
   async function submitNewTask() {
+    if (isCreatingTask) return;
     if (!newTaskTitle.trim() || newTaskAssignees.length === 0) return;
     isCreatingTask = true;
     try {
@@ -746,6 +755,7 @@
         description: payload.description,
         due_date: payload.due_date,   // YYYY-MM-DD
         status: payload.status,
+        supervisor_archived: false,
         created_by: payload.created_by,
         assigned_student_ids: Array.isArray(payload.assigned_student_ids) ? payload.assigned_student_ids : []
       };
@@ -946,6 +956,7 @@
   }
 
   async function saveEditedTask() {
+    if (isSavingEdit) return;
     if (!editTaskForm || !editTaskForm.title.trim()) return;
     isSavingEdit = true;
     try {
@@ -1113,37 +1124,52 @@ function toggleEditAssigneeDropdown() {
     });
   }
 
-  function archiveTask(taskId) {
+  async function archiveTask(taskId) {
     if (!taskId) return;
+    if (archivingTaskMap[String(taskId)]) return;
     const task = supervisorTasks.find(t => String(t.id) === String(taskId));
     if (!task) return;
-    // persist archive status to server
-    (async () => {
-      try {
-        await maybeDelay();
-        await callUpdateSupervisorTask({ sup_taskid: task.id, status: 'Archived', updated_by: currentUser?.user_id || '' });
-      } catch (err) {
-        // non-fatal, continue to update UI
-      }
-      archivedSupervisorTasks = [task, ...archivedSupervisorTasks.filter(t => String(t.id) !== String(taskId))];
-      supervisorTasks = supervisorTasks.filter(t => String(t.id) !== String(taskId));
-    })();
+    const taskKey = String(taskId);
+    archivingTaskMap = { ...archivingTaskMap, [taskKey]: true };
+    try {
+      await maybeDelay();
+      await callUpdateSupervisorTask({
+        sup_taskid: task.id,
+        supervisor_archived: true,
+        updated_by: currentUser?.user_id || ''
+      });
+    } catch (err) {
+      // non-fatal, continue to update UI
+    } finally {
+      archivedSupervisorTasks = [{ ...task, supervisor_archived: true }, ...archivedSupervisorTasks.filter(t => String(t.id) !== taskKey)];
+      supervisorTasks = supervisorTasks.filter(t => String(t.id) !== taskKey);
+      const { [taskKey]: _, ...rest } = archivingTaskMap;
+      archivingTaskMap = rest;
+    }
   }
 
-  function restoreTask(taskId) {
+  async function restoreTask(taskId) {
     if (!taskId) return;
+    const taskKey = String(taskId);
+    if (restoringTaskMap[taskKey]) return;
     const task = archivedSupervisorTasks.find(t => String(t.id) === String(taskId));
     if (!task) return;
-    (async () => {
-      try {
-        await maybeDelay();
-        await callUpdateSupervisorTask({ sup_taskid: task.id, status: 'Pending', updated_by: currentUser?.user_id || '' });
-      } catch (err) {
-        // non-fatal
-      }
-      supervisorTasks = [task, ...supervisorTasks.filter(t => String(t.id) !== String(taskId))];
-      archivedSupervisorTasks = archivedSupervisorTasks.filter(t => String(t.id) !== String(taskId));
-    })();
+    restoringTaskMap = { ...restoringTaskMap, [taskKey]: true };
+    try {
+      await maybeDelay();
+      await callUpdateSupervisorTask({
+        sup_taskid: task.id,
+        supervisor_archived: false,
+        updated_by: currentUser?.user_id || ''
+      });
+    } catch (err) {
+      // non-fatal
+    } finally {
+      supervisorTasks = [{ ...task, supervisor_archived: false }, ...supervisorTasks.filter(t => String(t.id) !== taskKey)];
+      archivedSupervisorTasks = archivedSupervisorTasks.filter(t => String(t.id) !== taskKey);
+      const { [taskKey]: _, ...rest } = restoringTaskMap;
+      restoringTaskMap = rest;
+    }
   }
 
   // expandable logs state
@@ -1221,14 +1247,14 @@ function toggleEditAssigneeDropdown() {
   </section>
 
   {#if showAddTask}
-    <div class="task-view-modal-overlay" role="presentation" on:click={() => showAddTask = false}>
+    <div class="task-view-modal-overlay" role="presentation" on:click={() => { if (!isCreatingTask) showAddTask = false; }}>
       <div class="task-view-modal" role="dialog" aria-modal="true" aria-label="Add Task" tabindex="-1" on:click|stopPropagation on:keydown|stopPropagation>
 
         <div class="task-view-modal-head">
           <h4>Add Task</h4>
           <div class="task-view-head-actions">
-            <button type="button" class="task-view-action primary" on:click={submitNewTask} disabled={isCreatingTask}>{isCreatingTask ? 'Saving...' : 'Submit'}</button>
-            <button type="button" class="task-view-close" on:click={() => { showAddTask = false; }}>Cancel</button>
+            <button type="button" class="task-view-action primary" on:click={submitNewTask} disabled={isCreatingTask} aria-busy={isCreatingTask}>{isCreatingTask ? 'Saving...' : 'Submit'}</button>
+            <button type="button" class="task-view-close" on:click={() => { showAddTask = false; }} disabled={isCreatingTask}>Cancel</button>
           </div>
         </div>
 
@@ -1334,7 +1360,7 @@ function toggleEditAssigneeDropdown() {
 
   {#if activeView === 'Overview'}
   <section class="grid-two">
-    <div class="panel">
+    <div class="panel overview-scroll-panel">
       <div class="panel-head fullwidth">
         <div>
           <h3>Intern work logs</h3>
@@ -1351,7 +1377,7 @@ function toggleEditAssigneeDropdown() {
         </div>
         </div>
       
-      <div class="log-list">
+      <div class="log-list panel-scroll-body">
         {#if overviewWorkLogs.length === 0}
           <p class="empty">No work logs found.</p>
         {:else}
@@ -1417,11 +1443,19 @@ function toggleEditAssigneeDropdown() {
 
                 <div class="log-actions">
                   <button
-                    class="primary btn-compact"
+                    type="button"
+                    class="approve-worklog-btn"
+                    class:approving={!!updatingWorklogMap[String(log.task_id || '')]}
                     on:click|stopPropagation={() => approveWorklog(log)}
                     disabled={isLoading || updatingWorklogMap[String(log.task_id || '')]}
+                    aria-busy={!!updatingWorklogMap[String(log.task_id || '')]}
                   >
-                    Approve
+                    {#if updatingWorklogMap[String(log.task_id || '')]}
+                      <span class="approve-spinner" aria-hidden="true"></span>
+                    {:else}
+                      <CheckCircle class="approve-worklog-icon" size={14} aria-hidden="true" />
+                    {/if}
+                    <span>{updatingWorklogMap[String(log.task_id || '')] ? 'Approving...' : 'Approve'}</span>
                   </button>
                 </div>
               </div>
@@ -1431,7 +1465,7 @@ function toggleEditAssigneeDropdown() {
       </div>
     </div>
 
-    <div class="panel">
+    <div class="panel overview-scroll-panel">
       <div class="panel-head fullwidth">
         <div>
           <h3>Intern Tasks</h3>
@@ -1445,7 +1479,7 @@ function toggleEditAssigneeDropdown() {
           </select>
         </div>
       </div>
-      <div class="progress-list">
+      <div class="progress-list panel-scroll-body">
         {#if internTasks.length === 0}
           <p class="empty">No tasks for selected intern.</p>
         {:else}
@@ -1466,16 +1500,13 @@ function toggleEditAssigneeDropdown() {
   {/if}
 
   {#if activeView === 'Archive'}
-    <section class="panel">
+    <section class="panel archive-tasks-panel">
       <div class="panel-head fullwidth">
         <div>
           <h3>Archive</h3>
         </div>
-        <div class="filters" style="display:flex; align-items:center; gap:0.6rem;">
-          <strong>Restore</strong>
-        </div>
       </div>
-      <div class="archived-list">
+      <div class="archived-list panel-scroll-body">
         {#if archivedSupervisorTasks.length === 0}
           <p class="empty">No archived items yet.</p>
         {:else}
@@ -1487,7 +1518,15 @@ function toggleEditAssigneeDropdown() {
                   <div class="muted" style="font-size:0.9rem">{formatDateToMMDDYYYY(a.due_date) || ''} — {a.status || ''}</div>
                 </div>
                 <div style="display:flex; gap:0.4rem; align-items:center;">
-                  <button class="ghost btn-compact" type="button" on:click={() => restoreTask(a.id)}>Restore</button>
+                  <button
+                    class="ghost btn-compact restore-task-btn"
+                    type="button"
+                    on:click={() => restoreTask(a.id)}
+                    disabled={!!restoringTaskMap[String(a.id)]}
+                    aria-busy={!!restoringTaskMap[String(a.id)]}
+                  >
+                    {restoringTaskMap[String(a.id)] ? 'Restoring...' : 'Restore'}
+                  </button>
                 </div>
               </li>
             {/each}
@@ -1496,7 +1535,7 @@ function toggleEditAssigneeDropdown() {
       </div>
     </section>
 
-    <section class="panel">
+    <section class="panel archive-worklogs-panel">
       <div class="panel-head fullwidth">
         <div>
           <h3>Worklogs</h3>
@@ -1518,7 +1557,7 @@ function toggleEditAssigneeDropdown() {
           </div>
         </div>
       </div>
-      <div class="log-list">
+      <div class="log-list panel-scroll-body">
         {#if approvedWorkLogs.length === 0}
           <p class="empty">No approved work logs yet.</p>
         {:else}
@@ -1592,7 +1631,7 @@ function toggleEditAssigneeDropdown() {
   {/if}
 
   {#if activeView === 'List'}
-  <section class="panel intern-panel">
+  <section class="panel intern-panel tasks-scroll-panel">
     <div class="panel-head fullwidth">
       <div class="panel-head-inner">
         <h3>Tasks</h3>
@@ -1608,7 +1647,7 @@ function toggleEditAssigneeDropdown() {
     </div>
 
       <!-- Tasks list (supervisor-created tasks) -->
-      <div class="tasks-list-panel">
+      <div class="tasks-list-panel panel-scroll-body">
         {#if filteredSupervisorTasks.length === 0}
           <p class="empty">No tasks yet. Add a task to see it here.</p>
         {:else}
@@ -1626,8 +1665,23 @@ function toggleEditAssigneeDropdown() {
                     <button class="icon-box icon-view" type="button" title="View" on:click={() => openViewTask(t)} aria-label="View task">
                       <span class="icon-wrap"><Eye /></span>
                     </button>
-                    <button class="icon-box icon-archive" type="button" title="Archive" on:click={(e) => { e.stopPropagation(); archiveTask(t.id); }} aria-label="Archive task">
-                      <span class="icon-wrap"><Archive /></span>
+                    <button
+                      class="icon-box icon-archive"
+                      class:is-busy={!!archivingTaskMap[String(t.id)]}
+                      type="button"
+                      title={archivingTaskMap[String(t.id)] ? 'Archiving...' : 'Archive'}
+                      on:click={(e) => { e.stopPropagation(); archiveTask(t.id); }}
+                      aria-label={archivingTaskMap[String(t.id)] ? 'Archiving task' : 'Archive task'}
+                      aria-busy={!!archivingTaskMap[String(t.id)]}
+                      disabled={!!archivingTaskMap[String(t.id)]}
+                    >
+                      <span class="icon-wrap">
+                        {#if archivingTaskMap[String(t.id)]}
+                          <span class="archive-spinner" aria-hidden="true"></span>
+                        {:else}
+                          <Archive />
+                        {/if}
+                      </span>
                     </button>
                   </div>
                 </li>
@@ -1729,13 +1783,13 @@ function toggleEditAssigneeDropdown() {
       {/if}
 
       {#if showEditTask}
-        <div class="task-view-modal-overlay" role="presentation" on:click={() => { showEditTask = false; }}>
+        <div class="task-view-modal-overlay" role="presentation" on:click={() => { if (!isSavingEdit) showEditTask = false; }}>
           <div class="task-view-modal" role="dialog" aria-modal="true" aria-label="Edit Task" tabindex="-1" on:click|stopPropagation on:keydown|stopPropagation>
             <div class="task-view-modal-head">
               <h4>Edit Task</h4>
               <div class="task-view-head-actions">
-                <button type="button" class="task-view-action primary" on:click={saveEditedTask} disabled={isSavingEdit}>{isSavingEdit ? 'Saving...' : 'Save'}</button>
-                <button type="button" class="task-view-close" on:click={() => { showEditTask = false; }}>Cancel</button>
+                <button type="button" class="task-view-action primary" on:click={saveEditedTask} disabled={isSavingEdit} aria-busy={isSavingEdit}>{isSavingEdit ? 'Saving...' : 'Save'}</button>
+                <button type="button" class="task-view-close" on:click={() => { showEditTask = false; }} disabled={isSavingEdit}>Cancel</button>
               </div>
             </div>
 
@@ -2258,6 +2312,54 @@ function toggleEditAssigneeDropdown() {
     gap: 0.9rem;
   }
 
+  .overview-scroll-panel,
+  .archive-worklogs-panel,
+  .tasks-scroll-panel {
+    height: 420px;
+    min-height: 420px;
+  }
+
+  .archive-tasks-panel {
+    height: 260px;
+    min-height: 260px;
+  }
+
+  .panel-scroll-body {
+    flex: 1;
+    min-height: 0;
+    align-content: start;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 0.35rem;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.55) transparent;
+    scrollbar-gutter: stable;
+  }
+
+  .log-list.panel-scroll-body,
+  .progress-list.panel-scroll-body {
+    grid-auto-rows: max-content;
+  }
+
+  .panel-scroll-body::-webkit-scrollbar {
+    width: 10px;
+  }
+
+  .panel-scroll-body::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .panel-scroll-body::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+    background-color: rgba(148, 163, 184, 0.55);
+  }
+
+  .panel-scroll-body::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(148, 163, 184, 0.78);
+  }
+
   .log-card {
     border: 1px solid var(--border);
     border-radius: 0.9rem;
@@ -2323,11 +2425,32 @@ function toggleEditAssigneeDropdown() {
 
   .icon-box:hover { background: color-mix(in srgb, var(--accent) 6%, var(--surface)); border-color: color-mix(in srgb, var(--accent) 12%, var(--border)); color: var(--accent); }
 
+  .icon-box:disabled {
+    cursor: not-allowed;
+    opacity: 0.82;
+  }
+
+  .icon-box.is-busy {
+    background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+    border-color: color-mix(in srgb, var(--accent) 16%, var(--border));
+  }
+
   .icon-box .icon-wrap :global(svg) { width: 16px; height: 16px; display:block; }
+  .icon-box .icon-wrap { display: inline-flex; align-items: center; justify-content: center; }
 
   /* specific colored icons (match ActivityIntern tones) */
   .icon-box.icon-view .icon-wrap :global(svg) { color: #38bdf8; }
   .icon-box.icon-archive .icon-wrap :global(svg) { color: #38bdf8; }
+
+  .archive-spinner {
+    width: 0.92rem;
+    height: 0.92rem;
+    border-radius: 999px;
+    border: 2px solid rgba(56, 189, 248, 0.3);
+    border-top-color: #38bdf8;
+    animation: approveSpin 0.75s linear infinite;
+    flex: 0 0 auto;
+  }
 
   /* slightly smaller compact intern task rows */
   .intern-tasks-compact { font-size: 0.86rem }
@@ -2380,6 +2503,67 @@ function toggleEditAssigneeDropdown() {
     display: flex;
     gap: 0.5rem;
     position: static;
+    margin-top: 0.55rem;
+  }
+
+  .approve-worklog-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    min-width: 5.15rem;
+    min-height: 2.1rem;
+    padding: 0.52rem 0.92rem;
+    border-radius: 0.7rem;
+    border: 1px solid rgba(96, 165, 250, 0.44);
+    background: linear-gradient(180deg, #4f8cff 0%, #2563eb 100%);
+    color: #ffffff;
+    font-size: 0.86rem;
+    font-weight: 700;
+    line-height: 1;
+    box-shadow: 0 8px 18px rgba(37, 99, 235, 0.2);
+    transition: transform 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease, background 0.16s ease;
+  }
+
+  .approve-worklog-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    background: linear-gradient(180deg, #3f83ff 0%, #1d4ed8 100%);
+    box-shadow: 0 11px 22px rgba(37, 99, 235, 0.25);
+  }
+
+  .approve-worklog-btn:focus-visible {
+    outline: 2px solid rgba(96, 165, 250, 0.38);
+    outline-offset: 2px;
+  }
+
+  .approve-worklog-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.72;
+    transform: none;
+    box-shadow: none;
+  }
+
+  .approve-worklog-btn.approving {
+    border-color: rgba(96, 165, 250, 0.45);
+    background: linear-gradient(180deg, #4f8cff 0%, #2563eb 100%);
+  }
+
+  .approve-worklog-icon {
+    flex: 0 0 auto;
+  }
+
+  .approve-spinner {
+    width: 0.74rem;
+    height: 0.74rem;
+    border-radius: 999px;
+    border: 2px solid rgba(255, 255, 255, 0.42);
+    border-top-color: #ffffff;
+    animation: approveSpin 0.75s linear infinite;
+    flex: 0 0 auto;
+  }
+
+  @keyframes approveSpin {
+    to { transform: rotate(360deg); }
   }
 
   .attachments { color: var(--muted); font-weight:600 }
@@ -2546,6 +2730,7 @@ function toggleEditAssigneeDropdown() {
   .view-controls .btn { margin-right:0.4rem; border-radius:0.55rem; padding:0.32rem 0.6rem; background:transparent; border:1px solid var(--border); font-size:0.92rem }
   .view-controls .btn.active { background: var(--soft); color: var(--ink); border-color: var(--border) }
   .btn-compact { padding:0.28rem 0.6rem; font-size:0.9rem; border-radius:0.55rem; }
+  .restore-task-btn:disabled { cursor: not-allowed; opacity: 0.68; }
   .quick-actions { display:flex; gap:0.45rem; align-items:center }
   .search-input { padding:0.34rem 0.6rem; border-radius:999px; border:1px solid var(--border); background:var(--soft); min-width:200px; font-size:0.95rem }
   .quick-actions select { padding:0.34rem 0.6rem; border-radius:0.55rem; font-size:0.95rem }
@@ -2565,6 +2750,22 @@ function toggleEditAssigneeDropdown() {
     .head-actions {
       width: 100%;
       justify-content: flex-start;
+    }
+
+    .overview-scroll-panel,
+    .archive-worklogs-panel,
+    .archive-tasks-panel,
+    .tasks-scroll-panel {
+      height: auto;
+      min-height: 0;
+    }
+
+    .panel-scroll-body {
+      max-height: 420px;
+    }
+
+    .archive-tasks-panel .panel-scroll-body {
+      max-height: 260px;
     }
   }
 
@@ -2660,6 +2861,13 @@ function toggleEditAssigneeDropdown() {
     border-color: var(--accent);
     background: var(--accent);
     color: #ffffff;
+  }
+
+  .task-view-action:disabled,
+  .task-view-close:disabled {
+    cursor: not-allowed;
+    opacity: 0.68;
+    box-shadow: none;
   }
 
   .task-view-grid {
