@@ -286,6 +286,10 @@
     currentFolder = parentPath;
     selectedFolderInTab = parentPath === '/' ? null : parentPath;
     uploadToFolder = parentPath;
+    // Reset filter when going back to root
+    if (parentPath === '/') {
+      documentFilter = 'all';
+    }
   }
 
   function openLinkModal_() {
@@ -348,15 +352,12 @@
             };
           }
           
-          // Extract display name from email if needed
-          let displayName = folder.createdByName || folder.createdBy || '–';
-          if (displayName && displayName !== '–' && displayName.includes('@')) {
-            displayName = displayName.split('@')[0];
-          }
+          // Map database columns to camelCase: created_by_name -> createdByName
+          const displayName = folder.created_by_name || folder.createdByName || folder.created_by || folder.createdBy || '–';
           return {
             path: normalizeFolderPath_(folder.path || folder.name),
             name: folder.name,
-            createdBy: folder.createdBy || '',
+            createdBy: folder.created_by || folder.createdBy || '',
             createdByName: displayName,
           };
         });
@@ -391,15 +392,12 @@
               };
             }
             
-            // Extract display name from email if needed
-            let displayName = folder.createdByName || folder.createdBy || '–';
-            if (displayName && displayName !== '–' && displayName.includes('@')) {
-              displayName = displayName.split('@')[0];
-            }
+            // Map database columns to camelCase: created_by_name -> createdByName
+            const displayName = folder.created_by_name || folder.createdByName || folder.created_by || folder.createdBy || '–';
             return {
               path: normalizeFolderPath_(folder.path || folder.name),
               name: folder.name,
-              createdBy: folder.createdBy || '',
+              createdBy: folder.created_by || folder.createdBy || '',
               createdByName: displayName,
             };
           });
@@ -1097,15 +1095,6 @@
 
           <div class="docs-panel">
             <div class="docs-panel-header">
-              {#if currentFolder !== '/'}
-                <div class="folder-nav-bar">
-                  <button class="btn-back" on:click={goToParentFolder_} title="Go back">
-                    <ChevronRight size={18} style="transform: rotate(180deg);" />
-                    <span>Back</span>
-                  </button>
-                  <span class="folder-breadcrumb">{currentFolderName}</span>
-                </div>
-              {/if}
               <div class="filter-tabs">
                 <button 
                   class="filter-tab" 
@@ -1332,9 +1321,9 @@
 
             {#if isFolderOpen}
               <div class="folder-open-header">
-                <button type="button" class="folder-back-btn" on:click={closeDocumentFolder_}>
-                  <FolderOpen size={14} />
-                  <span>Folders</span>
+                <button type="button" class="folder-back-btn" on:click={closeDocumentFolder_} title="Back to folder list">
+                  <ChevronRight size={16} style="transform: rotate(180deg);" />
+                  <span>Back</span>
                 </button>
                 <ChevronRight size={14} />
                 <div class="folder-open-title">
@@ -1782,10 +1771,6 @@
               
               // Extract user display name - use full_name first, fallback to email
               let displayName = currentUser?.full_name || currentUser?.email || userId;
-              // If it's an email, extract just the name part before @
-              if (displayName && displayName.includes('@')) {
-                displayName = displayName.split('@')[0];
-              }
               
               const response = await callBackend_('create_folder', {
                 user_id: userId,
