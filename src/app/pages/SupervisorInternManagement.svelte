@@ -36,12 +36,22 @@
   let addModalSearch = '';
   let removingInternId = null;
   let selectedInternForSetup = null;
-  let internDaysOff = [];
+  const DEFAULT_DAYS_OFF = [0, 6];
+  const DAY_OPTIONS = [
+    { label: 'Monday', value: 1 },
+    { label: 'Tuesday', value: 2 },
+    { label: 'Wednesday', value: 3 },
+    { label: 'Thursday', value: 4 },
+    { label: 'Friday', value: 5 },
+    { label: 'Saturday', value: 6 },
+    { label: 'Sunday', value: 0 },
+  ];
+  let internDaysOff = [...DEFAULT_DAYS_OFF];
   let internShiftStart = '09:00';
   let internShiftEnd = '17:00';
   let bulkAssignMode = false;
   let bulkSelectedInterns = new Set();
-  let bulkDaysOff = [];
+  let bulkDaysOff = [...DEFAULT_DAYS_OFF];
   let bulkShiftStart = '09:00';
   let bulkShiftEnd = '17:00';
   let showEditEndDateModal = false;
@@ -165,7 +175,7 @@
 
     // Open setup modal for this intern
     selectedInternForSetup = studentId;
-    internDaysOff = [];
+    internDaysOff = [...DEFAULT_DAYS_OFF];
     internShiftStart = '09:00';
     internShiftEnd = '17:00';
   }
@@ -215,7 +225,7 @@
 
   function cancelSetup() {
     selectedInternForSetup = null;
-    internDaysOff = [];
+    internDaysOff = [...DEFAULT_DAYS_OFF];
     internShiftStart = '09:00';
     internShiftEnd = '17:00';
   }
@@ -315,7 +325,7 @@
       successMessage = `${bulkSelectedInterns.size} interns added successfully with schedule configured.`;
       bulkAssignMode = false;
       bulkSelectedInterns = new Set();
-      bulkDaysOff = [];
+      bulkDaysOff = [...DEFAULT_DAYS_OFF];
       bulkShiftStart = '09:00';
       bulkShiftEnd = '17:00';
       addModalSearch = '';
@@ -331,7 +341,7 @@
   function cancelBulkAssign() {
     bulkAssignMode = false;
     bulkSelectedInterns = new Set();
-    bulkDaysOff = [];
+    bulkDaysOff = [...DEFAULT_DAYS_OFF];
     bulkShiftStart = '09:00';
     bulkShiftEnd = '17:00';
   }
@@ -474,7 +484,7 @@
           <button class="btn btn-secondary" type="button" on:click={loadData} disabled={loading || saving}>
             <RefreshCw size={15} />Refresh
           </button>
-          <button class="btn btn-primary" type="button" on:click={() => { bulkSelectedInterns = new Set(); bulkDaysOff = []; bulkShiftStart = '09:00'; bulkShiftEnd = '17:00'; showAddModal = true; bulkAssignMode = true; }} disabled={loading || saving} style="display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;">
+          <button class="btn btn-primary" type="button" on:click={() => { bulkSelectedInterns = new Set(); bulkDaysOff = [...DEFAULT_DAYS_OFF]; bulkShiftStart = '09:00'; bulkShiftEnd = '17:00'; showAddModal = true; bulkAssignMode = true; }} disabled={loading || saving} style="display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;">
             <Plus size={15} />
             <span>Add Interns</span>
           </button>
@@ -644,14 +654,14 @@
                 <div class="setup-label">Days Off</div>
                 <p class="setup-sublabel">Select which days these interns typically have off</p>
                 <div class="days-checkbox-list">
-                  {#each ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as day, index}
+                  {#each DAY_OPTIONS as day}
                     <label class="day-checkbox">
                       <input
                         type="checkbox"
-                        checked={bulkDaysOff.includes(index)}
-                        on:change={() => toggleBulkDayOff(index)}
+                        checked={bulkDaysOff.includes(day.value)}
+                        on:change={() => toggleBulkDayOff(day.value)}
                       />
-                      <span>{day}</span>
+                      <span>{day.label}</span>
                     </label>
                   {/each}
                 </div>
@@ -723,14 +733,14 @@
                 <div class="setup-label">Days Off</div>
                 <p class="setup-sublabel">Select which days this intern typically has off</p>
                 <div class="days-checkbox-list">
-                  {#each ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as day, index}
+                  {#each DAY_OPTIONS as day}
                     <label class="day-checkbox">
                       <input
                         type="checkbox"
-                        checked={internDaysOff.includes(index)}
-                        on:change={() => toggleDayOff(index)}
+                        checked={internDaysOff.includes(day.value)}
+                        on:change={() => toggleDayOff(day.value)}
                       />
-                      <span>{day}</span>
+                      <span>{day.label}</span>
                     </label>
                   {/each}
                 </div>

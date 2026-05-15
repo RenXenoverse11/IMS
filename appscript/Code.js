@@ -1748,6 +1748,9 @@ function handleSaveInternSchedule_(payload) {
 
   // Sort days off for consistency
   daysOff.sort(function(a, b) { return a - b; });
+  if (!daysOff.length) {
+    daysOff = [0, 6];
+  }
 
   var sheet = getSheet_(INTERN_SCHEDULES_SHEET_);
   var headers = getHeaders_(sheet);
@@ -1931,8 +1934,7 @@ function handleListSupervisorTimeLogs_(payload) {
   var rows = readSheetObjects_(sheet)
     .filter(function (row) {
       var rowUserId = String(serializeCellValue_(row.user_id) || '').trim();
-      var timeOut = String(serializeCellValue_(row.time_out) || '').trim();
-      return rowUserId === studentUserId && timeOut !== '';
+      return rowUserId === studentUserId;
     })
     .map(function (row) {
       var obj = sanitizeObjectForClient_(row);
@@ -1940,6 +1942,11 @@ function handleListSupervisorTimeLogs_(payload) {
       obj.entry_type = 'regular';
       obj.status = 'approved';
       return obj;
+    })
+    .sort(function (a, b) {
+      var dateA = new Date(String(a.created_at || a.log_date || ''));
+      var dateB = new Date(String(b.created_at || b.log_date || ''));
+      return dateB.getTime() - dateA.getTime();
     });
 
   return { ok: true, logs: rows };
@@ -5292,12 +5299,35 @@ function handleGetInternSchedule_(payload) {
       var shiftStart = normalizeTimeForCompare_(shiftStartRaw) || '09:00';
       var shiftEnd = normalizeTimeForCompare_(shiftEndRaw) || '17:00';
 
+      var parsedDaysOff = [0, 6];
+      if (daysOff) {
+        try {
+          var candidateDaysOff = JSON.parse(daysOff);
+          if (Array.isArray(candidateDaysOff) && candidateDaysOff.length) {
+            var normalizedDaysOff = [];
+            var seenDays = {};
+            for (var d = 0; d < candidateDaysOff.length; d++) {
+              var dayNum = Number(candidateDaysOff[d]);
+              if (!Number.isInteger(dayNum) || dayNum < 0 || dayNum > 6 || seenDays[dayNum]) {
+                continue;
+              }
+              seenDays[dayNum] = true;
+              normalizedDaysOff.push(dayNum);
+            }
+            if (normalizedDaysOff.length) {
+              normalizedDaysOff.sort(function(a, b) { return a - b; });
+              parsedDaysOff = normalizedDaysOff;
+            }
+          }
+        } catch (e) {}
+      }
+
       return {
         ok: true,
         schedule: {
           shift_start: shiftStart,
           shift_end: shiftEnd,
-          days_off: daysOff ? JSON.parse(daysOff) : [0, 6]
+          days_off: parsedDaysOff
         }
       };
     }

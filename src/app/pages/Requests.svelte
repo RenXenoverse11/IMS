@@ -184,7 +184,7 @@
     if (form.requestType === "Absence" && form.date) {
       const dateObj = new Date(form.date + "T00:00:00");
       const dayOfWeek = dateObj.getDay();
-      const daysOff = Array.isArray(internSchedule.days_off) ? internSchedule.days_off : [0, 6];
+      const daysOff = getNormalizedDaysOff();
       
       if (daysOff.includes(dayOfWeek)) {
         const dayName = [
@@ -209,6 +209,9 @@
       }
     } else if (form.requestType === "Overtime" && form.startTime && form.endTime) {
       // Validate overtime - check if it overlaps with shift hours
+      const isDayOffDate = form.date
+        ? getNormalizedDaysOff().includes(new Date(form.date + "T00:00:00").getDay())
+        : false;
       const [startHour, startMin] = String(form.startTime).split(":").map(Number);
       const [endHour, endMin] = String(form.endTime).split(":").map(Number);
       const startTotalMin = startHour * 60 + startMin;
@@ -230,7 +233,11 @@
         const shiftEndTotalMin = shiftEndHour * 60 + shiftEndMin;
         
         // Check for overlap: if overtime is within shift hours
-        if (startTotalMin < shiftEndTotalMin && endTotalMin > shiftStartTotalMin) {
+        if (
+          !isDayOffDate &&
+          startTotalMin < shiftEndTotalMin &&
+          endTotalMin > shiftStartTotalMin
+        ) {
           formError = `Overtime cannot be scheduled during your work hours (${shiftStart} - ${shiftEnd}). Please schedule overtime outside these hours.`;
         } else if (
           formError &&
@@ -265,6 +272,20 @@
     return `${year}-${month}-${day}`;
   }
 
+  function getNormalizedDaysOff() {
+    const rawDaysOff = internSchedule.days_off;
+    const source = Array.isArray(rawDaysOff) ? rawDaysOff : [0, 6];
+    const seen = new Set();
+    const normalized = [];
+    for (const value of source) {
+      const day = Number(value);
+      if (!Number.isInteger(day) || day < 0 || day > 6 || seen.has(day)) continue;
+      seen.add(day);
+      normalized.push(day);
+    }
+    return normalized.length ? normalized : [0, 6];
+  }
+
   function checkFormValidityImmediate() {
     if (!minDate) {
       minDate = getTodayDate();
@@ -277,12 +298,15 @@
       const dateObj = new Date(form.date + "T00:00:00");
       const dayOfWeek = dateObj.getDay();
       // Check if it's a day off for this intern (using custom schedule)
-      const daysOff = Array.isArray(internSchedule.days_off) ? internSchedule.days_off : [0, 6];
+      const daysOff = getNormalizedDaysOff();
       if (daysOff.includes(dayOfWeek)) return false;
     }
 
     if (form.requestType === "Overtime") {
       if (!form.startTime || !form.endTime) return false;
+      const dateObj = new Date(form.date + "T00:00:00");
+      const dayOfWeek = dateObj.getDay();
+      const isDayOffDate = getNormalizedDaysOff().includes(dayOfWeek);
       const [startHour, startMin] = String(form.startTime)
         .split(":")
         .map(Number);
@@ -301,7 +325,11 @@
       const shiftEndTotalMin = shiftEndHour * 60 + shiftEndMin;
       
       // Check for overlap with shift hours
-      if (startTotalMin < shiftEndTotalMin && endTotalMin > shiftStartTotalMin) {
+      if (
+        !isDayOffDate &&
+        startTotalMin < shiftEndTotalMin &&
+        endTotalMin > shiftStartTotalMin
+      ) {
         return false;
       }
     }
@@ -546,7 +574,7 @@
       const dayOfWeek = dateObj.getDay();
       
       // Check if it's a day off for this intern (using custom schedule)
-      const daysOff = Array.isArray(internSchedule.days_off) ? internSchedule.days_off : [0, 6];
+      const daysOff = getNormalizedDaysOff();
       if (daysOff.includes(dayOfWeek)) {
         const dayName = [
           "Sunday",
@@ -573,6 +601,9 @@
     if (form.requestType === "Overtime") {
       if (!form.startTime || !form.endTime)
         return "Start time and end time are required for overtime requests.";
+      const dateObj = new Date(form.date + "T00:00:00");
+      const dayOfWeek = dateObj.getDay();
+      const isDayOffDate = getNormalizedDaysOff().includes(dayOfWeek);
       const [startHour, startMin] = String(form.startTime)
         .split(":")
         .map(Number);
@@ -591,7 +622,11 @@
       const shiftEndTotalMin = shiftEndHour * 60 + shiftEndMin;
       
       // Check for overlap: if overtime is within shift hours, show error
-      if (startTotalMin < shiftEndTotalMin && endTotalMin > shiftStartTotalMin) {
+      if (
+        !isDayOffDate &&
+        startTotalMin < shiftEndTotalMin &&
+        endTotalMin > shiftStartTotalMin
+      ) {
         return `Overtime cannot be scheduled during your work hours (${shiftStart} - ${shiftEnd}). Please schedule overtime outside these hours.`;
       }
     }
@@ -1534,31 +1569,11 @@
             </div>
           </div>
 
-          <!-- Lunch Break -->
-          <div class="form-group">
-            <label class="form-label" for="request-lunch-break">
-              Lunch Break (minutes)
-            </label>
-            <input
-              id="request-lunch-break"
-              type="number"
-              bind:value={form.lunchBreak}
-              min="0"
-              step="15"
-              class="form-input lunch-input"
-            />
-          </div>
-
           {#if form.startTime && form.endTime && overtimeHours > 0}
             <div class="overtime-summary">
               Total Overtime Hours: <strong
                 >{formatOvertimeDisplay(overtimeHours)}</strong
               >
-              {#if Number(form.lunchBreak) > 0}
-                <span class="hint">
-                  (after deducting {Number(form.lunchBreak)} min lunch)</span
-                >
-              {/if}
             </div>
           {/if}
         {/if}
