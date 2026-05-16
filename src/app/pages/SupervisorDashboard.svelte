@@ -1,7 +1,8 @@
 <script>
 // @ts-nocheck
   import { CheckCircle, AlertCircle, FileText, Users, Clock3 } from 'lucide-svelte';
-  import { subscribeToCurrentUser, listSupervisorAssignedStudents, listSupervisorTimeLogs, listAssignedStudentRequests, listTasksByUser } from '../lib/auth.js';
+  import { subscribeToCurrentUser, listSupervisorAssignedStudents, listSupervisorTimeLogs, listAssignedStudentRequests, listTasksByUser, getSupervisorDashboardOverview } from '../lib/auth.js';
+  import { getEstimatedCompletionDate } from '../lib/getEstimatedCompletionDate.js';
 
   export let currentUser = null;
 
@@ -17,6 +18,8 @@
   // keyed by student_user_id -> { time_in, time_out }
   let todayTimelogByStudent = {};
   let tasksSummaryByStudent = {};
+  let loadRunId = 0;
+  const AVG_DAILY_HOURS = 8;
 
   function normalizeDate(value) {
     // Handles Date objects, ISO strings, and legacy date-time strings.
@@ -66,15 +69,29 @@
     return day === 0 || day === 6;
   }
 
-  function daysUntil(dateOnly) {
-    const raw = String(dateOnly || '').trim();
-    if (!raw) return null;
-    const end = new Date(`${raw}T00:00:00`);
-    if (Number.isNaN(end.getTime())) return null;
-    const start = new Date();
-    const startOnly = new Date(`${getToday()}T00:00:00`);
-    const diffMs = end.getTime() - startOnly.getTime();
-    return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+  function toFiniteNumber(value) {
+    const parsed = Number(value || 0);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function getRemainingHours(intern) {
+    const required = toFiniteNumber(intern?.required_hours);
+    if (required <= 0) return null;
+    const completed = toFiniteNumber(intern?.completed_hours);
+    return Math.max(0, required - completed);
+  }
+
+  function getRemainingWorkingDays(intern) {
+    const remainingHours = getRemainingHours(intern);
+    if (remainingHours === null) return null;
+    return Math.ceil(remainingHours / AVG_DAILY_HOURS);
+  }
+
+  function getProjectedEndDateDisplay(intern) {
+    const remainingHours = getRemainingHours(intern);
+    if (remainingHours === null) return 'Not available';
+    if (remainingHours <= 0) return normalizeDate(getToday());
+    return getEstimatedCompletionDate(remainingHours, AVG_DAILY_HOURS);
   }
 
   function requestMatchesToday(req) {
@@ -216,9 +233,11 @@
   }
 
   async function loadData() {
+    const runId = ++loadRunId;
     loading = true;
     errorMessage = '';
-    today = getToday();
+    const todayValue = getToday();
+    today = todayValue;
 
     try {
       const supervisorId = String(currentUser?.user_id || '').trim();
@@ -229,11 +248,21 @@
         assignedRequests = [];
         pendingRequests = [];
         todayTimelogByStudent = {};
+        tasksSummaryByStudent = {};
         return;
       }
 
-      assignedStudents = await listSupervisorAssignedStudents(supervisorId);
-      assignedRequests = await listAssignedStudentRequests(supervisorId);
+      const [studentsResult, requestsResult] = await Promise.all([
+        listSupervisorAssignedStudents(supervisorId),
+        listAssignedStudentRequests(supervisorId),
+      ]);
+
+      if (runId !== loadRunId) {
+        return;
+      }
+
+      assignedStudents = Array.isArray(studentsResult) ? studentsResult : [];
+      assignedRequests = Array.isArray(requestsResult) ? requestsResult : [];
 
       const getRequestTimestamp = (req) => {
         const raw = String(
@@ -265,54 +294,97 @@
         date: String(req?.date || req?.request_date || req?.applied_date || '').trim(),
       }));
 
-      // Load today's timelog per assigned student
-      const timelogEntries = await Promise.all(
-        assignedStudents.map(async (student) => {
-          const studentUserId = String(student?.user_id || '').trim();
-          if (!studentUserId) return [studentUserId, null];
+      const studentUserIds = assignedStudents
+        .map((student) => String(student?.user_id || '').trim())
+        .filter(Boolean);
 
-          try {
-            const logs = await listSupervisorTimeLogs(supervisorId, studentUserId);
-            const todayLog = Array.isArray(logs)
-              ? logs.find((log) => {
-                  const raw = String(log?.log_date || '').trim();
-                  const dateOnly = raw.includes('T') ? raw.split('T')[0] : raw.split(' ')[0];
-                  return dateOnly === today;
-                })
-              : null;
-
-            return [studentUserId, todayLog || null];
-          } catch {
-            return [studentUserId, null];
-          }
-        })
+      const defaultTaskSummary = Object.fromEntries(
+        studentUserIds.map((studentUserId) => [studentUserId, { pendingCount: 0, total: 0 }])
       );
 
-      todayTimelogByStudent = Object.fromEntries(timelogEntries.filter((entry) => entry && entry[0]));
+      try {
+        const overview = await getSupervisorDashboardOverview(supervisorId, {
+          date: todayValue,
+          student_user_ids: studentUserIds,
+        });
 
-      // Task counts per assigned student (pending / not completed)
-      const taskEntries = await Promise.all(
-        assignedStudents.map(async (student) => {
-          const studentUserId = String(student?.user_id || '').trim();
-          if (!studentUserId) return [studentUserId, { pendingCount: 0, total: 0 }];
+        if (runId !== loadRunId) {
+          return;
+        }
 
-          try {
-            const tasks = await listTasksByUser(studentUserId, { limit: 200 });
-            const list = Array.isArray(tasks) ? tasks : [];
-            const pendingCount = list.filter((task) => String(task?.status || '').toLowerCase() !== 'completed').length;
-            return [studentUserId, { pendingCount, total: list.length }];
-          } catch {
-            return [studentUserId, { pendingCount: 0, total: 0 }];
-          }
-        })
-      );
+        const timelogMap = overview?.today_timelog_by_student && typeof overview.today_timelog_by_student === 'object'
+          ? overview.today_timelog_by_student
+          : {};
+        const taskMap = overview?.task_summary_by_student && typeof overview.task_summary_by_student === 'object'
+          ? overview.task_summary_by_student
+          : {};
 
-      tasksSummaryByStudent = Object.fromEntries(taskEntries.filter((entry) => entry && entry[0]));
+        todayTimelogByStudent = Object.fromEntries(
+          studentUserIds.map((studentUserId) => [studentUserId, timelogMap[studentUserId] || null])
+        );
+        tasksSummaryByStudent = Object.fromEntries(
+          studentUserIds.map((studentUserId) => {
+            const row = taskMap[studentUserId] || {};
+            return [studentUserId, { pendingCount: Number(row?.pendingCount || 0), total: Number(row?.total || 0) }];
+          })
+        );
+      } catch {
+        const [timelogEntries, taskEntries] = await Promise.all([
+          Promise.all(
+            assignedStudents.map(async (student) => {
+              const studentUserId = String(student?.user_id || '').trim();
+              if (!studentUserId) return [studentUserId, null];
+
+              try {
+                const logs = await listSupervisorTimeLogs(supervisorId, studentUserId);
+                const todayLog = Array.isArray(logs)
+                  ? logs.find((log) => {
+                      const raw = String(log?.log_date || '').trim();
+                      const dateOnly = raw.includes('T') ? raw.split('T')[0] : raw.split(' ')[0];
+                      return dateOnly === todayValue;
+                    })
+                  : null;
+
+                return [studentUserId, todayLog || null];
+              } catch {
+                return [studentUserId, null];
+              }
+            })
+          ),
+          Promise.all(
+            assignedStudents.map(async (student) => {
+              const studentUserId = String(student?.user_id || '').trim();
+              if (!studentUserId) return [studentUserId, { pendingCount: 0, total: 0 }];
+
+              try {
+                const tasks = await listTasksByUser(studentUserId, { limit: 200 });
+                const list = Array.isArray(tasks) ? tasks : [];
+                const pendingCount = list.filter((task) => String(task?.status || '').toLowerCase() !== 'completed').length;
+                return [studentUserId, { pendingCount, total: list.length }];
+              } catch {
+                return [studentUserId, { pendingCount: 0, total: 0 }];
+              }
+            })
+          ),
+        ]);
+
+        if (runId !== loadRunId) {
+          return;
+        }
+
+        todayTimelogByStudent = Object.fromEntries(timelogEntries.filter((entry) => entry && entry[0]));
+        tasksSummaryByStudent = {
+          ...defaultTaskSummary,
+          ...Object.fromEntries(taskEntries.filter((entry) => entry && entry[0])),
+        };
+      }
     } catch (err) {
       console.error('Error loading dashboard data:', err);
       errorMessage = err?.message || 'Unable to load dashboard.';
     } finally {
-      loading = false;
+      if (runId === loadRunId) {
+        loading = false;
+      }
     }
   }
 
@@ -320,7 +392,6 @@
     unsubscribe = subscribeToCurrentUser(() => {
       loadData();
     });
-    loadData();
   };
 
   const onDestroy = () => {
@@ -448,7 +519,8 @@
         {:else}
           <div class="intern-grid">
             {#each filteredAssignedStudents as intern (intern.user_id)}
-              {@const remainingDays = daysUntil(intern?.estimated_end_date)}
+              {@const remainingDays = getRemainingWorkingDays(intern)}
+              {@const projectedEndDate = getProjectedEndDateDisplay(intern)}
               {@const attendance = getAttendanceStatus(intern)}
               {@const clock = getClockStatus(intern?.user_id)}
               {@const schedule = getScheduleDisplay(intern)}
@@ -461,7 +533,7 @@
                   <div class="intern-title">
                     <p class="intern-name">{intern.full_name}</p>
                     <p class="intern-meta text-muted">
-                      Internship ends {normalizeDate(intern.estimated_end_date)}
+                      Internship ends {projectedEndDate}
                       {#if remainingDays !== null}
                         - {remainingDays <= 0 ? 'Due' : `${remainingDays} days left`}
                       {/if}

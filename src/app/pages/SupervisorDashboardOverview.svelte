@@ -2,6 +2,7 @@
 // @ts-nocheck
   import { CheckCircle, AlertCircle, FileText, Users, Clock3, ChevronDown } from 'lucide-svelte';
   import { subscribeToCurrentUser, listSupervisorAssignedStudents, listSupervisorTimeLogs, listAssignedStudentRequests, listTasksByUser } from '../lib/auth.js';
+  import { getEstimatedCompletionDate } from '../lib/getEstimatedCompletionDate.js';
 
   export let currentUser = null;
 
@@ -20,6 +21,7 @@
   // keyed by student_user_id -> { time_in, time_out }
   let todayTimelogByStudent = {};
   let tasksSummaryByStudent = {};
+  const AVG_DAILY_HOURS = 8;
 
   function normalizeDate(value) {
     // Handles Date objects, ISO strings, and legacy date-time strings.
@@ -60,15 +62,29 @@
     return day === 0 || day === 6;
   }
 
-  function daysUntil(dateOnly) {
-    const raw = String(dateOnly || '').trim();
-    if (!raw) return null;
-    const end = new Date(`${raw}T00:00:00`);
-    if (Number.isNaN(end.getTime())) return null;
-    const start = new Date();
-    const startOnly = new Date(`${getToday()}T00:00:00`);
-    const diffMs = end.getTime() - startOnly.getTime();
-    return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+  function toFiniteNumber(value) {
+    const parsed = Number(value || 0);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function getRemainingHours(intern) {
+    const required = toFiniteNumber(intern?.required_hours);
+    if (required <= 0) return null;
+    const completed = toFiniteNumber(intern?.completed_hours);
+    return Math.max(0, required - completed);
+  }
+
+  function getRemainingWorkingDays(intern) {
+    const remainingHours = getRemainingHours(intern);
+    if (remainingHours === null) return null;
+    return Math.ceil(remainingHours / AVG_DAILY_HOURS);
+  }
+
+  function getProjectedEndDateDisplay(intern) {
+    const remainingHours = getRemainingHours(intern);
+    if (remainingHours === null) return 'Not available';
+    if (remainingHours <= 0) return normalizeDate(getToday());
+    return getEstimatedCompletionDate(remainingHours, AVG_DAILY_HOURS);
   }
 
   function requestMatchesToday(req) {
@@ -363,7 +379,8 @@
     {:else}
       <div class="intern-grid">
         {#each assignedStudents as intern (intern.user_id)}
-          {@const remainingDays = daysUntil(intern?.estimated_end_date)}
+          {@const remainingDays = getRemainingWorkingDays(intern)}
+          {@const projectedEndDate = getProjectedEndDateDisplay(intern)}
           {@const attendance = getAttendanceStatus(intern)}
           {@const clock = getClockStatus(intern?.user_id)}
           {@const schedule = getScheduleDisplay(intern)}
@@ -384,7 +401,7 @@
               <div class="intern-title">
                 <p class="intern-name">{intern.full_name}</p>
                 <p class="intern-meta text-xs text-muted">
-                  Internship ends {normalizeDate(intern.estimated_end_date)}
+                  Internship ends {projectedEndDate}
                   {#if remainingDays !== null}
                     • {remainingDays <= 0 ? 'Due' : `${remainingDays} days left`}
                   {/if}

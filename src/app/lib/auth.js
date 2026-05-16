@@ -605,6 +605,27 @@ export async function listAssignedStudentRequests(supervisorUserId) {
   return Array.isArray(result.requests) ? result.requests : [];
 }
 
+export async function getSupervisorDashboardOverview(supervisorUserId, options = {}) {
+  const payload = {
+    supervisor_user_id: String(supervisorUserId || '').trim(),
+    date: String(options?.date || '').trim(),
+    student_user_ids: Array.isArray(options?.student_user_ids)
+      ? options.student_user_ids.map((value) => String(value || '').trim()).filter(Boolean)
+      : [],
+  };
+
+  const result = await postAction('get_supervisor_dashboard_overview', payload);
+
+  return {
+    today_timelog_by_student: result?.today_timelog_by_student && typeof result.today_timelog_by_student === 'object'
+      ? result.today_timelog_by_student
+      : {},
+    task_summary_by_student: result?.task_summary_by_student && typeof result.task_summary_by_student === 'object'
+      ? result.task_summary_by_student
+      : {},
+  };
+}
+
 export async function saveInternSchedule(supervisorUserId, internUserId, daysOff, shiftStart, shiftEnd) {
   const result = await postAction('save_intern_schedule', {
     supervisor_user_id: String(supervisorUserId || '').trim(),

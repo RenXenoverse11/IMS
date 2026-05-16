@@ -172,6 +172,52 @@
     return Math.ceil(remainingHours / HOURS_PER_WORKING_DAY);
   }
 
+  function toDateOnly(value) {
+    const candidate = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(candidate.getTime())) return null;
+    return new Date(candidate.getFullYear(), candidate.getMonth(), candidate.getDate());
+  }
+
+  function addWorkingDaysFrom(baseDateInput, workingDaysToAdd) {
+    const baseDate = toDateOnly(baseDateInput);
+    if (!baseDate) return null;
+
+    let cursor = new Date(baseDate);
+    const total = Math.max(0, Math.floor(Number(workingDaysToAdd) || 0));
+
+    while (cursor.getDay() === 0 || cursor.getDay() === 6) {
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    let remaining = total;
+    while (remaining > 0) {
+      cursor.setDate(cursor.getDate() + 1);
+      const day = cursor.getDay();
+      if (day !== 0 && day !== 6) {
+        remaining -= 1;
+      }
+    }
+
+    return cursor;
+  }
+
+  function getProjectedEndDateFromProgress(requiredHours, completedHours) {
+    const daysLeft = calculateDaysRemaining(requiredHours, completedHours);
+    const projected = addWorkingDaysFrom(new Date(), Math.max(0, daysLeft - 1));
+    return projected;
+  }
+
+  function formatDateObject(dateValue) {
+    const dateObj = toDateOnly(dateValue);
+    if (!dateObj) return 'Not available';
+
+    return new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    }).format(dateObj);
+  }
+
   function formatDaysRemaining(days) {
     if (days <= 0) return '0 days left';
     if (days === 1) return '1 day left';
@@ -616,8 +662,8 @@
             {@const daysLeft = calculateDaysRemaining(required, completed)}
             {@const daysStatus = getDaysStatus(daysLeft)}
             {@const internMetaLabel = buildInternMetaLabel(student)}
-            {@const ojtEndDate = String(student?.estimated_end_date || '').trim()}
-            {@const ojtEndDateDisplay = ojtEndDate ? normalizeDate(ojtEndDate) : 'Not available'}
+            {@const projectedEndDate = getProjectedEndDateFromProgress(required, completed)}
+            {@const ojtEndDateDisplay = formatDateObject(projectedEndDate)}
             {@const estimatedCompletionRaw = firstNonEmptyText(student?.estimated_completion_date, student?.estimated_completion, student?.projected_completion_date, student?.expected_completion_date)}
             {@const estimatedCompletionDisplay = estimatedCompletionRaw ? normalizeDate(estimatedCompletionRaw) : 'Not available'}
             {@const statusText = firstNonEmptyText(student?.status, student?.intern_status, student?.ojt_status, student?.attendance_status, student?.current_status) || 'Not available'}
@@ -2394,4 +2440,3 @@
     }
   }
 </style>
-

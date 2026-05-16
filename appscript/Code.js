@@ -219,6 +219,10 @@ function dispatchAction_(payload) {
     return handleListAssignedStudentRequests_(payload);
   }
 
+  if (action === 'get_supervisor_dashboard_overview') {
+    return handleGetSupervisorDashboardOverview_(payload);
+  }
+
   if (action === 'update_request_status') {
     return handleUpdateRequestStatus_(payload);
   }
@@ -2336,6 +2340,146 @@ function handleListAssignedStudentRequests_(payload) {
   }
 
   return { ok: true, requests: studentRequests };
+}
+
+function handleGetSupervisorDashboardOverview_(payload) {
+  var supervisorUserId = String(payload.supervisor_user_id || '').trim();
+  var targetDate = String(formatDateYMD_(payload.date || new Date()) || '').trim();
+
+  if (!supervisorUserId) {
+    return { ok: false, error: 'supervisor_user_id is required.' };
+  }
+
+  var supervisorRecord = findUserRecordByUserId_(supervisorUserId);
+  if (!supervisorRecord) {
+    return { ok: false, error: 'Supervisor not found.' };
+  }
+
+  if (!isSupervisorUser_(supervisorRecord.user)) {
+    return { ok: false, error: 'Only supervisors can view dashboard overview.' };
+  }
+
+  var assignments = getActiveSupervisorAssignments_(supervisorUserId);
+  var assignedIdLookup = {};
+  for (var i = 0; i < assignments.length; i++) {
+    var assignedStudentId = String(assignments[i].student_user_id || '').trim();
+    if (assignedStudentId) {
+      assignedIdLookup[assignedStudentId] = true;
+    }
+  }
+
+  var requestedIds = Array.isArray(payload.student_user_ids) ? payload.student_user_ids : [];
+  var targetStudentIds = [];
+
+  if (requestedIds.length) {
+    for (var r = 0; r < requestedIds.length; r++) {
+      var requestedId = String(requestedIds[r] || '').trim();
+      if (!requestedId || !assignedIdLookup[requestedId]) {
+        continue;
+      }
+      if (targetStudentIds.indexOf(requestedId) === -1) {
+        targetStudentIds.push(requestedId);
+      }
+    }
+  } else {
+    for (var assignedId in assignedIdLookup) {
+      if (assignedIdLookup.hasOwnProperty(assignedId)) {
+        targetStudentIds.push(assignedId);
+      }
+    }
+  }
+
+  if (!targetStudentIds.length) {
+    return {
+      ok: true,
+      today_timelog_by_student: {},
+      task_summary_by_student: {},
+    };
+  }
+
+  var targetLookup = {};
+  for (var j = 0; j < targetStudentIds.length; j++) {
+    targetLookup[targetStudentIds[j]] = true;
+  }
+
+  var todayTimelogByStudent = {};
+  var todayTimelogTimestampByStudent = {};
+  var parseLogTimestamp_ = function (row) {
+    var createdAtRaw = String(serializeCellValue_(row.created_at) || '').trim();
+    var createdAtDate = new Date(createdAtRaw);
+    if (!Number.isNaN(createdAtDate.getTime())) {
+      return createdAtDate.getTime();
+    }
+
+    var timeInRaw = String(serializeCellValue_(row.time_in) || '').trim();
+    var timeInDate = new Date(timeInRaw);
+    if (!Number.isNaN(timeInDate.getTime())) {
+      return timeInDate.getTime();
+    }
+
+    return 0;
+  };
+  var sessionRows = readSheetObjects_(getActiveSessionsSheet_());
+
+  for (var s = 0; s < sessionRows.length; s++) {
+    var sessionRow = sessionRows[s] || {};
+    var sessionUserId = String(serializeCellValue_(sessionRow.user_id) || '').trim();
+    if (!sessionUserId || !targetLookup[sessionUserId]) {
+      continue;
+    }
+
+    var sessionDate = String(formatDateYMD_(sessionRow.log_date) || '').trim();
+    if (sessionDate !== targetDate) {
+      continue;
+    }
+
+    var sessionTimestamp = parseLogTimestamp_(sessionRow);
+    var currentTimestamp = Number(todayTimelogTimestampByStudent[sessionUserId] || 0);
+    if (currentTimestamp > sessionTimestamp) {
+      continue;
+    }
+
+    var timelog = sanitizeObjectForClient_(sessionRow);
+    timelog.timelog_id = timelog.session_id || '';
+    timelog.entry_type = 'regular';
+    timelog.status = 'approved';
+
+    todayTimelogByStudent[sessionUserId] = timelog;
+    todayTimelogTimestampByStudent[sessionUserId] = sessionTimestamp;
+  }
+
+  var taskSummaryByStudent = {};
+  for (var t = 0; t < targetStudentIds.length; t++) {
+    taskSummaryByStudent[targetStudentIds[t]] = { pendingCount: 0, total: 0 };
+  }
+
+  try {
+    var taskRows = readSheetObjects_(getSheet_('tasks'));
+    for (var k = 0; k < taskRows.length; k++) {
+      var taskRow = taskRows[k] || {};
+      var taskUserId = String(serializeCellValue_(taskRow.user_id) || '').trim();
+      if (!taskUserId || !targetLookup[taskUserId]) {
+        continue;
+      }
+
+      var taskSummary = taskSummaryByStudent[taskUserId] || { pendingCount: 0, total: 0 };
+      taskSummary.total += 1;
+
+      if (String(taskRow.status || '').trim().toLowerCase() !== 'completed') {
+        taskSummary.pendingCount += 1;
+      }
+
+      taskSummaryByStudent[taskUserId] = taskSummary;
+    }
+  } catch (err) {
+    // Keep empty task summary when tasks sheet is missing.
+  }
+
+  return {
+    ok: true,
+    today_timelog_by_student: todayTimelogByStudent,
+    task_summary_by_student: taskSummaryByStudent,
+  };
 }
 
 // Helper function to extend a date by business days
