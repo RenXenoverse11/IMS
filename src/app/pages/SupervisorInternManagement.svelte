@@ -693,7 +693,7 @@
                   aria-label="Remove this intern"
                 >
                   {#if removingInternId === student.user_id}
-                    <Loader2 size={16} />
+                    <span class="spinning-icon"><Loader2 size={16} /></span>
                   {:else}
                     <Trash2 size={16} />
                   {/if}
@@ -1471,7 +1471,8 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(0, 0, 0, 0.4);
+    background: rgba(2, 6, 23, 0.62);
+    backdrop-filter: blur(4px);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1480,10 +1481,11 @@
 
   .modal-content {
     background: var(--surface);
-    border-radius: 1rem;
-    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    box-shadow: 0 16px 34px rgba(2, 6, 23, 0.2);
     width: 90%;
-    max-width: 500px;
+    max-width: 520px;
     max-height: 90vh;
     display: flex;
     flex-direction: column;
@@ -1494,14 +1496,15 @@
     align-items: center;
     justify-content: space-between;
     gap: 1rem;
-    padding: 1.5rem;
+    padding: 20px 22px;
     border-bottom: 1px solid var(--border);
   }
 
   .modal-header h2 {
     margin: 0;
-    font-size: 1.25rem;
+    font-size: 1.55rem;
     font-weight: 700;
+    letter-spacing: -0.2px;
     color: var(--text-primary);
   }
 
@@ -1511,7 +1514,7 @@
     justify-content: center;
     width: 2rem;
     height: 2rem;
-    border: none;
+    border: 1px solid transparent;
     border-radius: 0.5rem;
     background: transparent;
     color: var(--text-muted);
@@ -1520,14 +1523,28 @@
   }
 
   .modal-close:hover {
-    background: #f3f4f6;
+    background: rgba(148, 163, 184, 0.14);
+    border-color: rgba(148, 163, 184, 0.2);
     color: var(--text-primary);
   }
 
   .modal-body {
-    padding: 1.5rem;
+    padding: 20px 22px 22px;
     overflow-y: auto;
     flex: 1;
+  }
+
+  .modal-body .search-input {
+    border-color: #d8e0ec;
+    background: var(--surface-soft);
+    border-radius: 10px;
+    min-height: 42px;
+  }
+
+  .modal-body .search-input:focus {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+    background: var(--surface);
   }
 
   .intern-list-modal {
@@ -1541,10 +1558,10 @@
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    padding: 0.75rem;
-    background: #f9fbff;
-    border: 1px solid var(--border);
-    border-radius: 0.65rem;
+    padding: 12px;
+    background: var(--surface-soft);
+    border: 1px solid #d9e2ef;
+    border-radius: 10px;
     text-align: left;
     cursor: pointer;
     transition: all 0.2s;
@@ -1552,9 +1569,9 @@
   }
 
   .intern-option:hover:not(:disabled) {
-    background: #eef2f7;
-    border-color: #0f6cbd;
-    transform: translateX(2px);
+    background: #eef4ff;
+    border-color: rgba(37, 99, 235, 0.42);
+    transform: none;
   }
 
   .intern-option:disabled {
@@ -1573,8 +1590,9 @@
 
   .add-indicator {
     border-radius: 9999px;
-    background: #eaf3ff;
-    color: #0f6cbd;
+    background: rgba(37, 99, 235, 0.12);
+    color: #1d4ed8;
+    border: 1px solid rgba(37, 99, 235, 0.24);
     font-size: 0.68rem;
     font-weight: 700;
     padding: 0.2rem 0.5rem;
@@ -1589,7 +1607,7 @@
     gap: 1rem;
     margin-bottom: 1.5rem;
     padding-bottom: 1rem;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid rgba(148, 163, 184, 0.24);
   }
 
   .setup-back-btn {
@@ -1600,7 +1618,7 @@
     padding: 0.4rem 0.6rem;
     border: none;
     background: transparent;
-    color: #0f6cbd;
+    color: #2563eb;
     font-weight: 600;
     font-size: 0.875rem;
     cursor: pointer;
@@ -1608,7 +1626,7 @@
   }
 
   .setup-back-btn:hover {
-    background: #eaf3ff;
+    background: rgba(37, 99, 235, 0.1);
     border-radius: 0.4rem;
   }
 
@@ -1630,14 +1648,16 @@
   .setup-label {
     display: block;
     font-weight: 600;
-    font-size: 0.875rem;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
     color: var(--text-primary);
     margin-bottom: 0.25rem;
   }
 
   .setup-sublabel {
     display: block;
-    font-size: 0.75rem;
+    font-size: 0.77rem;
     color: var(--text-muted);
     margin-bottom: 0.75rem;
     margin-top: 0;
@@ -1654,14 +1674,16 @@
     align-items: center;
     gap: 0.6rem;
     cursor: pointer;
-    padding: 0.5rem 0.75rem;
+    padding: 0.56rem 0.7rem;
+    border: 1px solid transparent;
     border-radius: 0.5rem;
     transition: all 0.2s;
     user-select: none;
   }
 
   .day-checkbox:hover {
-    background: #eaf3ff;
+    background: rgba(37, 99, 235, 0.08);
+    border-color: rgba(37, 99, 235, 0.2);
   }
 
   .day-checkbox input[type="checkbox"] {
@@ -1691,23 +1713,27 @@
 
   .time-input-group label {
     font-weight: 600;
-    font-size: 0.8rem;
+    font-size: 0.74rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
     color: var(--text-secondary);
   }
 
   .time-input {
+    min-height: 40px;
     padding: 0.5rem 0.75rem;
-    border: 1px solid var(--border);
-    background: #f9fbff;
+    border: 1px solid #d8e0ec;
+    background: var(--surface-soft);
     color: var(--text-primary);
-    border-radius: 0.5rem;
+    border-radius: 10px;
     font-size: 0.875rem;
     outline: none;
   }
 
   .time-input:focus {
-    border-color: #0f6cbd;
-    box-shadow: 0 0 0 2px rgba(15, 108, 189, 0.16);
+    border-color: #2563eb;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.16);
+    background: var(--surface);
   }
 
   .setup-actions {
@@ -1715,7 +1741,7 @@
     gap: 0.75rem;
     margin-top: 2rem;
     padding-top: 1rem;
-    border-top: 1px solid var(--border);
+    border-top: 1px solid rgba(148, 163, 184, 0.24);
   }
 
   .setup-actions .btn {
@@ -1746,11 +1772,12 @@
   }
 
   :global(.dark) .setup-header {
-    border-color: #2b3c57;
+    border-color: rgba(148, 163, 184, 0.22);
   }
 
   :global(.dark) .day-checkbox:hover {
-    background: #223653;
+    background: rgba(59, 130, 246, 0.16);
+    border-color: rgba(96, 165, 250, 0.34);
   }
 
   :global(.dark) .day-checkbox span {
@@ -1758,39 +1785,43 @@
   }
 
   :global(.dark) .time-input {
-    background: #1a2c45;
-    border-color: #2b3c57;
+    background: #1a2332;
+    border-color: rgba(148, 163, 184, 0.24);
     color: #e5edf8;
   }
 
   :global(.dark) .time-input:focus {
     border-color: #3b82f6;
-    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.16);
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+    background: #161c27;
   }
 
   :global(.dark) .setup-actions {
-    border-color: #2b3c57;
+    border-color: rgba(148, 163, 184, 0.22);
   }
 
   :global(.dark) .modal-content {
-    background: #162338;
+    background: #161c27;
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow: 0 20px 44px rgba(0, 0, 0, 0.5);
   }
 
   :global(.dark) .modal-header {
-    border-color: #2b3c57;
+    border-color: rgba(148, 163, 184, 0.2);
   }
 
   :global(.dark) .modal-close:hover {
-    background: #223653;
+    background: rgba(148, 163, 184, 0.18);
+    border-color: rgba(148, 163, 184, 0.3);
   }
 
   :global(.dark) .intern-option {
-    background: #1a2c45;
-    border-color: #2b3c57;
+    background: #1a2332;
+    border-color: rgba(148, 163, 184, 0.22);
   }
 
   :global(.dark) .intern-option:hover:not(:disabled) {
-    background: #223653;
+    background: #202b3d;
     border-color: #3b82f6;
   }
 
@@ -2151,7 +2182,7 @@
     gap: 0.75rem;
     justify-content: flex-end;
     padding: 1rem;
-    border-top: 1px solid var(--border);
+    border-top: 1px solid rgba(148, 163, 184, 0.24);
   }
 
   .form-label {
@@ -2311,14 +2342,15 @@
     gap: 1rem;
     margin-bottom: 1.5rem;
     padding-bottom: 1rem;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid rgba(148, 163, 184, 0.24);
   }
 
   .bulk-count {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    background: linear-gradient(90deg, #0f6cbd, #0ea5e9);
+    background: linear-gradient(135deg, #2563eb, #3b82f6);
+    border: 1px solid rgba(37, 99, 235, 0.3);
     color: white;
     padding: 0.35rem 0.75rem;
     border-radius: 9999px;
@@ -2334,8 +2366,8 @@
   }
 
   .bulk-option.bulk-selected {
-    background: #eaf3ff;
-    border-color: #0f6cbd;
+    background: rgba(37, 99, 235, 0.1);
+    border-color: rgba(37, 99, 235, 0.42);
   }
 
   .bulk-checkbox {
@@ -2344,27 +2376,27 @@
     justify-content: center;
     width: 1.25rem;
     height: 1.25rem;
-    border: 2px solid var(--border);
+    border: 1.5px solid rgba(148, 163, 184, 0.45);
     border-radius: 0.35rem;
     background: transparent;
-    color: #0f6cbd;
+    color: #2563eb;
     flex-shrink: 0;
     transition: all 0.2s;
   }
 
   .bulk-option.bulk-selected .bulk-checkbox {
-    background: #0f6cbd;
-    border-color: #0f6cbd;
+    background: #2563eb;
+    border-color: #2563eb;
     color: white;
   }
 
   :global(.dark) .bulk-option.bulk-selected {
-    background: #223653;
+    background: rgba(59, 130, 246, 0.16);
     border-color: #3b82f6;
   }
 
   :global(.dark) .bulk-checkbox {
-    border-color: #2b3c57;
+    border-color: rgba(148, 163, 184, 0.35);
   }
 
   :global(.dark) .bulk-option.bulk-selected .bulk-checkbox {
@@ -2373,7 +2405,7 @@
   }
 
   :global(.dark) .bulk-header {
-    border-color: #2b3c57;
+    border-color: rgba(148, 163, 184, 0.22);
   }
 
   @media (max-width: 1200px) {

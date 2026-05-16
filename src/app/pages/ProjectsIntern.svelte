@@ -1715,9 +1715,6 @@
         </div>
 
         <div class="quick-actions">
-          <label class="search-wrap">
-            <input class="search-input" type="text" placeholder="Search" bind:value={searchQuery} />
-          </label>
           <select class="quick-status" bind:value={filterStatus} aria-label="Filter by status">
             <option value="all">All Status</option>
             {#each STATUS_OPTIONS as s}
@@ -1779,10 +1776,8 @@
                   </div>
                 {/each}
               </div>
-            {:else if isLoadingActivity}
-              <div class="ov-empty"><Loader2 size={14} class="spin" /> Loading activity...</div>
             {:else if overviewActivity.length === 0}
-              <div class="ov-empty">No recent activity found.</div>
+              <div class="ov-empty ov-empty-center">No recent activity found.</div>
             {:else}
               <div class="ov-activity-feed">
                 {#each overviewActivity as act}
@@ -2891,10 +2886,10 @@
  
 
 <style>
-  .projects-page { padding: 8px 0 14px; display: flex; flex-direction: column; gap: 14px; }
+  .projects-page { padding: 10px 0 16px; display: flex; flex-direction: column; gap: 12px; }
 
   /* ── Stat Cards ── */
-  .stat-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 0; }
+  .stat-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 0; }
   .stat-card {
     background: #ffffff;
     border: 1px solid #e2e8f0;
@@ -3610,13 +3605,13 @@
   .deadline-tag.near { background: #fffbeb; color: #d97706; }
 
   /* Quick panel (copied from SupervisorActivity) */
-  .quick-panel { background: transparent !important; padding: 0; border-radius: 0; border: none !important; box-shadow: none !important; display:flex; align-items:center; justify-content:space-between }
-  .quick-head { display:flex; align-items:center; justify-content:space-between; width:100%; gap:0.75rem; flex-wrap: nowrap }
+  .quick-panel { background: transparent !important; padding: 0; margin: 2px 0 4px; border-radius: 0; border: none !important; box-shadow: none !important; display:flex; align-items:center; justify-content:space-between }
+  .quick-head { display:flex; align-items:center; justify-content:space-between; width:100%; gap:0.85rem; flex-wrap: nowrap }
   .view-controls { display:flex; align-items:center; gap:0.45rem; flex-wrap: wrap; }
   .view-controls .btn { display:inline-flex; align-items:center; gap:0.4rem; border-radius:0.7rem; padding:0.32rem 0.72rem; background:transparent; border:1px solid var(--color-border); font-size:0.84rem; height:2.15rem; line-height:1; }
   .view-controls .btn.active { background: var(--color-soft); color: var(--color-heading); border-color: var(--color-border) }
   .btn-compact { padding:0.28rem 0.6rem; font-size:0.8rem; border-radius:0.55rem; }
-  .quick-actions { display:flex; gap:0.5rem; align-items:center; margin-left:auto; flex-wrap: nowrap }
+  .quick-actions { display:flex; gap:0.55rem; align-items:center; margin-left:auto; flex-wrap: nowrap }
   .search-wrap { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0 0.7rem; color: var(--color-muted); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 0.7rem; height: 2.15rem; }
   .search-input { border:0; background:transparent; color:var(--color-text); font-size:0.85rem; width:11.5rem; outline:none; padding:0; height:100%; }
   /* search-icon removed */
@@ -3936,7 +3931,7 @@
     --ov-fixed-list-height: calc((2.45rem * 3) + (0.55rem * 2));
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 10px;
+    gap: 12px;
     align-items: stretch;
   }
   @media (max-width: 680px) {
@@ -4011,6 +4006,12 @@
     color: var(--color-sidebar-text);
     padding: 0.25rem 0;
     display: flex; align-items: center; gap: 6px;
+  }
+  .ov-empty-center {
+    width: 100%;
+    min-height: calc(clamp(15rem, 24vh, 17rem) - 3.2rem);
+    justify-content: center;
+    text-align: center;
   }
 
   .ov-skeleton {

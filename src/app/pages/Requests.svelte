@@ -1185,18 +1185,31 @@
 <section class="requests-modern">
   <!-- Stat Cards -->
   <div class="stat-cards">
-    {#each requestStatCards as card (card.key)}
-      <div class="stat-card">
-        <div class={`stat-icon ${card.tone}`}>
-          <svelte:component this={card.icon} size={16} />
+    {#if isLoading}
+      {#each [1, 2, 3, 4] as cardIndex (cardIndex)}
+        <div class="stat-card stat-card-skeleton">
+          <div class="stat-icon stat-icon-skeleton req-skeleton shimmer"></div>
+          <div class="stat-body stat-body-skeleton">
+            <div class="req-skeleton shimmer sk-stat-label"></div>
+            <div class="req-skeleton shimmer sk-stat-value"></div>
+            <div class="req-skeleton shimmer sk-stat-sub"></div>
+          </div>
         </div>
-        <div class="stat-body">
-          <div class="stat-label">{card.label}</div>
-          <div class="stat-value">{card.value}</div>
-          <div class="stat-sub">{card.subtitle}</div>
+      {/each}
+    {:else}
+      {#each requestStatCards as card (card.key)}
+        <div class="stat-card">
+          <div class={`stat-icon ${card.tone}`}>
+            <svelte:component this={card.icon} size={16} />
+          </div>
+          <div class="stat-body">
+            <div class="stat-label">{card.label}</div>
+            <div class="stat-value">{card.value}</div>
+            <div class="stat-sub">{card.subtitle}</div>
+          </div>
         </div>
-      </div>
-    {/each}
+      {/each}
+    {/if}
   </div>
 
   <!-- Tab Row -->
@@ -1302,26 +1315,29 @@
             <div class="request-card request-card-skeleton">
               <div class="request-card-content">
                 <div class="request-card-header">
-                  <div class="req-skeleton shimmer" style="height: 24px; width: 110px; border-radius: 999px;"></div>
-                  <div class="request-info-inline">
-                    <span class="req-skeleton shimmer" style="height: 12px; width: 120px;"></span>
-                    <span class="req-skeleton shimmer" style="height: 12px; width: 140px;"></span>
-                    <span class="req-skeleton shimmer" style="height: 12px; width: 90px;"></span>
+                  <div class="request-type-badge">
+                    <span class="req-skeleton shimmer sk-type-icon"></span>
+                    <span class="req-skeleton shimmer sk-type-text"></span>
                   </div>
-                  <span class="req-skeleton shimmer" style="height: 22px; width: 84px; border-radius: 999px;"></span>
+                  <div class="request-info-inline">
+                    <span class="req-skeleton shimmer sk-inline-meta"></span>
+                    <span class="req-skeleton shimmer sk-inline-meta"></span>
+                    <span class="req-skeleton shimmer sk-inline-meta sk-inline-meta-short"></span>
+                  </div>
+                  <span class="req-skeleton shimmer sk-status-pill"></span>
                 </div>
                 <div class="req-reason-block">
                   <div class="req-reason-header">
-                    <div style="width: 100%;">
-                      <div class="req-skeleton shimmer" style="height: 11px; width: 60px; margin-bottom: 8px;"></div>
-                      <div class="req-skeleton shimmer" style="height: 12px; width: 100%;"></div>
+                    <div class="sk-reason-wrap">
+                      <div class="req-skeleton shimmer sk-reason-label"></div>
+                      <div class="req-skeleton shimmer sk-reason-line"></div>
                     </div>
                   </div>
                 </div>
               </div>
               <div class="req-card-footer">
-                <span class="req-skeleton shimmer" style="height: 28px; width: 84px; border-radius: 8px;"></span>
-                <span class="req-skeleton shimmer" style="height: 28px; width: 84px; border-radius: 8px;"></span>
+                <span class="req-skeleton shimmer sk-action-btn"></span>
+                <span class="req-skeleton shimmer sk-action-btn"></span>
               </div>
             </div>
           {/each}
@@ -2007,6 +2023,9 @@
     box-shadow: var(--shadow);
     transform: translateY(-2px);
   }
+  .stat-card-skeleton {
+    pointer-events: none;
+  }
   .stat-icon {
     width: 40px;
     height: 40px;
@@ -2019,6 +2038,30 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
+  }
+  .stat-icon-skeleton {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+  }
+  .stat-body-skeleton {
+    width: 100%;
+    gap: 8px;
+  }
+  .sk-stat-label {
+    height: 10px;
+    width: 110px;
+    border-radius: 4px;
+  }
+  .sk-stat-value {
+    height: 22px;
+    width: 64px;
+    border-radius: 4px;
+  }
+  .sk-stat-sub {
+    height: 11px;
+    width: 170px;
+    border-radius: 4px;
   }
   .stat-icon.blue {
     background: var(--accent-glow);
@@ -2157,7 +2200,7 @@
     justify-content: space-between;
     padding: 12px;
     margin-bottom: 0;
-    border-bottom: 1px solid var(--border);
+    border-bottom: none;
   }
   
   .filter-chips {
@@ -2226,6 +2269,9 @@
     gap: 0;
     padding: 12px;
   }
+  .requests-list-skeleton {
+    gap: 12px;
+  }
   .req-skeleton {
     position: relative;
     overflow: hidden;
@@ -2265,6 +2311,51 @@
   }
   .request-card-skeleton::before {
     display: none;
+  }
+  .request-card-skeleton {
+    pointer-events: none;
+  }
+  .sk-type-icon {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+  }
+  .sk-type-text {
+    width: 84px;
+    height: 14px;
+    border-radius: 4px;
+  }
+  .sk-inline-meta {
+    width: 132px;
+    height: 13px;
+    border-radius: 4px;
+  }
+  .sk-inline-meta-short {
+    width: 92px;
+  }
+  .sk-status-pill {
+    width: 88px;
+    height: 24px;
+    border-radius: 999px;
+  }
+  .sk-reason-wrap {
+    width: 100%;
+  }
+  .sk-reason-label {
+    width: 68px;
+    height: 10px;
+    border-radius: 4px;
+    margin-bottom: 8px;
+  }
+  .sk-reason-line {
+    width: 100%;
+    height: 16px;
+    border-radius: 4px;
+  }
+  .sk-action-btn {
+    width: 88px;
+    height: 30px;
+    border-radius: 8px;
   }
   .req-card {
     background: var(--surface);
@@ -2414,9 +2505,10 @@
     margin-bottom: 3px;
   }
   .req-reason-text {
-    font-size: 13px;
+    font-size: 15px;
+    font-weight: 500;
     color: var(--text2);
-    line-height: 1.5;
+    line-height: 1.65;
   }
   .req-reason-header {
     display: flex;
@@ -3142,6 +3234,10 @@
       -webkit-box-orient: vertical;
       overflow: hidden;
     }
+    .sk-stat-sub {
+      width: 100%;
+      max-width: 140px;
+    }
     .filter-row {
       flex-wrap: wrap;
       gap: 10px;
@@ -3166,6 +3262,14 @@
     }
     .request-info-item {
       max-width: 100%;
+    }
+    .sk-inline-meta {
+      width: 46%;
+      min-width: 110px;
+    }
+    .sk-inline-meta-short {
+      width: 34%;
+      min-width: 88px;
     }
     .req-card-footer {
       justify-content: stretch;

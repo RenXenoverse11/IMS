@@ -2676,9 +2676,18 @@ let assignedTasksError = '';
           </div>
           <div class="worklog-list-scroll">
           {#if isLoadingWorkLogs}
-            <div class="worklogs-loading-center" aria-live="polite" aria-busy="true">
-              <span class="spinning-icon"><Loader2 size={18} /></span>
-              <span>Loading...</span>
+            <div class="worklogs-loading-shell" aria-live="polite" aria-busy="true">
+              {#each [1, 2, 3, 4] as _}
+                <article class="worklog-loading-item">
+                  <div class="worklog-loading-trigger">
+                    <div class="worklog-loading-title">
+                      <span class="act-skeleton shimmer wl-sk-title"></span>
+                      <span class="act-skeleton shimmer wl-sk-date"></span>
+                    </div>
+                    <span class="act-skeleton shimmer wl-sk-chevron"></span>
+                  </div>
+                </article>
+              {/each}
             </div>
           {:else if filteredWorkLogs.length === 0}
             <div class="worklogs-empty-center">
@@ -6220,7 +6229,33 @@ let assignedTasksError = '';
   }
 
   .activity-shell.projects-page .worklog-form-card {
-    height: fit-content;
+    height: 420px;
+    min-height: 420px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .activity-shell.projects-page .worklog-form-card form {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    padding-right: 2px;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .activity-shell.projects-page .worklog-form-card form::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none;
+  }
+
+  .activity-shell.projects-page .worklog-form-card .submit-worklog-btn {
+    margin-top: auto;
+    flex-shrink: 0;
   }
 
   .activity-shell.projects-page .worklog-list-scroll {
@@ -6246,6 +6281,56 @@ let assignedTasksError = '';
     color: var(--color-muted);
     font-size: 0.92rem;
     text-align: center;
+  }
+
+  .activity-shell.projects-page .worklogs-loading-shell {
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+  }
+
+  .activity-shell.projects-page .worklog-loading-item {
+    border-radius: 12px;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    overflow: hidden;
+  }
+
+  .activity-shell.projects-page .worklog-loading-trigger {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.8rem;
+    padding: 1.05rem 1.4rem;
+    min-height: 74px;
+  }
+
+  .activity-shell.projects-page .worklog-loading-title {
+    display: grid;
+    gap: 0.45rem;
+    width: 100%;
+    max-width: 360px;
+  }
+
+  .activity-shell.projects-page .wl-sk-title {
+    width: 72%;
+    max-width: 260px;
+    height: 14px;
+    border-radius: 5px;
+  }
+
+  .activity-shell.projects-page .wl-sk-date {
+    width: 42%;
+    max-width: 160px;
+    height: 12px;
+    border-radius: 5px;
+  }
+
+  .activity-shell.projects-page .wl-sk-chevron {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    flex-shrink: 0;
   }
 
   .activity-shell.projects-page .worklogs-empty-center {
@@ -6337,6 +6422,16 @@ let assignedTasksError = '';
     .activity-shell.projects-page .worklog-list-card {
       height: auto;
       min-height: 0;
+    }
+
+    .activity-shell.projects-page .worklog-form-card {
+      height: auto;
+      min-height: 0;
+      overflow: visible;
+    }
+
+    .activity-shell.projects-page .worklog-form-card form {
+      overflow: visible;
     }
 
     .activity-shell.projects-page .worklog-list-scroll {

@@ -413,10 +413,6 @@
             <div class="skeleton skeleton-text" style="width: 260px; height: 14px;"></div>
           </div>
         </div>
-        <div class="dash-view-toggle">
-          <div class="skeleton skeleton-text" style="width: 90px; height: 30px; border-radius: 999px;"></div>
-          <div class="skeleton skeleton-text" style="width: 108px; height: 30px; border-radius: 999px;"></div>
-        </div>
       </div>
 
       <div class="dash-stat-grid">
@@ -506,24 +502,6 @@
           </div>
         </div>
 
-        <div class="dash-view-toggle">
-          <button
-            type="button"
-            class="dash-view-btn"
-            class:active={progressMode === PROGRESS_MODES.APPROVED}
-            on:click={() => progressMode = PROGRESS_MODES.APPROVED}
-          >
-            Approved
-          </button>
-          <button
-            type="button"
-            class="dash-view-btn"
-            class:active={progressMode === PROGRESS_MODES.ALL}
-            on:click={() => progressMode = PROGRESS_MODES.ALL}
-          >
-            All Requests
-          </button>
-        </div>
       </div>
 
       <div class="dash-stat-grid">

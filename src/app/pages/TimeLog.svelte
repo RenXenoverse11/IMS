@@ -942,10 +942,6 @@
 
 <section class="tl-page">
   {#if isLoading}
-    <div class="tl-error-banner skeleton">
-      <div class="skeleton-text" style="width: 200px;"></div>
-    </div>
-
     <div class="tl-stat-grid">
       {#each [1,2,3,4] as _}
         <div class="tl-stat-card skeleton-stat">
@@ -962,47 +958,68 @@
     <div class="tl-progress-section skeleton-progress">
       <div class="tl-progress-header">
         <div>
-          <div class="skeleton-text" style="width: 120px; height: 14px;"></div>
-          <div class="skeleton-text" style="width: 180px; height: 12px; margin-top: 6px;"></div>
+          <div class="tl-progress-title-row">
+            <div class="skeleton-text" style="width: 108px; height: 16px;"></div>
+            <div class="skeleton-text" style="width: 74px; height: 22px; border-radius: 999px;"></div>
+          </div>
+          <div class="skeleton-text" style="width: 290px; height: 12px; margin-top: 8px;"></div>
+          <div class="skeleton-text" style="width: 320px; height: 12px; margin-top: 8px;"></div>
         </div>
-        <div class="skeleton-text" style="width: 40px; height: 20px; border-radius: 20px;"></div>
+        <div class="skeleton-text" style="width: 44px; height: 24px; border-radius: 999px;"></div>
       </div>
       <div class="skeleton-progress-track"></div>
       <div class="tl-progress-labels">
-        <div class="skeleton-text" style="width: 30px;"></div>
-        <div class="skeleton-text" style="width: 80px;"></div>
-        <div class="skeleton-text" style="width: 40px;"></div>
+        <div class="skeleton-text" style="width: 24px;"></div>
+        <div class="skeleton-text" style="width: 112px;"></div>
+        <div class="skeleton-text" style="width: 34px;"></div>
       </div>
     </div>
 
     <div class="tl-three-col">
-      <div class="tl-card skeleton-card">
-        <div class="skeleton-text" style="width: 110px; height: 14px;"></div>
-        <div class="skeleton-text" style="width: 90px; height: 12px; margin-top: 4px;"></div>
-        <div class="skeleton-field"></div>
-        <div class="skeleton-text" style="width: 90px; height: 12px;"></div>
-        <div class="skeleton-field"></div>
-        <div class="skeleton-text" style="width: 70px; height: 12px;"></div>
-        <div class="skeleton-field"></div>
+      <div class="tl-card tl-schedule-card skeleton-card">
+        <div class="tl-card-title">
+          <div class="skeleton-icon-sm"></div>
+          <div class="skeleton-text" style="width: 110px; height: 16px;"></div>
+        </div>
+        <div class="tl-schedule-content">
+          {#each [1,2,3] as _}
+            <div class="tl-schedule-item">
+              <div class="skeleton-text" style="width: 82px; height: 11px; margin-bottom: 8px;"></div>
+              <div class="skeleton-text" style="width: 180px; height: 14px;"></div>
+            </div>
+          {/each}
+        </div>
       </div>
+
       <div class="tl-card skeleton-card">
-        <div class="skeleton-text" style="width: 100px; height: 14px;"></div>
+        <div class="tl-card-title">
+          <div class="skeleton-icon-sm"></div>
+          <div class="skeleton-text" style="width: 66px; height: 16px;"></div>
+        </div>
+        <div class="skeleton-text" style="width: 28px; height: 11px;"></div>
         <div class="skeleton-field"></div>
+        <div class="skeleton-text" style="width: 70px; height: 11px;"></div>
         <div class="skeleton-field"></div>
         <div class="skeleton-btn"></div>
       </div>
+
       <div class="tl-card skeleton-card">
-        <div class="skeleton-text" style="width: 90px; height: 14px;"></div>
+        <div class="tl-card-title">
+          <div class="skeleton-icon-sm"></div>
+          <div class="skeleton-text" style="width: 72px; height: 16px;"></div>
+        </div>
+        <div class="skeleton-text" style="width: 78px; height: 11px;"></div>
         <div class="skeleton-field"></div>
-        <div class="skeleton-text" style="width: 100%; height: 44px; border-radius: 10px;"></div>
+        <div class="skeleton-text" style="width: 100%; height: 44px; border-radius: 10px; margin-top: 4px;"></div>
         <div class="skeleton-btn"></div>
+        <div class="skeleton-text" style="width: 100%; height: 38px; border-radius: 10px; margin-top: 6px;"></div>
       </div>
     </div>
 
-    <div class="tl-card skeleton-card">
+    <div class="tl-card tl-card-chart skeleton-card">
       <div class="tl-chart-header">
         <div>
-          <div class="skeleton-text" style="width: 110px; height: 14px;"></div>
+          <div class="skeleton-text" style="width: 118px; height: 16px;"></div>
           <div class="skeleton-text" style="width: 140px; height: 12px; margin-top: 6px;"></div>
         </div>
         <div class="skeleton-text" style="width: 72px; height: 24px; border-radius: 999px;"></div>
@@ -1012,14 +1029,18 @@
 
     <div class="tl-table-section skeleton-table">
       <div class="tl-table-header">
-        <div class="skeleton-text" style="width: 120px;"></div>
-        <div class="skeleton-text" style="width: 80px;"></div>
+        <div class="skeleton-text" style="width: 122px; height: 14px;"></div>
+        <div class="tl-table-tools">
+          <div class="skeleton-text" style="width: 102px; height: 12px;"></div>
+          <div class="skeleton-text" style="width: 142px; height: 34px; border-radius: 8px;"></div>
+          <div class="skeleton-text" style="width: 156px; height: 34px; border-radius: 8px;"></div>
+        </div>
       </div>
       <div class="tl-table-scroll">
         <table>
           <thead><tr><th>Date</th><th>Type</th><th>Time In</th><th>Time Out</th><th>Hours</th><th>Created</th><th>Status</th><th></th></tr></thead>
           <tbody>
-            {#each [1,2,3] as _}
+            {#each [1,2,3,4] as _}
               <tr>
                 <td><div class="skeleton-text" style="width: 80px;"></div></td>
                 <td><div class="skeleton-text" style="width: 60px;"></div></td>
