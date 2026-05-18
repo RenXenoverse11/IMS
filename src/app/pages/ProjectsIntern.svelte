@@ -3702,7 +3702,7 @@
     .quick-head { gap: 0.75rem; }
     .quick-actions { width: 100%; flex-wrap: wrap; gap: 0.42rem; }
     .quick-actions > * { width: 100%; }
-    .quick-actions .search-wrap,
+    .search-wrap,
     .quick-actions .quick-status,
     .quick-actions .quick-priority,
     .quick-actions .primary {
@@ -3712,8 +3712,8 @@
       border-radius: 0.72rem;
       box-sizing: border-box;
     }
-    .quick-actions .search-wrap { padding: 0 0.78rem; }
-    .quick-actions .search-input { font-size: 0.9rem; }
+    .search-wrap { padding: 0 0.78rem; }
+    .search-input { font-size: 0.9rem; }
     .quick-actions .quick-status,
     .quick-actions .quick-priority {
       font-size: 0.9rem;

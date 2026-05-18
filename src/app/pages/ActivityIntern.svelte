@@ -3830,18 +3830,6 @@ let assignedTasksError = '';
     border-bottom: 1px solid #ffffff0f !important;
   }
 
-  .panel-header h3 {
-    margin: 0;
-    color: var(--color-heading);
-    font-size: 1rem;
-    font-weight: 700;
-    letter-spacing: -0.01em;
-    text-shadow: 0 1px 2px rgba(17,24,39,0.08);
-  }
-  :global(html.dark) .panel-header h3 {
-    color: #e5edf8 !important;
-  }
-
   .tasks-panel {
     overflow: hidden;
     background: var(--color-surface);
@@ -4917,10 +4905,6 @@ let assignedTasksError = '';
       grid-template-columns: 1fr;
     }
 
-    .panel-header h3 {
-      font-size: 1.15rem;
-    }
-
     .controls-right,
     .view-toggle {
       width: 100%;
@@ -5270,14 +5254,6 @@ let assignedTasksError = '';
     padding: 14px 18px;
     background: var(--ims-ref-surface);
     border-bottom: 1px solid var(--ims-ref-border);
-  }
-
-  .panel-header h3 {
-    color: var(--ims-ref-text);
-    font-size: 14px;
-    font-weight: 700;
-    letter-spacing: 0;
-    text-shadow: none;
   }
 
   .tasks-panel,
