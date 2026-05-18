@@ -110,8 +110,7 @@
 		<section class="brand-panel">
 			<h1>Internship Management System</h1>
 			<p>
-				Securely manage internship progress, approvals, and hour tracking with a platform built for telecom-level
-				operations.
+				Track intern attendance, monitor OJT progress, and manage supervisor approvals in one secure platform.
 			</p>
 		</section>
 

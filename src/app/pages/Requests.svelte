@@ -1063,8 +1063,8 @@
     activeTab = "my-requests";
   $: listTabLabel = isSupervisor ? "Intern Requests" : "My Requests";
   $: pageSubtitle = isSupervisor
-    ? "Review and resolve assigned intern requests"
-    : "Submit absence and overtime requests for approval";
+    ? "Review assigned intern requests"
+    : "Manage absence and overtime";
 
   $: filteredRequests = requests
     .filter((r) => {

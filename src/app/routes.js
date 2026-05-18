@@ -21,15 +21,15 @@ export const pageMeta = {
   },
   '/activity': {
     title: 'Activity Log',
-    description: 'Review your task updates, timeline, and work activity.',
+    description: 'Review task updates and timeline.',
   },
   '/documents': {
     title: 'Documents',
-    description: 'Upload and manage your important documents, records, and links.',
+    description: 'Upload and manage important documents.',
   },
   '/settings': {
     title: 'Settings',
-    description: 'Manage your account preferences and profile.',
+    description: 'Manage account preferences and profile.',
   },
   '/projects': {
     title: 'Projects',
