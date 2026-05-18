@@ -289,6 +289,22 @@ function dispatchAction_(payload) {
     if (typeof handleListProjSupervisor_ === 'function') return handleListProjSupervisor_(payload);
     return { ok: false, error: 'Handler not available: handleListProjSupervisor_' };
   }
+  if (action === 'create_proj_supervisor') {
+    if (typeof handleCreateProjSupervisor_ === 'function') return handleCreateProjSupervisor_(payload);
+    return { ok: false, error: 'Handler not available: handleCreateProjSupervisor_' };
+  }
+  if (action === 'update_proj_supervisor') {
+    if (typeof handleUpdateProjSupervisor_ === 'function') return handleUpdateProjSupervisor_(payload);
+    return { ok: false, error: 'Handler not available: handleUpdateProjSupervisor_' };
+  }
+  if (action === 'restore_proj_supervisor') {
+    if (typeof handleRestoreProjSupervisor_ === 'function') return handleRestoreProjSupervisor_(payload);
+    return { ok: false, error: 'Handler not available: handleRestoreProjSupervisor_' };
+  }
+  if (action === 'delete_proj_supervisor') {
+    if (typeof handleDeleteProjSupervisor_ === 'function') return handleDeleteProjSupervisor_(payload);
+    return { ok: false, error: 'Handler not available: handleDeleteProjSupervisor_' };
+  }
   if (action === 'create_proj_intern') {
     if (typeof handleCreateProjIntern_ === 'function') return handleCreateProjIntern_(payload);
     return { ok: false, error: 'Handler not available: handleCreateProjIntern_' };
@@ -319,21 +335,41 @@ function dispatchAction_(payload) {
     if (typeof handleCreateProjFolder_ === 'function') return handleCreateProjFolder_(payload);
     return { ok: false, error: 'Handler not available: handleCreateProjFolder_' };
   }
+  if (action === 'create_proj_folder_supervisor') {
+    if (typeof handleCreateProjFolderSupervisor_ === 'function') return handleCreateProjFolderSupervisor_(payload);
+    return { ok: false, error: 'Handler not available: handleCreateProjFolderSupervisor_' };
+  }
   if (action === 'update_proj_folder') {
     if (typeof handleUpdateProjFolder_ === 'function') return handleUpdateProjFolder_(payload);
     return { ok: false, error: 'Handler not available: handleUpdateProjFolder_' };
+  }
+  if (action === 'update_proj_folder_supervisor') {
+    if (typeof handleUpdateProjFolderSupervisor_ === 'function') return handleUpdateProjFolderSupervisor_(payload);
+    return { ok: false, error: 'Handler not available: handleUpdateProjFolderSupervisor_' };
   }
   if (action === 'delete_proj_folder') {
     if (typeof handleDeleteProjFolder_ === 'function') return handleDeleteProjFolder_(payload);
     return { ok: false, error: 'Handler not available: handleDeleteProjFolder_' };
   }
+  if (action === 'delete_proj_folder_supervisor') {
+    if (typeof handleDeleteProjFolderSupervisor_ === 'function') return handleDeleteProjFolderSupervisor_(payload);
+    return { ok: false, error: 'Handler not available: handleDeleteProjFolderSupervisor_' };
+  }
   if (action === 'create_proj_submission') {
     if (typeof handleCreateProjSubmission_ === 'function') return handleCreateProjSubmission_(payload);
     return { ok: false, error: 'Handler not available: handleCreateProjSubmission_' };
   }
+  if (action === 'create_proj_submission_supervisor') {
+    if (typeof handleCreateProjSubmissionSupervisor_ === 'function') return handleCreateProjSubmissionSupervisor_(payload);
+    return { ok: false, error: 'Handler not available: handleCreateProjSubmissionSupervisor_' };
+  }
   if (action === 'delete_proj_submission') {
     if (typeof handleDeleteProjSubmission_ === 'function') return handleDeleteProjSubmission_(payload);
     return { ok: false, error: 'Handler not available: handleDeleteProjSubmission_' };
+  }
+  if (action === 'delete_proj_submission_supervisor') {
+    if (typeof handleDeleteProjSubmissionSupervisor_ === 'function') return handleDeleteProjSubmissionSupervisor_(payload);
+    return { ok: false, error: 'Handler not available: handleDeleteProjSubmissionSupervisor_' };
   }
 
   // --- Milestones (intern) ---
@@ -345,13 +381,25 @@ function dispatchAction_(payload) {
     if (typeof handleCreateMilestone_ === 'function') return handleCreateMilestone_(payload);
     return { ok: false, error: 'Handler not available: handleCreateMilestone_' };
   }
+  if (action === 'create_milestone_supervisor') {
+    if (typeof handleCreateMilestoneSupervisor_ === 'function') return handleCreateMilestoneSupervisor_(payload);
+    return { ok: false, error: 'Handler not available: handleCreateMilestoneSupervisor_' };
+  }
   if (action === 'update_milestone') {
     if (typeof handleUpdateMilestone_ === 'function') return handleUpdateMilestone_(payload);
     return { ok: false, error: 'Handler not available: handleUpdateMilestone_' };
   }
+  if (action === 'update_milestone_supervisor') {
+    if (typeof handleUpdateMilestoneSupervisor_ === 'function') return handleUpdateMilestoneSupervisor_(payload);
+    return { ok: false, error: 'Handler not available: handleUpdateMilestoneSupervisor_' };
+  }
   if (action === 'delete_milestone') {
     if (typeof handleDeleteMilestone_ === 'function') return handleDeleteMilestone_(payload);
     return { ok: false, error: 'Handler not available: handleDeleteMilestone_' };
+  }
+  if (action === 'delete_milestone_supervisor') {
+    if (typeof handleDeleteMilestoneSupervisor_ === 'function') return handleDeleteMilestoneSupervisor_(payload);
+    return { ok: false, error: 'Handler not available: handleDeleteMilestoneSupervisor_' };
   }
 
   // --- Feedback (intern) ---
