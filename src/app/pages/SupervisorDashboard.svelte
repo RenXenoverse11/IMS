@@ -158,7 +158,7 @@
     return { label: `${shiftStart} - ${shiftEnd}`, tone: '' };
   }
 
-  function getClockStatus(studentUserId) {
+  function getClockStatus(studentUserId, internData) {
     const row = todayTimelogByStudent[String(studentUserId || '').trim()] || null;
     const timeIn = String(row?.time_in || '').trim();
     const timeOut = String(row?.time_out || '').trim();
@@ -176,12 +176,33 @@
     const formattedTimeOut = extractTime(timeOut);
     const formattedTimeIn = extractTime(timeIn);
 
-    if (formattedTimeIn && formattedTimeOut) {
-      return { label: `Clocked out (${formattedTimeOut})`, tone: 'success' };
+    // If clocked out, show clock-out time
+    if (formattedTimeOut) {
+      return { label: `Clocked out · ${formattedTimeOut}`, tone: 'success' };
     }
 
+    // If only clocked in, show clock-in time with on-time/late status
     if (formattedTimeIn) {
-      return { label: `Clocked in \u00B7 ${formattedTimeIn}`, tone: 'success' };
+      let status = '';
+      
+      // Check if on-time or late based on shift start time
+      if (internData) {
+        const shiftStart = String(internData?.shift_start || '').trim();
+        if (shiftStart) {
+          const scheduledStart = extractTime(shiftStart);
+          
+          // Compare times: convert to minutes for comparison
+          const [inHour, inMin] = formattedTimeIn.split(':').map(Number);
+          const [schHour, schMin] = scheduledStart.split(':').map(Number);
+          
+          const clockedInMinutes = inHour * 60 + inMin;
+          const scheduledMinutes = schHour * 60 + schMin;
+          
+          status = clockedInMinutes <= scheduledMinutes ? '(On-time)' : '(Late)';
+        }
+      }
+      
+      return { label: `Clocked in · ${formattedTimeIn} ${status}`, tone: 'success' };
     }
 
     return { label: 'No clock-in yet', tone: 'muted' };
@@ -322,12 +343,40 @@
         todayTimelogByStudent = Object.fromEntries(
           studentUserIds.map((studentUserId) => [studentUserId, timelogMap[studentUserId] || null])
         );
-        tasksSummaryByStudent = Object.fromEntries(
-          studentUserIds.map((studentUserId) => {
-            const row = taskMap[studentUserId] || {};
-            return [studentUserId, { pendingCount: Number(row?.pendingCount || 0), total: Number(row?.total || 0) }];
-          })
-        );
+        
+        // If taskMap is empty from overview, fall back to fetching individual task data
+        if (Object.keys(taskMap).length === 0) {
+          const taskEntries = await Promise.all(
+            assignedStudents.map(async (student) => {
+              const studentUserId = String(student?.user_id || '').trim();
+              if (!studentUserId) return [studentUserId, { pendingCount: 0, total: 0 }];
+
+              try {
+                const tasks = await listTasksByUser(studentUserId, { limit: 200 });
+                const list = Array.isArray(tasks) ? tasks : [];
+                // Count tasks that are NOT completed (pending, in-progress, etc)
+                const pendingCount = list.filter((task) => {
+                  const status = String(task?.status || '').toLowerCase().trim();
+                  return status !== 'completed' && status !== '';
+                }).length;
+                return [studentUserId, { pendingCount, total: list.length }];
+              } catch {
+                return [studentUserId, { pendingCount: 0, total: 0 }];
+              }
+            })
+          );
+          tasksSummaryByStudent = {
+            ...defaultTaskSummary,
+            ...Object.fromEntries(taskEntries.filter((entry) => entry && entry[0])),
+          };
+        } else {
+          tasksSummaryByStudent = Object.fromEntries(
+            studentUserIds.map((studentUserId) => {
+              const row = taskMap[studentUserId] || {};
+              return [studentUserId, { pendingCount: Number(row?.pendingCount || 0), total: Number(row?.total || 0) }];
+            })
+          );
+        }
       } catch {
         const [timelogEntries, taskEntries] = await Promise.all([
           Promise.all(
@@ -359,7 +408,11 @@
               try {
                 const tasks = await listTasksByUser(studentUserId, { limit: 200 });
                 const list = Array.isArray(tasks) ? tasks : [];
-                const pendingCount = list.filter((task) => String(task?.status || '').toLowerCase() !== 'completed').length;
+                // Count tasks that are NOT completed (pending, in-progress, etc)
+                const pendingCount = list.filter((task) => {
+                  const status = String(task?.status || '').toLowerCase().trim();
+                  return status !== 'completed' && status !== '';
+                }).length;
                 return [studentUserId, { pendingCount, total: list.length }];
               } catch {
                 return [studentUserId, { pendingCount: 0, total: 0 }];
@@ -522,7 +575,7 @@
               {@const remainingDays = getRemainingWorkingDays(intern)}
               {@const projectedEndDate = getProjectedEndDateDisplay(intern)}
               {@const attendance = getAttendanceStatus(intern)}
-              {@const clock = getClockStatus(intern?.user_id)}
+              {@const clock = getClockStatus(intern?.user_id, intern)}
               {@const schedule = getScheduleDisplay(intern)}
               {@const pendingTasks = getPendingTaskCount(intern?.user_id)}
               {@const cardTone = remainingDays !== null && remainingDays <= 0 ? 'danger' : (attendance.tone || 'muted')}
