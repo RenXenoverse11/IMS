@@ -150,6 +150,10 @@
 		}
 
 		if (role === "Supervisor") {
+			if (!department) {
+				error = "Please select a department for the supervisor account.";
+				return;
+			}
 			try {
 				isSubmittingAccount = true;
 				const registration = await registerAccount({
@@ -157,6 +161,7 @@
 					email,
 					password,
 					role,
+					department,
 				});
 				setVerificationStage(registration?.verification_email || email);
 			} catch (err) {
@@ -507,6 +512,25 @@
 							</select>
 						</div>
 					</label>
+
+					{#if role === "Supervisor"}
+						<label class="field">
+							<span>Department</span>
+							<div class="input-wrap select-wrap">
+								<span class="input-icon"
+									><Building size={16} strokeWidth={2.2} /></span
+								>
+								<select bind:value={department}>
+									<option value="" disabled selected
+										>Select Department</option
+									>
+									{#each departmentCatalog as item}
+										<option value={item}>{item}</option>
+									{/each}
+								</select>
+							</div>
+						</label>
+					{/if}
 
 					{#if error}
 						<p class="feedback error">{error}</p>
