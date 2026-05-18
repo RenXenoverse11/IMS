@@ -41,7 +41,7 @@ export const pageMeta = {
   },
   '/supervisor/interns': {
     title: 'Intern Management',
-    description: 'Manage and monitor assigned interns.',
+    description: 'Manage assigned interns.',
   },
   '/supervisor/time-logs': {
     title: 'Time Log Management',

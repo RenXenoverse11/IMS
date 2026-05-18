@@ -253,6 +253,10 @@
     return true;
   }
 
+  function goToInternManagement() {
+    window.location.hash = '/supervisor/interns';
+  }
+
   async function loadData() {
     const runId = ++loadRunId;
     loading = true;
@@ -575,6 +579,9 @@
             <div class="dash-empty-icon"><Users size={18} /></div>
             <p class="dash-empty-title">No assigned interns yet.</p>
             <p class="dash-empty-sub">Assigned interns will appear here.</p>
+            <button type="button" class="dash-empty-helper-btn" on:click={goToInternManagement}>
+              Add Intern in Intern Management
+            </button>
           </div>
         {:else if filteredAssignedStudents.length === 0}
           <div class="dash-empty-state">
@@ -1166,6 +1173,24 @@
     color: #64748b;
   }
 
+  .dash-empty-helper-btn {
+    margin-top: 4px;
+    border: 1px solid #bfdbfe;
+    background: rgba(37, 99, 235, 0.1);
+    color: #1d4ed8;
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+  }
+
+  .dash-empty-helper-btn:hover {
+    background: rgba(37, 99, 235, 0.18);
+    border-color: #93c5fd;
+  }
+
   .request-item {
     display: flex;
     align-items: center;
@@ -1425,6 +1450,17 @@
     background: rgba(15, 23, 42, 0.6);
     border-color: rgba(148, 163, 184, 0.25);
     color: #94a3b8;
+  }
+
+  :global(.dark) .dash-empty-helper-btn {
+    background: rgba(59, 130, 246, 0.18);
+    border-color: rgba(96, 165, 250, 0.45);
+    color: #93c5fd;
+  }
+
+  :global(.dark) .dash-empty-helper-btn:hover {
+    background: rgba(59, 130, 246, 0.28);
+    border-color: rgba(147, 197, 253, 0.6);
   }
 
   .text-muted {
