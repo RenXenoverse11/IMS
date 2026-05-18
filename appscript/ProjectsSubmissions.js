@@ -90,6 +90,117 @@ function submissionRowToObj_(row) {
 
 // ── Drive helpers ──────────────────────────────────────────────────────────
 
+function findProjFolderRecordById_(folderId) {
+  var target = String(folderId || '').trim();
+  if (!target) return null;
+
+  var sheet = projFoldersSheet_();
+  var rows = getSheetValues_(sheet);
+  for (var i = 1; i < rows.length; i++) {
+    if (String(rows[i][0] || '').trim() === target) {
+      return {
+        sheet: sheet,
+        rowIndex: i + 1,
+        row: rows[i].slice(),
+        folder: folderRowToObj_(rows[i])
+      };
+    }
+  }
+  return null;
+}
+
+function findProjSubmissionRecordById_(submissionId) {
+  var target = String(submissionId || '').trim();
+  if (!target) return null;
+
+  var sheet = submissionInternSheet_();
+  var rows = getSheetValues_(sheet);
+  for (var i = 1; i < rows.length; i++) {
+    if (String(rows[i][0] || '').trim() === target) {
+      return {
+        sheet: sheet,
+        rowIndex: i + 1,
+        row: rows[i].slice(),
+        submission: submissionRowToObj_(rows[i])
+      };
+    }
+  }
+  return null;
+}
+
+function handleCreateProjFolderSupervisor_(payload) {
+  var projId = String(payload.proj_id || '').trim();
+  var supervisorUserId = String(payload.user_id || payload.supervisor_user_id || '').trim();
+  var access = assertSupervisorOwnsProject_(supervisorUserId, projId);
+  if (!access.ok) return access;
+  return handleCreateProjFolder_(payload);
+}
+
+function handleUpdateProjFolderSupervisor_(payload) {
+  var folderId = String(payload.folder_id || '').trim();
+  var supervisorUserId = String(payload.user_id || payload.supervisor_user_id || '').trim();
+  if (!folderId) return { ok: false, error: 'folder_id is required.' };
+
+  var folderRecord = findProjFolderRecordById_(folderId);
+  if (!folderRecord || !folderRecord.folder) {
+    return { ok: false, error: 'Folder not found: ' + folderId };
+  }
+
+  var access = assertSupervisorOwnsProject_(supervisorUserId, folderRecord.folder.proj_id);
+  if (!access.ok) return access;
+  return handleUpdateProjFolder_(payload);
+}
+
+function handleDeleteProjFolderSupervisor_(payload) {
+  var folderId = String(payload.folder_id || '').trim();
+  var supervisorUserId = String(payload.user_id || payload.supervisor_user_id || '').trim();
+  if (!folderId) return { ok: false, error: 'folder_id is required.' };
+
+  var folderRecord = findProjFolderRecordById_(folderId);
+  if (!folderRecord || !folderRecord.folder) {
+    return { ok: false, error: 'Folder not found: ' + folderId };
+  }
+
+  var access = assertSupervisorOwnsProject_(supervisorUserId, folderRecord.folder.proj_id);
+  if (!access.ok) return access;
+  return handleDeleteProjFolder_(payload);
+}
+
+function handleCreateProjSubmissionSupervisor_(payload) {
+  var projId = String(payload.proj_id || '').trim();
+  var folderId = String(payload.folder_id || '').trim();
+  var supervisorUserId = String(payload.user_id || payload.supervisor_user_id || '').trim();
+  var access = assertSupervisorOwnsProject_(supervisorUserId, projId);
+  if (!access.ok) return access;
+
+  if (folderId) {
+    var folderRecord = findProjFolderRecordById_(folderId);
+    if (!folderRecord || !folderRecord.folder) {
+      return { ok: false, error: 'Folder not found: ' + folderId };
+    }
+    if (String(folderRecord.folder.proj_id || '').trim() !== projId) {
+      return { ok: false, error: 'Folder does not belong to the specified project.' };
+    }
+  }
+
+  return handleCreateProjSubmission_(payload);
+}
+
+function handleDeleteProjSubmissionSupervisor_(payload) {
+  var submissionId = String(payload.submission_id || '').trim();
+  var supervisorUserId = String(payload.user_id || payload.supervisor_user_id || '').trim();
+  if (!submissionId) return { ok: false, error: 'submission_id is required.' };
+
+  var submissionRecord = findProjSubmissionRecordById_(submissionId);
+  if (!submissionRecord || !submissionRecord.submission) {
+    return { ok: false, error: 'Submission not found: ' + submissionId };
+  }
+
+  var access = assertSupervisorOwnsProject_(supervisorUserId, submissionRecord.submission.proj_id);
+  if (!access.ok) return access;
+  return handleDeleteProjSubmission_(payload);
+}
+
 function getOrCreateImsProjectsFolder_() {
   var folders = DriveApp.getFoldersByName(IMS_PROJECTS_FOLDER_NAME_);
   if (folders.hasNext()) return folders.next();
