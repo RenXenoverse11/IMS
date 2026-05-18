@@ -1,5 +1,5 @@
 <script>
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import { Clock3, ListFilter, RefreshCw, Trash2, UserCircle2, Users, Loader2 } from 'lucide-svelte';
   import {
     callApiAction,
@@ -23,8 +23,17 @@
   let loadingLogs = false;
   let loadingActiveSessions = false;
   let deletingId = '';
+  let isExportingAttendance = false;
+  let exportMonth = '';
+  let attendanceSheetRef = null;
+  let attendanceEntriesForExport = [];
+  let selectedExportMonthLabel = '';
+  let selectedExportMonthTitle = '';
   let errorMessage = '';
   let successMessage = '';
+  let html2pdfLoaderPromise = null;
+
+  const HTML2PDF_CDN_URL = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
 
   function toNumber(value) {
     const parsed = Number(value || 0);
@@ -155,6 +164,138 @@
       day: 'numeric',
       year: 'numeric',
     }).format(parsed);
+  }
+
+  function parseIsoDateOnly(value) {
+    const text = toDateOnly(value);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return null;
+    const parsed = new Date(`${text}T00:00:00`);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  function getMonthInputFromDate(value) {
+    const parsed = parseIsoDateOnly(value);
+    if (!parsed) return '';
+    const month = String(parsed.getMonth() + 1).padStart(2, '0');
+    return `${parsed.getFullYear()}-${month}`;
+  }
+
+  function getCurrentMonthInput() {
+    const now = new Date();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    return `${now.getFullYear()}-${month}`;
+  }
+
+  function formatMonthLabel(monthInput, includeYear = true) {
+    const raw = String(monthInput || '').trim();
+    if (!/^\d{4}-\d{2}$/.test(raw)) return '';
+    const [yearText, monthText] = raw.split('-');
+    const year = Number(yearText);
+    const monthIndex = Number(monthText) - 1;
+    if (!Number.isFinite(year) || !Number.isFinite(monthIndex) || monthIndex < 0 || monthIndex > 11) return '';
+    const dateObj = new Date(year, monthIndex, 1);
+    return new Intl.DateTimeFormat('en-US', includeYear ? { month: 'long', year: 'numeric' } : { month: 'long' }).format(dateObj);
+  }
+
+  function formatAttendanceDay(value) {
+    const parsed = parseIsoDateOnly(value);
+    if (!parsed) return '';
+    return new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(parsed).toUpperCase();
+  }
+
+  function formatAttendanceDate(value) {
+    const parsed = parseIsoDateOnly(value);
+    if (!parsed) return '';
+    const month = String(parsed.getMonth() + 1).padStart(2, '0');
+    const day = String(parsed.getDate()).padStart(2, '0');
+    const year = String(parsed.getFullYear()).slice(-2);
+    return `${month}-${day}-${year}`;
+  }
+
+  function formatAttendanceTime(value) {
+    const normalized = normalizeTimeValue(value, '');
+    if (!normalized) return '';
+    const [hoursRaw, minutesRaw] = normalized.split(':');
+    const hours24 = Number(hoursRaw);
+    const minutes = String(minutesRaw || '00').padStart(2, '0');
+    if (!Number.isFinite(hours24)) return normalized;
+    const hours12 = ((hours24 + 11) % 12) + 1;
+    return `${String(hours12).padStart(2, '0')}:${minutes}`;
+  }
+
+  function formatAttendanceHours(value) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return '0';
+    return Number(num.toFixed(2)).toString();
+  }
+
+  function toSafeFilenameSegment(value, fallback) {
+    const cleaned = String(value || '')
+      .trim()
+      .replace(/[\\/:*?"<>|]+/g, '-')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+    return cleaned || fallback;
+  }
+
+  function getHtml2PdfFromWindow() {
+    if (typeof window === 'undefined') return null;
+    const instance = window.html2pdf;
+    return typeof instance === 'function' ? instance : null;
+  }
+
+  function ensureHtml2PdfLoaded() {
+    const existing = getHtml2PdfFromWindow();
+    if (existing) return Promise.resolve(existing);
+
+    if (html2pdfLoaderPromise) return html2pdfLoaderPromise;
+
+    html2pdfLoaderPromise = new Promise((resolve, reject) => {
+      if (typeof document === 'undefined') {
+        reject(new Error('html2pdf.js not available'));
+        return;
+      }
+
+      const current = getHtml2PdfFromWindow();
+      if (current) {
+        resolve(current);
+        return;
+      }
+
+      const existingScript = document.querySelector(`script[data-lib="html2pdf"][src="${HTML2PDF_CDN_URL}"]`);
+      if (existingScript) {
+        existingScript.addEventListener('load', () => {
+          const loaded = getHtml2PdfFromWindow();
+          if (loaded) {
+            resolve(loaded);
+            return;
+          }
+          reject(new Error('html2pdf.js not available'));
+        }, { once: true });
+        existingScript.addEventListener('error', () => reject(new Error('html2pdf.js not available')), { once: true });
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.src = HTML2PDF_CDN_URL;
+      script.async = true;
+      script.dataset.lib = 'html2pdf';
+      script.onload = () => {
+        const loaded = getHtml2PdfFromWindow();
+        if (loaded) {
+          resolve(loaded);
+          return;
+        }
+        reject(new Error('html2pdf.js not available'));
+      };
+      script.onerror = () => reject(new Error('html2pdf.js not available'));
+      document.head.appendChild(script);
+    }).finally(() => {
+      html2pdfLoaderPromise = null;
+    });
+
+    return html2pdfLoaderPromise;
   }
 
   function mapLog(row) {
@@ -302,6 +443,56 @@
     }
   }
 
+  async function exportAttendanceSheetPdf() {
+    if (isExportingAttendance) return;
+    if (!attendanceEntriesForExport.length) {
+      errorMessage = 'No completed entries found for the selected month.';
+      return;
+    }
+
+    isExportingAttendance = true;
+    errorMessage = '';
+    successMessage = '';
+
+    try {
+      const html2pdf = await ensureHtml2PdfLoaded();
+      if (typeof html2pdf !== 'function') {
+        throw new Error('html2pdf.js not available');
+      }
+
+      await tick();
+
+      if (!attendanceSheetRef) {
+        throw new Error('Attendance sheet preview is not available.');
+      }
+
+      const internPart = toSafeFilenameSegment(selectedStudent?.full_name || 'Intern', 'Intern');
+      const monthPart = toSafeFilenameSegment(selectedExportMonthLabel || formatMonthLabel(exportMonth, true) || 'Month-Year', 'Month-Year');
+      const filename = `OJT-Attendance-Sheet-${internPart}-${monthPart}.pdf`;
+      const options = {
+        margin: [6, 8, 6, 8],
+        filename,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
+      };
+
+      await html2pdf().set(options).from(attendanceSheetRef).save();
+    } catch (err) {
+      const message = String(err?.message || '');
+      if (message.toLowerCase().includes('html2pdf')) {
+        if (typeof window !== 'undefined') {
+          window.alert('html2pdf.js is not installed. Run: npm install html2pdf.js');
+        }
+      } else {
+        errorMessage = message || 'Unable to export attendance sheet right now.';
+      }
+    } finally {
+      isExportingAttendance = false;
+    }
+  }
+
   onMount(() => {
     currentUser = getCurrentUser();
 
@@ -332,6 +523,13 @@
   $: selectedCompletedHours = toNumber(selectedStudent?.completed_hours);
   $: selectedRemainingHours = Math.max(0, selectedRequiredHours - selectedCompletedHours);
   $: selectedProgress = selectedRequiredHours > 0 ? Math.min(100, Math.round((selectedCompletedHours / selectedRequiredHours) * 100)) : 0;
+  $: exportMonth = exportMonth || getCurrentMonthInput();
+  $: attendanceEntriesForExport = logs
+    .filter((entry) => entry.time_out && toNumber(entry.hours_rendered) > 0 && getMonthInputFromDate(entry.log_date) === exportMonth)
+    .map((entry) => ({ ...entry, attendanceDay: formatAttendanceDay(entry.log_date) }))
+    .sort((a, b) => new Date(a.log_date).getTime() - new Date(b.log_date).getTime());
+  $: selectedExportMonthLabel = formatMonthLabel(exportMonth, true);
+  $: selectedExportMonthTitle = formatMonthLabel(exportMonth, false);
   $: currentRole = String(currentUser?.role || '').trim().toLowerCase();
   $: isSupervisorUser = currentRole === 'supervisor';
   $: if (assignedStudents.length > 0 && isSupervisorUser) {
@@ -375,13 +573,126 @@
       </section>
     {/if}
 
-    <section class="stl-card">
-      <div class="control-head">
-        <div>
-          <h3 class="section-title">Intern Time Logs</h3>
-          <p class="section-sub">View and manage entries of interns assigned to you.</p>
-        </div>
+    {#if errorMessage}
+      <p class="alert alert-error">{errorMessage}</p>
+    {/if}
 
+    {#if successMessage}
+      <p class="alert alert-success">{successMessage}</p>
+    {/if}
+
+    {#if loadingStudents}
+      <div class="stats-grid">
+        {#each [1, 2, 3, 4] as _}
+          <article class="stl-card stat-card skeleton-stat-card">
+            <div class="sk-pill shimmer"></div>
+            <div class="sk-line shimmer" style="height: 22px; width: 55%; border-radius: 8px; margin-top: 18px;"></div>
+            <div class="sk-line shimmer" style="height: 11px; width: 42%; border-radius: 7px; margin-top: 10px;"></div>
+          </article>
+        {/each}
+      </div>
+
+      <div class="control-head">
+        <div class="control-actions">
+          <label class="selector-wrap">
+            <ListFilter size={15} class="selector-icon" />
+            <select bind:value={selectedStudentId} class="stl-input" on:change={loadLogs}>
+              <option value="">Loading intern accounts...</option>
+            </select>
+          </label>
+
+          <button type="button" class="btn-secondary" on:click={loadAssignedStudents} disabled={loadingStudents || loadingLogs}>
+            <RefreshCw size={15} />
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      <section class="stl-card stl-table-section">
+        <div class="stl-table-header">
+          <div>
+            <h3 class="section-title">Time Log Entries</h3>
+            <p class="section-sub">Loading entries...</p>
+          </div>
+          <div class="stl-table-tools stl-table-tools-skeleton">
+            <div class="sk-line shimmer" style="height: 11px; width: 120px; border-radius: 7px;"></div>
+            <div class="sk-pill shimmer" style="width: 148px; height: 34px;"></div>
+            <div class="sk-pill shimmer" style="width: 170px; height: 34px;"></div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="stl-table" style="min-width: 700px;">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Time In</th>
+                <th>Time Out</th>
+                <th>Hours</th>
+                <th>Notes</th>
+                <th class="text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each [1, 2, 3, 4, 5, 6, 7, 8] as __}
+                <tr>
+                  <td><div class="sk-line shimmer" style="height: 11px; width: 90px; border-radius: 7px;"></div></td>
+                  <td><div class="sk-line shimmer" style="height: 11px; width: 64px; border-radius: 7px;"></div></td>
+                  <td><div class="sk-line shimmer" style="height: 11px; width: 64px; border-radius: 7px;"></div></td>
+                  <td><div class="sk-line shimmer" style="height: 11px; width: 40px; border-radius: 7px;"></div></td>
+                  <td><div class="sk-line shimmer" style="height: 11px; width: 70px; border-radius: 7px;"></div></td>
+                  <td class="text-right"><div class="sk-pill shimmer" style="width: 58px;"></div></td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    {:else if selectedStudent}
+      {@const summaryProgressTone = selectedProgress >= 80 ? 'high' : selectedProgress >= 40 ? 'mid' : 'low'}
+      <div class="stats-grid">
+        <article class="stl-card stat-card">
+          <div class="stat-icon icon-blue"><UserCircle2 size={18} /></div>
+          <div class="stat-copy">
+            <p class="stat-label">Selected Intern</p>
+            <p class="stat-value stat-name">{selectedStudent.full_name || 'Intern'}</p>
+            <p class="stat-sub">Current intern record</p>
+          </div>
+        </article>
+
+        <article class="stl-card stat-card">
+          <div class="stat-icon icon-violet"><Users size={18} /></div>
+          <div class="stat-copy">
+            <p class="stat-label">Overall Progress</p>
+            <p class="stat-value">{selectedProgress}%</p>
+            <p class="stat-sub">Completion vs required hours</p>
+            <div class="progress-inline">
+              <div class="progress-track">
+                <div class={`progress-fill progress-${summaryProgressTone}`} style={`width:${selectedProgress}%`}></div>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="stl-card stat-card">
+          <div class="stat-icon icon-green"><Clock3 size={18} /></div>
+          <div class="stat-copy">
+            <p class="stat-label">Completed Hours</p>
+            <p class="stat-value">{formatHours(selectedCompletedHours)}h</p>
+            <p class="stat-sub">Logged time entries</p>
+          </div>
+        </article>
+
+        <article class="stl-card stat-card">
+          <div class="stat-icon icon-amber"><Clock3 size={18} /></div>
+          <div class="stat-copy">
+            <p class="stat-label">Remaining Hours</p>
+            <p class="stat-value">{formatHours(selectedRemainingHours)}h</p>
+            <p class="stat-sub">Until internship target</p>
+          </div>
+        </article>
+      </div>
+
+      <div class="control-head">
         <div class="control-actions">
           <label class="selector-wrap">
             <ListFilter size={15} class="selector-icon" />
@@ -404,93 +715,29 @@
           </button>
         </div>
       </div>
-    </section>
 
-    {#if errorMessage}
-      <p class="alert alert-error">{errorMessage}</p>
-    {/if}
-
-    {#if successMessage}
-      <p class="alert alert-success">{successMessage}</p>
-    {/if}
-
-    {#if loadingStudents}
-      <div class="stats-grid">
-        {#each [1, 2, 3, 4] as _}
-          <article class="stl-card stat-card skeleton-stat-card">
-            <div class="sk-pill shimmer"></div>
-            <div class="sk-line shimmer" style="height: 22px; width: 55%; border-radius: 8px; margin-top: 18px;"></div>
-            <div class="sk-line shimmer" style="height: 11px; width: 42%; border-radius: 7px; margin-top: 10px;"></div>
-          </article>
-        {/each}
-      </div>
-
-      <section class="stl-card">
-        <h3 class="section-title">Time Log Entries</h3>
-        <p class="section-sub">Loading entries...</p>
-        <div class="table-wrap">
-          <table class="stl-table" style="min-width: 700px;">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Time In</th>
-                <th>Time Out</th>
-                <th>Hours</th>
-                <th>Notes</th>
-                <th class="text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each [1, 2, 3] as __}
-                <tr>
-                  <td><div class="sk-line shimmer" style="height: 11px; width: 90px; border-radius: 7px;"></div></td>
-                  <td><div class="sk-line shimmer" style="height: 11px; width: 64px; border-radius: 7px;"></div></td>
-                  <td><div class="sk-line shimmer" style="height: 11px; width: 64px; border-radius: 7px;"></div></td>
-                  <td><div class="sk-line shimmer" style="height: 11px; width: 40px; border-radius: 7px;"></div></td>
-                  <td><div class="sk-line shimmer" style="height: 11px; width: 70px; border-radius: 7px;"></div></td>
-                  <td class="text-right"><div class="sk-pill shimmer" style="width: 58px;"></div></td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    {:else if selectedStudent}
-      {@const summaryProgressTone = selectedProgress >= 80 ? 'high' : selectedProgress >= 40 ? 'mid' : 'low'}
-      <div class="stats-grid">
-        <article class="stl-card stat-card">
-          <div class="stat-icon icon-blue"><UserCircle2 size={18} /></div>
-          <p class="stat-value stat-name">{selectedStudent.full_name || 'Intern'}</p>
-          <p class="stat-label">Selected Intern</p>
-        </article>
-
-        <article class="stl-card stat-card">
-          <div class="stat-icon icon-violet"><Users size={18} /></div>
-          <p class="stat-value">{selectedProgress}%</p>
-          <p class="stat-label">Overall Progress</p>
-          <div class="progress-inline">
-            <div class="progress-track">
-              <div class={`progress-fill progress-${summaryProgressTone}`} style={`width:${selectedProgress}%`}></div>
-            </div>
+      <section class="stl-card stl-table-section">
+        <div class="stl-table-header">
+          <div>
+            <h3 class="section-title">Time Log Entries</h3>
+            <p class="section-sub">You can delete invalid entries from your assigned interns.</p>
           </div>
-        </article>
-
-        <article class="stl-card stat-card">
-          <div class="stat-icon icon-green"><Clock3 size={18} /></div>
-          <p class="stat-value">{formatHours(selectedCompletedHours)}h</p>
-          <p class="stat-label">Completed Hours</p>
-        </article>
-
-        <article class="stl-card stat-card">
-          <div class="stat-icon icon-amber"><Clock3 size={18} /></div>
-          <p class="stat-value">{formatHours(selectedRemainingHours)}h</p>
-          <p class="stat-label">Remaining Hours</p>
-        </article>
-      </div>
-
-      <section class="stl-card">
-        <h3 class="section-title">Time Log Entries</h3>
-        <p class="section-sub">You can delete invalid entries from your assigned interns.</p>
+          <div class="stl-table-tools">
+            <span class="stl-entry-count">{attendanceEntriesForExport.length} completed {attendanceEntriesForExport.length === 1 ? 'entry' : 'entries'}</span>
+            <label class="stl-export-month">
+              <span>Month</span>
+              <input type="month" bind:value={exportMonth} />
+            </label>
+            <button class="stl-export-btn" type="button" on:click={exportAttendanceSheetPdf} disabled={isExportingAttendance || attendanceEntriesForExport.length === 0}>
+              {#if isExportingAttendance}
+                <span class="spinning-icon"><Loader2 size={14} /></span>
+                Exporting...
+              {:else}
+                Export Attendance Sheet
+              {/if}
+            </button>
+          </div>
+        </div>
 
         {#if loadingLogs}
           <div class="table-wrap">
@@ -506,7 +753,7 @@
                 </tr>
               </thead>
               <tbody>
-                {#each [1, 2, 3] as __}
+                {#each [1, 2, 3, 4, 5, 6, 7, 8] as __}
                   <tr>
                     <td><div class="sk-line shimmer" style="height: 11px; width: 90px; border-radius: 7px;"></div></td>
                     <td><div class="sk-line shimmer" style="height: 11px; width: 64px; border-radius: 7px;"></div></td>
@@ -568,37 +815,57 @@
             </table>
           </div>
 
-          <div class="timeline-wrap">
-            <h4 class="section-title">Login/Logout History</h4>
-            <div class="timeline">
-              {#each logs as row, idx (row.timelog_id)}
-                <div class="timeline-item">
-                  <div class="timeline-marker">
-                    <div class="timeline-dot"></div>
-                    {#if idx !== logs.length - 1}
-                      <div class="timeline-line"></div>
-                    {/if}
-                  </div>
-                  <div class="timeline-content">
-                    <p class="timeline-date">{formatDate(row.log_date)}</p>
-                    <div class="timeline-event login">
-                      <span>Logged In</span>
-                      <strong>{toTimeText(row.time_in)}</strong>
-                    </div>
-                    {#if row.time_out}
-                      <div class="timeline-event logout">
-                        <span>Logged Out</span>
-                        <strong>{toTimeText(row.time_out)}</strong>
-                      </div>
-                      <p class="timeline-duration">Duration: {formatHours(row.hours_rendered)}h</p>
-                    {/if}
-                  </div>
-                </div>
-              {/each}
-            </div>
-          </div>
         {/if}
       </section>
+
+      <div class="stl-attendance-print-root" aria-hidden="true">
+        <div class="stl-attendance-sheet" bind:this={attendanceSheetRef}>
+          <div class="stl-attendance-head">
+            <h1>OJT DAILY ATTENDANCE SHEET</h1>
+            <h2>Month of {selectedExportMonthTitle || '__________'}</h2>
+          </div>
+
+          <div class="stl-attendance-meta">
+            <div class="stl-attendance-meta-row">
+              <span class="stl-attendance-meta-label">Name:</span>
+              <span class="stl-attendance-meta-value">{selectedStudent?.full_name || ''}</span>
+            </div>
+            <div class="stl-attendance-meta-row">
+              <span class="stl-attendance-meta-label">Company Name:</span>
+              <span class="stl-attendance-meta-value">{'\u00A0'}</span>
+            </div>
+            <div class="stl-attendance-meta-row">
+              <span class="stl-attendance-meta-label">Name of Representative:</span>
+              <span class="stl-attendance-meta-value">{'\u00A0'}</span>
+            </div>
+          </div>
+
+          <table class="stl-attendance-table">
+            <thead>
+              <tr>
+                <th>Day</th>
+                <th>Date</th>
+                <th>TIME-IN</th>
+                <th>TIME-OUT</th>
+                <th>Number of Hours</th>
+                <th>Signature</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each attendanceEntriesForExport as entry (entry.timelog_id)}
+                <tr>
+                  <td>{entry.attendanceDay}</td>
+                  <td>{formatAttendanceDate(entry.log_date)}</td>
+                  <td>{formatAttendanceTime(entry.time_in)}</td>
+                  <td>{formatAttendanceTime(entry.time_out)}</td>
+                  <td>{formatAttendanceHours(entry.hours_rendered)}</td>
+                  <td></td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      </div>
     {:else}
       <section class="stl-card">
         <div class="empty-state">
@@ -695,14 +962,15 @@
 
   .control-head {
     display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
+    align-items: center;
+    justify-content: flex-end;
     gap: 14px;
+    margin: 0 0 2px;
   }
 
   .control-actions {
     display: flex;
-    align-items: center;
+    align-items: stretch;
     gap: 10px;
     width: min(100%, 465px);
   }
@@ -710,6 +978,9 @@
   .selector-wrap {
     position: relative;
     flex: 1;
+    display: flex;
+    align-items: center;
+    min-height: 42px;
   }
 
   .selector-icon {
@@ -723,6 +994,8 @@
 
   .stl-input {
     width: 100%;
+    height: 42px;
+    box-sizing: border-box;
     border: 1px solid #cbd5e1;
     background: #f8fafc;
     color: #0f172a;
@@ -743,11 +1016,13 @@
     align-items: center;
     justify-content: center;
     gap: 6px;
+    height: 42px;
+    box-sizing: border-box;
     border: 1px solid #cbd5e1;
     background: #f8fafc;
     color: #0f172a;
     border-radius: 10px;
-    padding: 10px 14px;
+    padding: 0 14px;
     font-size: 13px;
     font-weight: 700;
     cursor: pointer;
@@ -793,10 +1068,10 @@
   }
 
   .stat-card {
-    min-height: 132px;
+    min-height: 104px;
     display: flex;
-    flex-direction: column;
-    gap: 8px;
+    align-items: flex-start;
+    gap: 14px;
   }
 
   .stat-icon {
@@ -833,8 +1108,8 @@
   }
 
   .stat-value {
-    margin: 8px 0 0;
-    font-size: 36px;
+    margin: 0;
+    font-size: 24px;
     line-height: 1;
     font-weight: 700;
     letter-spacing: -0.8px;
@@ -842,19 +1117,45 @@
   }
 
   .stat-name {
-    font-size: 30px;
-    line-height: 1.08;
+    font-size: 24px;
+    line-height: 1;
+    word-break: break-word;
   }
 
   .stat-label {
     margin: 0;
-    font-size: 13px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: #475569;
+  }
+
+  .stat-copy {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    width: 100%;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .stat-sub {
+    margin: 0;
+    font-size: 11.5px;
     color: #64748b;
   }
 
   .progress-inline {
     margin-top: auto;
-    padding-top: 6px;
+    padding-top: 7px;
+  }
+
+  .skeleton-stat-card {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 132px;
   }
 
   .progress-track {
@@ -883,12 +1184,107 @@
     background: linear-gradient(90deg, #2563eb, #3b82f6);
   }
 
+  .stl-table-section {
+    padding-top: 0;
+    overflow: hidden;
+  }
+
+  .stl-table-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 16px 20px 14px;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  .stl-table-tools {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .stl-table-tools-skeleton {
+    align-items: center;
+  }
+
+  .stl-entry-count {
+    font-size: 12px;
+    font-weight: 600;
+    color: #64748b;
+  }
+
+  .stl-export-month {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11.5px;
+    color: #64748b;
+    font-weight: 600;
+  }
+
+  .stl-export-month input {
+    width: 148px;
+    height: 34px;
+    box-sizing: border-box;
+    border: 1px solid #cbd5e1;
+    background: #f8fafc;
+    color: #0f172a;
+    border-radius: 8px;
+    padding: 7px 10px;
+    font-size: 12px;
+    outline: none;
+  }
+
+  .stl-export-month input:focus {
+    border-color: #60a5fa;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.16);
+  }
+
+  .stl-export-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 34px;
+    padding: 0 14px;
+    border-radius: 8px;
+    border: 1px solid #cbd5e1;
+    background: #f8fafc;
+    color: #0f172a;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .stl-export-btn:hover:not(:disabled) {
+    border-color: #93c5fd;
+    background: #f1f5f9;
+  }
+
+  .stl-export-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
   .table-wrap {
     margin-top: 12px;
-    overflow-x: auto;
+    max-height: 520px;
+    overflow: auto;
     border-radius: 10px;
     border: 1px solid #e2e8f0;
     background: #f8fafc;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .table-wrap::-webkit-scrollbar {
+    width: 0;
+    height: 0;
   }
 
   .stl-table {
@@ -905,6 +1301,9 @@
     padding: 12px 16px;
     text-align: left;
     border-bottom: 1px solid #dbeafe;
+    position: sticky;
+    top: 0;
+    z-index: 1;
   }
 
   .stl-table td {
@@ -951,86 +1350,6 @@
     cursor: not-allowed;
   }
 
-  .timeline-wrap {
-    margin-top: 20px;
-  }
-
-  .timeline {
-    margin-top: 10px;
-    display: grid;
-    gap: 16px;
-  }
-
-  .timeline-item {
-    display: flex;
-    gap: 12px;
-  }
-
-  .timeline-marker {
-    width: 24px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    flex-shrink: 0;
-  }
-
-  .timeline-dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 999px;
-    background: #3b82f6;
-  }
-
-  .timeline-line {
-    width: 2px;
-    flex: 1;
-    margin-top: 6px;
-    background: rgba(59, 130, 246, 0.45);
-  }
-
-  .timeline-content {
-    flex: 1;
-    border: 1px solid #e2e8f0;
-    border-radius: 10px;
-    background: #f8fafc;
-    padding: 10px 12px;
-  }
-
-  .timeline-date {
-    margin: 0 0 8px;
-    font-size: 13px;
-    font-weight: 700;
-    color: #0f172a;
-  }
-
-  .timeline-event {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    padding: 7px 9px;
-    border-radius: 8px;
-    font-size: 13px;
-  }
-
-  .timeline-event.login {
-    background: rgba(16, 185, 129, 0.12);
-    color: #047857;
-  }
-
-  .timeline-event.logout {
-    margin-top: 6px;
-    background: rgba(59, 130, 246, 0.12);
-    color: #1d4ed8;
-  }
-
-  .timeline-duration {
-    margin: 8px 0 0;
-    font-size: 12px;
-    color: #64748b;
-    font-weight: 600;
-  }
-
   .empty-state {
     border: 1px dashed #cbd5e1;
     border-radius: 12px;
@@ -1065,6 +1384,109 @@
     font-size: 13px;
     color: #64748b;
   }
+
+  .stl-attendance-print-root {
+    position: fixed;
+    left: -99999px;
+    top: 0;
+    width: 194mm;
+    z-index: -1;
+    pointer-events: none;
+  }
+
+  .stl-attendance-sheet {
+    width: 194mm;
+    background: #ffffff;
+    color: #000000;
+    padding: 10mm 8mm 8mm;
+    font-family: 'Times New Roman', Georgia, serif;
+    box-sizing: border-box;
+  }
+
+  .stl-attendance-head {
+    text-align: center;
+    margin-bottom: 8mm;
+    color: #000000;
+  }
+
+  .stl-attendance-head h1 {
+    margin: 0;
+    font-size: 22px;
+    letter-spacing: 0.02em;
+    font-weight: 700;
+    color: #000000;
+  }
+
+  .stl-attendance-head h2 {
+    margin: 6px 0 0;
+    font-size: 18px;
+    font-weight: 700;
+    color: #000000;
+  }
+
+  .stl-attendance-meta {
+    display: grid;
+    gap: 6px;
+    margin-bottom: 8mm;
+    color: #000000;
+    font-size: 14px;
+  }
+
+  .stl-attendance-meta-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .stl-attendance-meta-label {
+    min-width: 160px;
+    font-weight: 700;
+    color: #000000;
+  }
+
+  .stl-attendance-meta-value {
+    flex: 1;
+    min-height: 22px;
+    border-bottom: 1px solid #000000;
+    display: inline-flex;
+    align-items: flex-end;
+    padding-bottom: 2px;
+    color: #000000;
+  }
+
+  .stl-attendance-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    color: #000000;
+    font-size: 12px;
+  }
+
+  .stl-attendance-table th,
+  .stl-attendance-table td {
+    border: 1px solid #000000;
+    padding: 6px 4px;
+    text-align: center;
+    color: #000000;
+  }
+
+  .stl-attendance-table th {
+    font-weight: 700;
+    color: #000000;
+  }
+
+  .stl-attendance-table th:nth-child(1),
+  .stl-attendance-table td:nth-child(1) { width: 10%; }
+  .stl-attendance-table th:nth-child(2),
+  .stl-attendance-table td:nth-child(2) { width: 18%; }
+  .stl-attendance-table th:nth-child(3),
+  .stl-attendance-table td:nth-child(3) { width: 18%; }
+  .stl-attendance-table th:nth-child(4),
+  .stl-attendance-table td:nth-child(4) { width: 18%; }
+  .stl-attendance-table th:nth-child(5),
+  .stl-attendance-table td:nth-child(5) { width: 18%; }
+  .stl-attendance-table th:nth-child(6),
+  .stl-attendance-table td:nth-child(6) { width: 18%; }
 
   .sk-line,
   .sk-pill {
@@ -1121,6 +1543,10 @@
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
   }
 
+  :global(.dark) .stl-table-header {
+    border-bottom-color: rgba(148, 163, 184, 0.2);
+  }
+
   :global(.dark) .stl-card-success {
     border-color: rgba(16, 185, 129, 0.3);
     background: rgba(16, 185, 129, 0.12);
@@ -1128,15 +1554,14 @@
 
   :global(.dark) .section-title,
   :global(.dark) .stat-value,
-  :global(.dark) .empty-title,
-  :global(.dark) .timeline-date {
+  :global(.dark) .empty-title {
     color: #f1f5f9;
   }
 
   :global(.dark) .section-sub,
   :global(.dark) .stat-label,
-  :global(.dark) .empty-sub,
-  :global(.dark) .timeline-duration {
+  :global(.dark) .stat-sub,
+  :global(.dark) .empty-sub {
     color: #94a3b8;
   }
 
@@ -1156,9 +1581,26 @@
 
   :global(.dark) .stl-input,
   :global(.dark) .btn-secondary {
-    background: #1a2332;
-    border-color: rgba(255, 255, 255, 0.12);
+    background: #182234;
+    border-color: rgba(148, 163, 184, 0.24);
     color: #e2e8f0;
+  }
+
+  :global(.dark) .stl-entry-count,
+  :global(.dark) .stl-export-month {
+    color: #94a3b8;
+  }
+
+  :global(.dark) .stl-export-month input,
+  :global(.dark) .stl-export-btn {
+    background: #182234;
+    border-color: rgba(148, 163, 184, 0.24);
+    color: #e2e8f0;
+  }
+
+  :global(.dark) .stl-export-btn:hover:not(:disabled) {
+    background: #22314a;
+    border-color: rgba(96, 165, 250, 0.5);
   }
 
   :global(.dark) .selector-icon {
@@ -1166,8 +1608,8 @@
   }
 
   :global(.dark) .btn-secondary:hover:not(:disabled) {
-    background: #243047;
-    border-color: rgba(96, 165, 250, 0.42);
+    background: #22314a;
+    border-color: rgba(96, 165, 250, 0.5);
   }
 
   :global(.dark) .table-wrap {
@@ -1191,21 +1633,6 @@
 
   :global(.dark) .stl-table tbody tr:hover {
     background: rgba(59, 130, 246, 0.08);
-  }
-
-  :global(.dark) .timeline-content {
-    border-color: rgba(148, 163, 184, 0.2);
-    background: #1a2332;
-  }
-
-  :global(.dark) .timeline-event.login {
-    background: rgba(16, 185, 129, 0.2);
-    color: #6ee7b7;
-  }
-
-  :global(.dark) .timeline-event.logout {
-    background: rgba(59, 130, 246, 0.2);
-    color: #93c5fd;
   }
 
   :global(.dark) .empty-state {
@@ -1241,6 +1668,11 @@
     .control-actions {
       width: 100%;
     }
+
+    .stl-table-tools {
+      width: 100%;
+      justify-content: flex-start;
+    }
   }
 
   @media (max-width: 640px) {
@@ -1260,6 +1692,25 @@
     .control-actions {
       flex-direction: column;
       align-items: stretch;
+    }
+
+    .stl-table-header {
+      padding-left: 14px;
+      padding-right: 14px;
+    }
+
+    .stl-entry-count {
+      width: 100%;
+    }
+
+    .stl-export-month {
+      width: 100%;
+      justify-content: space-between;
+    }
+
+    .stl-export-month input,
+    .stl-export-btn {
+      width: 100%;
     }
   }
 
