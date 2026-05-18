@@ -1145,15 +1145,12 @@ function getSupervisorInfoMap_(userIds) {
 	var userIdIdx = headers.indexOf('user_id');
 	var fullNameIdx = headers.indexOf('full_name');
 	var emailIdx = headers.indexOf('email');
-	var roleIdx = headers.indexOf('role');
 	if (userIdIdx === -1) return infoMap;
 
 	for (var i = 1; i < values.length; i++) {
 		var row = values[i] || [];
 		var uid = String(row[userIdIdx] || '').trim();
 		if (!uid || userIds.indexOf(uid) === -1) continue;
-		var role = roleIdx !== -1 ? String(row[roleIdx] || '').trim().toLowerCase() : '';
-		if (role && role !== 'supervisor') continue;
 		infoMap[uid] = {
 			user_id: uid,
 			full_name: fullNameIdx !== -1 ? String(row[fullNameIdx] || '').trim() : '',

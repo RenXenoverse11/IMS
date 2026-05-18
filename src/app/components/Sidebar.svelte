@@ -219,7 +219,7 @@
       </button>
 
       <div class="ims-user-card">
-        <div class="ims-avatar">
+        <div class="ims-avatar" class:has-photo={Boolean(userPhotoUrl)}>
           {#if userPhotoUrl}
             <img src={userPhotoUrl} alt="{userName} avatar" class="ims-avatar-img" />
           {:else}
@@ -441,8 +441,8 @@
   .ims-user-card {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 8px 10px;
+    gap: 11px;
+    padding: 9px 10px;
     border-radius: 6px;
     background-color: transparent;
     overflow: hidden;
@@ -455,32 +455,42 @@
   }
 
   .ims-avatar {
-    width: 36px; height: 36px;
-    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    min-height: 40px;
+    flex: 0 0 40px;
+    aspect-ratio: 1 / 1;
+    border-radius: 999px;
     background: linear-gradient(135deg, var(--a), var(--p));
     color: #fff;
     font-size: 11px; font-weight: 700;
     display: grid; place-items: center;
     flex-shrink: 0; overflow: hidden;
   }
+  .ims-avatar.has-photo {
+    background: color-mix(in srgb, var(--s2) 86%, var(--s) 14%);
+  }
   .ims-avatar-img {
     width: 100%;
     height: 100%;
+    display: block;
+    aspect-ratio: 1 / 1;
     object-fit: cover;
-    object-position: center 28%;
-    border-radius: 50%;
+    object-position: center;
+    border-radius: inherit;
   }
 
   .ims-user-info { overflow: hidden; }
   .ims-user-name {
-    font-size: 12.5px;
+    font-size: 13px;
     font-weight: 600;
     color: var(--t);
     line-height: 1.2;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .ims-user-role {
-    font-size: 11px;
+    font-size: 11.5px;
     color: color-mix(in srgb, var(--t2) 90%, var(--t) 10%);
     line-height: 1.15;
     white-space: nowrap;

@@ -1689,30 +1689,43 @@
 
   <!-- Stat Cards -->
   <div class="stat-cards">
-    <div class="stat-card">
-      <div class="stat-icon tone-blue"><FolderOpen size={16} /></div>
-      <div class="stat-body">
-        <div class="stat-label">Total Projects</div>
-        <div class="stat-value">{totalProjects}</div>
-        <div class="stat-sub">All assigned projects</div>
+    {#if isLoading}
+      {#each [1, 2, 3] as _}
+        <div class="stat-card stat-card-skeleton" aria-hidden="true">
+          <div class="stat-icon stat-icon-skeleton ov-skeleton shimmer"></div>
+          <div class="stat-body stat-body-skeleton">
+            <div class="ov-skeleton shimmer" style="height: 11px; width: 108px;"></div>
+            <div class="ov-skeleton shimmer" style="height: 24px; width: 34px;"></div>
+            <div class="ov-skeleton shimmer" style="height: 11px; width: 132px;"></div>
+          </div>
+        </div>
+      {/each}
+    {:else}
+      <div class="stat-card">
+        <div class="stat-icon tone-blue"><FolderOpen size={16} /></div>
+        <div class="stat-body">
+          <div class="stat-label">Total Projects</div>
+          <div class="stat-value">{totalProjects}</div>
+          <div class="stat-sub">All assigned projects</div>
+        </div>
       </div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-icon tone-amber"><Clock3 size={16} /></div>
-      <div class="stat-body">
-        <div class="stat-label">In Progress</div>
-        <div class="stat-value">{inProgressCount}</div>
-        <div class="stat-sub">Currently active projects</div>
+      <div class="stat-card">
+        <div class="stat-icon tone-amber"><Clock3 size={16} /></div>
+        <div class="stat-body">
+          <div class="stat-label">In Progress</div>
+          <div class="stat-value">{inProgressCount}</div>
+          <div class="stat-sub">Currently active projects</div>
+        </div>
       </div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-icon tone-green"><CheckCircle2 size={16} /></div>
-      <div class="stat-body">
-        <div class="stat-label">Completed</div>
-        <div class="stat-value">{completedCount}</div>
-        <div class="stat-sub">Finished projects</div>
+      <div class="stat-card">
+        <div class="stat-icon tone-green"><CheckCircle2 size={16} /></div>
+        <div class="stat-body">
+          <div class="stat-label">Completed</div>
+          <div class="stat-value">{completedCount}</div>
+          <div class="stat-sub">Finished projects</div>
+        </div>
       </div>
-    </div>
+    {/if}
   </div>
   
     <!-- Quick panel (copied from SupervisorActivity) -->
@@ -3020,6 +3033,18 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
+  }
+  .stat-card-skeleton {
+    pointer-events: none;
+    transform: none !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
+  }
+  .stat-icon-skeleton {
+    background: transparent;
+  }
+  .stat-body-skeleton {
+    width: 100%;
+    gap: 7px;
   }
   .tone-blue {
     background: rgba(37, 99, 235, 0.12);

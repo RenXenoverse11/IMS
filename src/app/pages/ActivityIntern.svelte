@@ -216,6 +216,14 @@ function getUserFullName(idOrEmail) {
   return String(idOrEmail);
 }
 
+function getSupervisorOptionLabel(supervisor) {
+  const userId = String(supervisor?.user_id || '').trim();
+  const email = String(supervisor?.email || '').trim();
+  const resolved = getUserFullName(userId || email);
+  if (resolved && resolved !== userId && resolved !== email) return resolved;
+  return String(supervisor?.full_name || '').trim() || email || userId || 'Unknown supervisor';
+}
+
 import { getCurrentUser, subscribeToCurrentUser } from '../lib/auth.js';
 import {
   AlertCircle,
@@ -2134,7 +2142,7 @@ let assignedTasksError = '';
                 {:else}
                   {#each assignedSupervisors as supervisor}
                     <option value={supervisor.user_id}>
-                      {supervisor.full_name || supervisor.email || supervisor.user_id}
+                      {getSupervisorOptionLabel(supervisor)}
                     </option>
                   {/each}
                 {/if}
@@ -3202,7 +3210,7 @@ let assignedTasksError = '';
               {:else}
                 {#each assignedSupervisors as supervisor}
                   <option value={supervisor.user_id}>
-                    {supervisor.full_name || supervisor.email || supervisor.user_id}
+                    {getSupervisorOptionLabel(supervisor)}
                   </option>
                 {/each}
               {/if}
@@ -6198,15 +6206,15 @@ let assignedTasksError = '';
   }
 
   .activity-shell.projects-page .worklog-list-card {
-    height: 420px;
-    min-height: 420px;
+    height: 500px;
+    min-height: 500px;
     display: flex;
     flex-direction: column;
   }
 
   .activity-shell.projects-page .worklog-form-card {
-    height: 420px;
-    min-height: 420px;
+    height: 500px;
+    min-height: 500px;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -6218,6 +6226,7 @@ let assignedTasksError = '';
     display: flex;
     flex-direction: column;
     overflow-y: auto;
+    padding-bottom: 0.45rem;
     padding-right: 2px;
     scrollbar-width: none;
     -ms-overflow-style: none;

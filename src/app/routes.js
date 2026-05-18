@@ -17,7 +17,7 @@ export const pageMeta = {
   },
   '/requests': {
     title: 'Requests',
-    description: 'Manage your absence and overtime requests',
+    description: 'Manage absence and overtime.',
   },
   '/activity': {
     title: 'Activity Log',
@@ -25,11 +25,11 @@ export const pageMeta = {
   },
   '/documents': {
     title: 'Documents',
-    description: 'Upload and manage important documents.',
+    description: 'Manage your documents.',
   },
   '/settings': {
     title: 'Settings',
-    description: 'Manage account preferences and profile.',
+    description: 'Manage your profile.',
   },
   '/projects': {
     title: 'Projects',
