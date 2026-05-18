@@ -4961,10 +4961,16 @@ function handleDeleteDocument_(payload) {
       return { ok: false, error: 'Documents sheet not found.' };
     }
 
+    // Get user record to check role
+    var userRecord = findUserRecordByUserId_(userId);
+    var userRole = userRecord && userRecord.user ? String(userRecord.user.role || '') : '';
+    var isSupervisor = userRole === 'Supervisor';
+
     var data = sheet.getDataRange().getValues();
     Logger.log('=== DELETE DOCUMENT REQUEST ===');
     Logger.log('Requested docId: [' + docId + ']');
     Logger.log('Requested userId: [' + userId + ']');
+    Logger.log('User role: ' + userRole);
     Logger.log('Total rows in sheet: ' + data.length);
     
     for (var i = 1; i < data.length; i++) {
@@ -4975,10 +4981,19 @@ function handleDeleteDocument_(payload) {
       
       Logger.log('Row ' + i + ': docId=[' + rowDocId + '], userId=[' + rowUserId + '], created_by=[' + rowCreatedBy + '], name=[' + String(row[2] || '') + ']');
       
-      if (rowDocId === docId && (rowUserId === userId || rowCreatedBy === userId)) {
-        sheet.deleteRow(i + 1);
-        Logger.log('✓ Document DELETED - Row: ' + (i + 1));
-        return { ok: true, message: 'Document deleted successfully.' };
+      if (rowDocId === docId && rowUserId === userId) {
+        // Check permissions: Supervisor can delete any document, Interns can only delete their own
+        if (isSupervisor || rowCreatedBy === userId) {
+          sheet.deleteRow(i + 1);
+          Logger.log('✓ Document DELETED - Row: ' + (i + 1));
+          return { ok: true, message: 'Document deleted successfully.' };
+        } else {
+          Logger.log('✗ Permission denied - Document created by: ' + rowCreatedBy + ', Requester: ' + userId);
+          return { 
+            ok: false, 
+            error: 'You do not have permission to delete this document. Only supervisors and the document creator can delete it.' 
+          };
+        }
       }
     }
 
