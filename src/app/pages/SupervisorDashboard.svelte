@@ -479,6 +479,18 @@
     {/if}
 
     <div class="dash-stat-grid">
+      {#if loading}
+        {#each [1, 2, 3, 4] as _}
+          <div class="dash-stat-card dash-stat-card-skeleton" aria-hidden="true">
+            <div class="dash-stat-icon dash-stat-icon-skeleton sk-line shimmer"></div>
+            <div class="dash-stat-body dash-stat-body-skeleton">
+              <div class="sk-line shimmer" style="height: 11px; width: 120px; border-radius: 7px;"></div>
+              <div class="sk-line shimmer" style="height: 24px; width: 34px; border-radius: 8px;"></div>
+              <div class="sk-line shimmer" style="height: 11px; width: 112px; border-radius: 7px;"></div>
+            </div>
+          </div>
+        {/each}
+      {:else}
       <div class="dash-stat-card">
         <div class="dash-stat-icon stat-icon-assigned"><Users size={18} /></div>
         <div class="dash-stat-body">
@@ -514,6 +526,7 @@
           <div class="dash-stat-sub">Approved leave records</div>
         </div>
       </div>
+      {/if}
     </div>
 
     <section class="dash-panel dash-panel-wide">
@@ -757,6 +770,19 @@
     flex-direction: column;
     justify-content: center;
     gap: 4px;
+  }
+  .dash-stat-card-skeleton {
+    pointer-events: none;
+  }
+
+  .dash-stat-icon-skeleton {
+    background: rgba(148, 163, 184, 0.1);
+    border: 1px solid rgba(148, 163, 184, 0.12);
+  }
+
+  .dash-stat-body-skeleton {
+    width: 100%;
+    gap: 7px;
   }
 
   .dash-stat-icon :global(svg) {

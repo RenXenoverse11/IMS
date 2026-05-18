@@ -37,7 +37,7 @@ export const pageMeta = {
   },
   '/supervisor': {
     title: 'Supervisor Dashboard',
-    description: 'Assign students and monitor internship progress.',
+    description: 'Assign and monitor interns.',
   },
   '/supervisor/interns': {
     title: 'Intern Management',
