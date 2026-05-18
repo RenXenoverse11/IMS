@@ -74,6 +74,13 @@
   // Folder Selection in Folders Tab
   let selectedFolderInTab = null;
 
+  // Folder Bulk Selection State
+  let selectedFolders = new Set();
+  let selectAllFoldersChecked = false;
+  let showFolderBulkActions = false;
+  let showDeleteFoldersConfirm = false;
+  let isDeleteFoldersProcessing = false;
+
   const AUTH_SESSION_STORAGE_KEY = 'ims-auth-session-user';
 
   $: filteredDocuments = documents.filter((doc) => {
@@ -910,8 +917,163 @@
       currentFolder = '/';
     }
 
+    // Call backend to persist the deletion
+    callBackend_('delete_folder', {
+      user_id: userId,
+      folder_path: normalizedPath
+    }).then(response => {
+      if (response?.ok) {
+        showActionMessage_('Folder deleted successfully.');
+      } else {
+        showActionMessage_('Error deleting folder: ' + (response?.error || 'Unknown error'), 'error');
+        // Reload folders if delete failed to restore the UI
+        loadFolders_();
+      }
+    }).catch(err => {
+      console.error('Delete folder error:', err);
+      showActionMessage_('Error deleting folder. Please try again.', 'error');
+      // Reload folders if delete failed to restore the UI
+      loadFolders_();
+    });
+
     showDeleteFolderConfirm = false;
     folderToDelete = null;
+  }
+
+  function canDeleteFolder_(folder) {
+    // Supervisors can delete any folder
+    if (isSupervisor) {
+      return true;
+    }
+    
+    // Interns can only delete folders they created
+    const creatorId = typeof folder === 'string' ? '' : (folder.createdBy || '');
+    return creatorId === userId;
+  }
+
+  function toggleFolderSelection(folderPath) {
+    if (!canDeleteFolder_(folderStructure.root.subfolders.find(f => {
+      const fPath = typeof f === 'string' ? f : f.path;
+      return fPath === folderPath;
+    }))) {
+      showActionMessage_('You do not have permission to delete this folder.', 'error');
+      return;
+    }
+
+    if (selectedFolders.has(folderPath)) {
+      selectedFolders.delete(folderPath);
+    } else {
+      selectedFolders.add(folderPath);
+    }
+    selectedFolders = selectedFolders; // trigger reactivity
+    updateSelectAllFoldersStatus();
+  }
+
+  function toggleSelectAllFolders() {
+    if (selectAllFoldersChecked) {
+      // Deselect all
+      selectedFolders.clear();
+      selectAllFoldersChecked = false;
+    } else {
+      // Select all folders that the user can delete
+      currentChildFolders.forEach(folder => {
+        const folderPath = typeof folder === 'string' ? folder : folder.path;
+        if (canDeleteFolder_(folder)) {
+          selectedFolders.add(folderPath);
+        }
+      });
+      selectAllFoldersChecked = true;
+    }
+    selectedFolders = selectedFolders; // trigger reactivity
+  }
+
+  function updateSelectAllFoldersStatus() {
+    const deletableFolders = currentChildFolders.filter(f => canDeleteFolder_(f));
+    if (deletableFolders.length === 0) {
+      selectAllFoldersChecked = false;
+    } else {
+      const deletablePaths = deletableFolders.map(f => typeof f === 'string' ? f : f.path);
+      selectAllFoldersChecked = deletablePaths.every(path => selectedFolders.has(path));
+    }
+  }
+
+  function toggleFolderBulkActions() {
+    showFolderBulkActions = !showFolderBulkActions;
+    if (!showFolderBulkActions) {
+      selectedFolders.clear();
+      selectAllFoldersChecked = false;
+    }
+  }
+
+  async function deleteBulkFolders() {
+    if (selectedFolders.size === 0) return;
+    showDeleteFoldersConfirm = true;
+  }
+
+  async function confirmBulkDeleteFolders() {
+    if (selectedFolders.size === 0) return;
+    isDeleteFoldersProcessing = true;
+
+    try {
+      let successCount = 0;
+      let errorCount = 0;
+
+      for (const folderPath of selectedFolders) {
+        try {
+          // Call backend to delete the folder
+          const response = await callBackend_('delete_folder', {
+            user_id: userId,
+            folder_path: folderPath
+          });
+
+          if (response?.ok) {
+            // Move all documents from this folder to root
+            documents = documents.map(doc =>
+              normalizeFolderPath_(doc.folder) === folderPath ? { ...doc, folder: '/' } : doc
+            );
+
+            // Remove folder from structure
+            folderStructure.root.subfolders = folderStructure.root.subfolders.filter(
+              f => {
+                const fPath = typeof f === 'string' ? f : f.path;
+                return normalizeFolderPath_(fPath) !== folderPath;
+              }
+            );
+
+            successCount++;
+
+            // Reset currentFolder if it was a deleted folder
+            if (currentFolder === folderPath) {
+              currentFolder = '/';
+            }
+          } else {
+            console.error('Delete failed for folder:', folderPath, response);
+            errorCount++;
+          }
+        } catch (err) {
+          console.error('Error deleting folder:', folderPath, err);
+          errorCount++;
+        }
+      }
+
+      // Clear selection
+      selectedFolders.clear();
+      selectAllFoldersChecked = false;
+      selectedFolders = selectedFolders; // trigger reactivity
+      showDeleteFoldersConfirm = false;
+      isDeleteFoldersProcessing = false;
+
+      if (errorCount === 0) {
+        showActionMessage_(`Successfully deleted ${successCount} folder${successCount !== 1 ? 's' : ''}.`);
+      } else {
+        showActionMessage_(`Deleted ${successCount} folder${successCount !== 1 ? 's' : ''}. Failed to delete ${errorCount}.`, 'error');
+      }
+    } catch (err) {
+      console.error('Bulk delete folders error:', err);
+      showActionMessage_('Error deleting folders', 'error');
+      showDeleteFoldersConfirm = false;
+      isDeleteFoldersProcessing = false;
+    }
   }
 
   function formatDate(dateStr) {
@@ -1156,7 +1318,7 @@
                     Cancel
                   </button>
                 {:else}
-                  <span class="docs-count">{isFolderOpen ? folderDocuments.length : filteredDocuments.length} items</span>
+                  <span class="docs-count">{documentFilter === 'folders' ? currentChildFolders.length : (isFolderOpen ? folderDocuments.length : filteredDocuments.length)} items</span>
                   <button class="btn btn-ghost" on:click={() => (showCreateFolderModal = true)}>
                     <Folder size={14} />
                     <span>Create Folder</span>
@@ -1167,10 +1329,29 @@
                   </button>
                   <button 
                     class="select-btn"
-                    on:click={toggleBulkActions}
+                    on:click={() => documentFilter === 'folders' ? toggleFolderBulkActions() : toggleBulkActions()}
                   >
                     Select
                   </button>
+                  {#if documentFilter === 'folders' && showFolderBulkActions}
+                    <button 
+                      class="btn btn-secondary"
+                      on:click={toggleSelectAllFolders}
+                      title="Select/deselect all deletable folders"
+                    >
+                      {selectAllFoldersChecked ? 'Deselect All' : 'Select All'}
+                    </button>
+                  {/if}
+                  {#if documentFilter === 'folders' && showFolderBulkActions && selectedFolders.size > 0}
+                    <button 
+                      class="btn btn-danger"
+                      disabled={isDeleteFoldersProcessing}
+                      on:click={deleteBulkFolders}
+                    >
+                      <Trash2 size={14} />
+                      Delete ({selectedFolders.size})
+                    </button>
+                  {/if}
                 {/if}
               </div>
             </div>
@@ -1181,9 +1362,13 @@
                 <table class="folders-table">
                   <thead>
                     <tr>
+                      <th class="col-checkbox"></th>
                       <th>Name</th>
                       <th>Created By</th>
                       <th>Files</th>
+                      {#if showFolderBulkActions}
+                        <th class="col-actions">Actions</th>
+                      {/if}
                     </tr>
                   </thead>
                   <tbody>
@@ -1191,12 +1376,30 @@
                       {@const folderPath = typeof folder === 'string' ? folder : folder.path}
                       {@const creatorName = typeof folder === 'string' ? '–' : (folder.createdByName || folder.createdBy || '–')}
                       {@const folderDocs = documents.filter(doc => normalizeFolderPath_(doc.folder) === folderPath)}
+                      {@const canDelete = canDeleteFolder_(folder)}
                       <tr 
                         class="table-row"
                         class:active={selectedFolderInTab === folderPath}
-                        on:click={() => openDocumentFolder_(folderPath)}
+                        on:click={() => {
+                          if (showFolderBulkActions) {
+                            toggleFolderSelection(folderPath);
+                          } else {
+                            openDocumentFolder_(folderPath);
+                          }
+                        }}
                         style="cursor: pointer;"
                       >
+                        <td class="col-checkbox" style="visibility: {showFolderBulkActions ? 'visible' : 'hidden'};">
+                          {#if showFolderBulkActions}
+                            <input 
+                              type="checkbox" 
+                              checked={selectedFolders.has(folderPath)}
+                              disabled={!canDelete}
+                              on:change={() => toggleFolderSelection(folderPath)}
+                              on:click={(e) => e.stopPropagation()}
+                            />
+                          {/if}
+                        </td>
                         <td class="col-name">
                           <div class="file-info">
                             <div class="file-icon">
@@ -1211,6 +1414,27 @@
                         <td class="col-files">
                           <span class="files-count">{folderDocs.length}</span>
                         </td>
+                        {#if showFolderBulkActions}
+                          <td class="col-actions">
+                            {#if canDelete}
+                              <button 
+                                class="icon-btn delete-btn"
+                                title="Delete folder"
+                                on:click={(e) => {
+                                  e.stopPropagation();
+                                  folderToDelete = folder;
+                                  showDeleteFolderConfirm = true;
+                                }}
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            {:else}
+                              <span class="permission-denied" title="You don't have permission to delete this folder">
+                                🔒
+                              </span>
+                            {/if}
+                          </td>
+                        {/if}
                       </tr>
                       {#if false && selectedFolderInTab === folderPath}
                         <tr class="folder-details-row">
@@ -1600,7 +1824,7 @@
       <div class="modal modal-create-folder" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
           <h2>Review Document</h2>
-          <button class="close-btn" on:click={() => cancelUpload()} disabled={isUploading}>Ã—</button>
+          <button class="close-btn" on:click={() => cancelUpload()} disabled={isUploading}>×</button>
         </div>
 
         <div class="modal-body">
@@ -1658,7 +1882,7 @@
       <div class="modal" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
           <h2>Add Link</h2>
-          <button class="close-btn" on:click={() => (showLinkModal = false)}>Ã—</button>
+          <button class="close-btn" on:click={() => (showLinkModal = false)}>×</button>
         </div>
 
         <div class="modal-body">
@@ -1833,7 +2057,7 @@
       <div class="modal" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
           <h2>Rename Folder</h2>
-          <button class="close-btn" on:click={() => (showRenameFolderModal = false)}>Ã—</button>
+          <button class="close-btn" on:click={() => (showRenameFolderModal = false)}>×</button>
         </div>
 
         <div class="modal-body">
@@ -1862,25 +2086,27 @@
 
   <!-- Delete Folder Confirmation Modal -->
   {#if showDeleteFolderConfirm && folderToDelete}
+    {@const folderPath = typeof folderToDelete === 'string' ? folderToDelete : folderToDelete.path}
+    {@const folderName = getFolderNameFromPath_(folderPath)}
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div class="modal-overlay" on:click={() => (showDeleteFolderConfirm = false)}>
       <div class="modal" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
           <h2>Delete Folder</h2>
-          <button class="close-btn" on:click={() => (showDeleteFolderConfirm = false)}>Ã—</button>
+          <button class="close-btn" on:click={() => (showDeleteFolderConfirm = false)}>×</button>
         </div>
 
         <div class="modal-body">
           <div class="confirmation-content">
-            <p>Are you sure you want to delete the folder <strong>"{folderToDelete}"</strong>?</p>
+            <p>Are you sure you want to delete the folder <strong>"{folderName}"</strong>?</p>
             <p class="warning-text">All documents in this folder will be moved to the root "All Documents" location. This action cannot be undone.</p>
           </div>
         </div>
 
         <div class="modal-footer">
           <button class="btn btn-secondary" on:click={() => (showDeleteFolderConfirm = false)}>Cancel</button>
-          <button class="btn btn-danger" on:click={() => deleteFolder(folderToDelete)}>
+          <button class="btn btn-danger" on:click={() => deleteFolder(folderPath)}>
             <span>Delete Folder</span>
           </button>
         </div>
@@ -1899,7 +2125,7 @@
             <Trash2 size={24} />
           </div>
           <h2>Delete Document</h2>
-          <button class="close-btn" on:click={() => (showDeleteConfirm = false)}>Ã—</button>
+          <button class="close-btn" on:click={() => (showDeleteConfirm = false)}>×</button>
         </div>
 
         <div class="modal-body">
@@ -1935,7 +2161,7 @@
             <Trash2 size={24} />
           </div>
           <h2>Delete Documents</h2>
-          <button class="close-btn" on:click={() => (showBulkDeleteConfirm = false)}>Ã—</button>
+          <button class="close-btn" on:click={() => (showBulkDeleteConfirm = false)}>×</button>
         </div>
 
         <div class="modal-body">
@@ -1960,6 +2186,42 @@
     </div>
   {/if}
 
+  <!-- Delete Multiple Folders Confirmation Modal -->
+  {#if showDeleteFoldersConfirm && selectedFolders.size > 0}
+    <!-- svelte-ignore a11y-click-events-have-key-events -->
+    <!-- svelte-ignore a11y-no-static-element-interactions -->
+    <div class="modal-overlay" on:click={() => (showDeleteFoldersConfirm = false)}>
+      <div class="modal delete-modal" on:click={(e) => e.stopPropagation()}>
+        <div class="modal-header">
+          <div class="delete-icon-container">
+            <Trash2 size={24} />
+          </div>
+          <h2>Delete Folders</h2>
+          <button class="close-btn" on:click={() => (showDeleteFoldersConfirm = false)}>×</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="confirmation-content">
+            <p>Are you sure you want to delete <strong>{selectedFolders.size} folder{selectedFolders.size !== 1 ? 's' : ''}</strong>?</p>
+            <p class="warning-text">All documents in these folders will be permanently deleted. This action cannot be undone.</p>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn btn-secondary" on:click={() => (showDeleteFoldersConfirm = false)} disabled={isDeleteFoldersProcessing}>Cancel</button>
+          <button class="btn btn-danger" on:click={confirmBulkDeleteFolders} disabled={isDeleteFoldersProcessing}>
+            {#if isDeleteFoldersProcessing}
+              <span class="spinning-icon"><Loader2 size={16} /></span>
+            {:else}
+              <Trash2 size={16} />
+            {/if}
+            <span>{isDeleteFoldersProcessing ? `Deleting (${[...selectedFolders].length})...` : `Delete ${selectedFolders.size} Folder${selectedFolders.size !== 1 ? 's' : ''}`}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
   <!-- Share Modal -->
   {#if showShareModal && selectedDocForShare}
     <!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -1968,7 +2230,7 @@
       <div class="modal" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
           <h2>Share "{selectedDocForShare.name}"</h2>
-          <button class="close-btn" on:click={() => (showShareModal = false)}>Ã—</button>
+          <button class="close-btn" on:click={() => (showShareModal = false)}>×</button>
         </div>
 
         <div class="modal-body">
@@ -4607,12 +4869,62 @@
     text-align: left;
   }
 
+  .col-checkbox {
+    width: 40px;
+    padding: 8px 12px;
+  }
+
+  .col-checkbox input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    accent-color: #3b82f6;
+  }
+
+  .col-checkbox input[type="checkbox"]:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
+  .col-actions {
+    width: 50px;
+    text-align: center;
+  }
+
+  .permission-denied {
+    display: inline-block;
+    font-size: 16px;
+    opacity: 0.5;
+  }
+
+  .folders-actions-bar {
+    padding: 1rem 1.5rem 0.5rem 1.5rem;
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+  }
+
+  .btn-danger {
+    background: #ef4444;
+    color: white;
+    border: 1px solid #dc2626;
+  }
+
+  .btn-danger:hover:not(:disabled) {
+    background: #dc2626;
+    border-color: #b91c1c;
+  }
+
+  .btn-danger:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
   .creator-name,
   .files-count {
     font-size: 13px;
     color: #cbd5e1;
   }
-
   .action-buttons {
     display: flex;
     gap: 6px;

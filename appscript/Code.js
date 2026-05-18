@@ -199,6 +199,10 @@ function dispatchAction_(payload) {
     return handleCreateFolder_(payload);
   }
 
+  if (action === 'delete_folder') {
+    return handleDeleteFolder_(payload);
+  }
+
   if (action === 'get_document_folders') {
     return handleGetDocumentFolders_(payload);
   }
@@ -5157,6 +5161,63 @@ function handleCreateFolder_(payload) {
         created_by_name: createdByName
       }
     };
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) };
+  }
+}
+
+function handleDeleteFolder_(payload) {
+  try {
+    var userId = String(payload.user_id || '').trim();
+    var folderPath = normalizeDocumentFolderPath_(payload.folder_path || '');
+
+    if (!userId || !folderPath) {
+      return { ok: false, error: 'Missing user_id or folder_path.' };
+    }
+
+    var sheet = getOrCreateSheetWithHeaders_(DOCUMENT_FOLDERS_SHEET_, DOCUMENT_FOLDERS_HEADERS_);
+    var rows = readSheetObjects_(sheet);
+    var normalizedPath = folderPath.toLowerCase();
+    var folderIndex = -1;
+    var canDelete = false;
+    var folderCreatedBy = '';
+
+    // Find the folder and check permissions
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      if (String(row.user_id || '').trim() !== userId) {
+        continue;
+      }
+
+      var existingPath = normalizeDocumentFolderPath_(row.path || '').toLowerCase();
+      if (existingPath === normalizedPath) {
+        folderIndex = i;
+        folderCreatedBy = String(row.created_by || '').trim();
+        
+        // Check if user is supervisor or created the folder
+        var userRecord = findUserRecordByUserId_(userId);
+        var userRole = userRecord && userRecord.user ? String(userRecord.user.role || '') : '';
+        var isSupervisor = userRole === 'Supervisor';
+        
+        if (isSupervisor || folderCreatedBy === userId) {
+          canDelete = true;
+        }
+        break;
+      }
+    }
+
+    if (folderIndex === -1) {
+      return { ok: false, error: 'Folder not found.' };
+    }
+
+    if (!canDelete) {
+      return { ok: false, error: 'You do not have permission to delete this folder.' };
+    }
+
+    // Delete the folder from the sheet (remove the row at folderIndex + 2 because row 1 is headers)
+    sheet.deleteRow(folderIndex + 2);
+
+    return { ok: true, message: 'Folder deleted successfully.' };
   } catch (err) {
     return { ok: false, error: err.message || String(err) };
   }
