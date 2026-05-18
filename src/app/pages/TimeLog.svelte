@@ -397,13 +397,6 @@
     }
   }
 
-  function getCurrentTime() {
-    const now = new Date();
-    const hours = String(now.getHours()).padStart(2, '0');
-    const minutes = String(now.getMinutes()).padStart(2, '0');
-    return `${hours}:${minutes}`;
-  }
-
   async function handleLogin() {
     if (!date || !timeIn) {
       logSyncError = 'Please select a date and enter your login time.';
@@ -422,7 +415,10 @@
     let finalTimeIn = timeIn;
     const today = new Date().toISOString().split('T')[0];
     if (date === today && timeIn === DEFAULT_TIME_IN) {
-      finalTimeIn = getCurrentTime();
+      const now = new Date();
+      const hours = String(now.getHours()).padStart(2, '0');
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      finalTimeIn = `${hours}:${minutes}`;
       timeIn = finalTimeIn;
     }
     
@@ -1175,18 +1171,7 @@
         </div>
         <div class="tl-field">
           <label for="tl-time-in">Login Time <span class="tl-req">*</span></label>
-          <div style="display: flex; gap: 0.5rem; align-items: center;">
-            <input id="tl-time-in" type="time" bind:value={timeIn} style="flex: 1;" />
-            <button 
-              class="tl-btn-secondary" 
-              type="button" 
-              on:click={() => (timeIn = getCurrentTime())}
-              title="Use current time"
-              style="padding: 0.5rem 0.75rem; font-size: 0.85rem; white-space: nowrap;"
-            >
-              Now
-            </button>
-          </div>
+          <input id="tl-time-in" type="time" bind:value={timeIn} />
         </div>
         <button class="tl-btn-primary" type="button" on:click={handleLogin} disabled={!canLogin || isLoggingIn}>
           {#if isLoggingIn}
@@ -1756,26 +1741,6 @@
     opacity: 0.5;
     cursor: not-allowed;
     transform: none !important;
-  }
-  .tl-btn-secondary {
-    padding: 8px 12px;
-    background: var(--tl-bg-secondary, #f3f4f6);
-    border: 1px solid var(--tl-border, #e5e7eb);
-    border-radius: var(--tl-radius-sm);
-    color: var(--tl-text-secondary, #6b7280);
-    font-family: 'DM Sans', inherit;
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-  .tl-btn-secondary:hover:not(:disabled) {
-    background: var(--tl-bg-tertiary, #e5e7eb);
-    color: var(--tl-text-primary, #374151);
-  }
-  .tl-btn-secondary:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
   }
   .tl-btn-danger {
     width: 100%;
