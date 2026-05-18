@@ -548,37 +548,54 @@
 {:else}
   <div class="content">
     <div class="stats-grid">
-      <div class="stat-card stat-blue">
-        <div class="stat-icon"><UserRoundCheck size={18} /></div>
-        <div class="stat-copy">
-          <p class="stat-value">{totalAssigned}</p>
-          <p class="stat-label">Assigned Interns</p>
+      {#if loading}
+        {#each [1, 2, 3, 4] as _}
+          <div class="stat-card stat-card-skeleton" aria-hidden="true">
+            <div class="stat-icon stat-icon-skeleton sk-line shimmer"></div>
+            <div class="stat-copy stat-copy-skeleton">
+              <div class="sk-line shimmer" style="height: 11px; width: 118px; border-radius: 7px;"></div>
+              <div class="sk-line shimmer" style="height: 24px; width: 34px; border-radius: 8px;"></div>
+              <div class="sk-line shimmer" style="height: 11px; width: 126px; border-radius: 7px;"></div>
+            </div>
+          </div>
+        {/each}
+      {:else}
+        <div class="stat-card stat-blue">
+          <div class="stat-icon"><UserRoundCheck size={18} /></div>
+          <div class="stat-copy">
+            <p class="stat-label">Assigned Interns</p>
+            <p class="stat-value">{totalAssigned}</p>
+            <p class="stat-sub">Total active interns</p>
+          </div>
         </div>
-      </div>
 
-      <div class="stat-card stat-success">
-        <div class="stat-icon"><Check size={18} /></div>
-        <div class="stat-copy">
-          <p class="stat-value" title={String(totalCompletedHours)}>{formatHours(totalCompletedHours)}</p>
-          <p class="stat-label">Completed Hours</p>
+        <div class="stat-card stat-success">
+          <div class="stat-icon"><Check size={18} /></div>
+          <div class="stat-copy">
+            <p class="stat-label">Completed Hours</p>
+            <p class="stat-value" title={String(totalCompletedHours)}>{formatHours(totalCompletedHours)}</p>
+            <p class="stat-sub">Logged by assigned interns</p>
+          </div>
         </div>
-      </div>
 
-      <div class="stat-card stat-violet">
-        <div class="stat-icon"><TrendingUp size={18} /></div>
-        <div class="stat-copy">
-          <p class="stat-value">{averageProgress}%</p>
-          <p class="stat-label">Average Progress</p>
+        <div class="stat-card stat-violet">
+          <div class="stat-icon"><TrendingUp size={18} /></div>
+          <div class="stat-copy">
+            <p class="stat-label">Average Progress</p>
+            <p class="stat-value">{averageProgress}%</p>
+            <p class="stat-sub">Across assigned interns</p>
+          </div>
         </div>
-      </div>
 
-      <div class="stat-card stat-cyan">
-        <div class="stat-icon"><Clock3 size={18} /></div>
-        <div class="stat-copy">
-          <p class="stat-value" title={String(totalRequiredHours)}>{formatHours(totalRequiredHours)}</p>
-          <p class="stat-label">Required Hours</p>
+        <div class="stat-card stat-cyan">
+          <div class="stat-icon"><Clock3 size={18} /></div>
+          <div class="stat-copy">
+            <p class="stat-label">Required Hours</p>
+            <p class="stat-value" title={String(totalRequiredHours)}>{formatHours(totalRequiredHours)}</p>
+            <p class="stat-sub">Total OJT target hours</p>
+          </div>
         </div>
-      </div>
+      {/if}
     </div>
 
     <div class="card">
@@ -1123,7 +1140,7 @@
     padding: 18px 20px;
     min-height: 104px;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 14px;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
   }
@@ -1187,8 +1204,28 @@
   .stat-copy {
     display: flex;
     flex-direction: column;
-    justify-content: center;
+    justify-content: flex-start;
     gap: 4px;
+  }
+
+  .stat-card-skeleton {
+    pointer-events: none;
+  }
+
+  .stat-icon-skeleton {
+    background: rgba(148, 163, 184, 0.12);
+    border: 1px solid rgba(148, 163, 184, 0.18);
+  }
+
+  .stat-copy-skeleton {
+    width: 100%;
+    gap: 7px;
+  }
+
+  .stat-sub {
+    margin: 0;
+    font-size: 11.5px;
+    color: #64748b;
   }
 
   .card {
@@ -2244,6 +2281,10 @@
 
   :global(.dark) .stat-label {
     color: #ffffff;
+  }
+
+  :global(.dark) .stat-sub {
+    color: #94a3b8;
   }
 
   :global(.dark) .search-input {
