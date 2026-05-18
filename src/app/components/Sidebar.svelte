@@ -47,6 +47,7 @@
     student: 'Intern',
     supervisor: 'Supervisor',
   };
+  let avatarVersion = 0;
 
   function buildInitials(fullName) {
     const value = String(fullName || '').trim();
@@ -73,9 +74,31 @@
     return ROLE_LABEL_MAP[key] || formatRole(key);
   }
 
+  function normalizeDepartment(department) {
+    const value = String(department || '').trim();
+    if (value.toUpperCase() === 'INTERNATIONAL NOC') return 'ISOC';
+    return value;
+  }
+
+  function buildAvatarUrl(rawUrl, version) {
+    const base = String(rawUrl || '').trim();
+    if (!base) return '';
+    if (base.startsWith('data:')) return base;
+    const separator = base.includes('?') ? '&' : '?';
+    return `${base}${separator}v=${encodeURIComponent(String(version || 0))}`;
+  }
+
   $: userName     = String(currentUser?.full_name || '').trim() || 'User';
-  $: userRole     = getRoleLabel(currentUser?.role);
-  $: userPhotoUrl = String(currentUser?.profile_photo_url || '').trim();
+  $: roleLabel    = getRoleLabel(currentUser?.role);
+  $: deptLabel    = normalizeDepartment(currentUser?.department);
+  $: userRole     = [deptLabel, roleLabel].filter(Boolean).join(' ') || roleLabel;
+  $: rawUserPhotoUrl = String(
+    currentUser?.profile_photo_url ||
+    currentUser?.photo_url ||
+    currentUser?.avatar_url ||
+    ''
+  ).trim();
+  $: userPhotoUrl = buildAvatarUrl(rawUserPhotoUrl, avatarVersion);
   $: userInitials = buildInitials(userName);
   $: isSupervisorUser =
     String(currentUser?.role || '').trim().toLowerCase() === 'supervisor';
@@ -99,6 +122,7 @@
   onMount(() => {
     unsubscribeAuth = subscribeToCurrentUser((user) => {
       currentUser = user;
+      avatarVersion = Date.now();
     });
   });
   onDestroy(() => {
@@ -185,7 +209,7 @@
 
     <div class="ims-sidebar-bottom">
       <button
-        class="ims-nav-item"
+        class="ims-nav-item ims-signout-btn"
         type="button"
         on:click={handleSignOut}
         title={collapsed ? 'Sign Out' : undefined}
@@ -397,6 +421,14 @@
   }
   .ims-nav-text { white-space: nowrap; overflow: hidden; }
 
+  .ims-signout-btn {
+    color: #ef4444;
+  }
+  .ims-signout-btn:hover {
+    background: rgba(239, 68, 68, 0.12);
+    color: #f87171;
+  }
+
   /* ══ BOTTOM ══ */
   .ims-sidebar-bottom {
     margin-top: auto;
@@ -423,7 +455,7 @@
   }
 
   .ims-avatar {
-    width: 30px; height: 30px;
+    width: 36px; height: 36px;
     border-radius: 50%;
     background: linear-gradient(135deg, var(--a), var(--p));
     color: #fff;
@@ -431,7 +463,13 @@
     display: grid; place-items: center;
     flex-shrink: 0; overflow: hidden;
   }
-  .ims-avatar-img { width:100%; height:100%; object-fit:cover; border-radius:50%; }
+  .ims-avatar-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center 28%;
+    border-radius: 50%;
+  }
 
   .ims-user-info { overflow: hidden; }
   .ims-user-name {
@@ -446,6 +484,8 @@
     color: color-mix(in srgb, var(--t2) 90%, var(--t) 10%);
     line-height: 1.15;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   /* ══ COLLAPSE BUTTON ══ */

@@ -3243,6 +3243,20 @@
       gap: 10px;
       align-items: flex-start;
     }
+    .filter-chips {
+      width: 100%;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      align-items: stretch;
+    }
+    .filter-chip {
+      width: 100%;
+      justify-content: center;
+      white-space: nowrap;
+      padding: 6px 12px;
+      font-size: 13px;
+    }
     .bulk-action-buttons {
       width: 100%;
       display: flex;

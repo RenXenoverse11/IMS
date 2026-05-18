@@ -5,7 +5,7 @@
   import {
     FolderOpen, Plus, Pencil, Trash2, ExternalLink, Loader2, Eye,
     CalendarDays, Tag, CheckCircle2, Clock3, AlertCircle, Link2,
-    MessageSquare, Flag,
+    MessageSquare, Flag, Send,
     Grid, List, Archive, Download, RotateCcw
   } from 'lucide-svelte';
 
@@ -1078,6 +1078,9 @@
   // ── Feedback ────────────────────────────────────────────────────────────────
   let feedbackMap       = {};   // { [projectId]: FeedbackItem[] }
   let feedbackLoading   = {};   // { [projectId]: boolean }
+  let postingFeedback   = {};   // { [projectId]: boolean }
+  let deletingFeedback  = {};   // { [feedbackId]: boolean }
+  let postingReply      = {};   // { [projectId]: boolean }
   let newFeedbackText   = {};   // { [projectId]: string }
   let replyingTo        = {};   // { [projectId]: feedbackId | null }
   let replyText         = {};   // { [projectId]: string }
@@ -1104,21 +1107,28 @@
   async function submitFeedback(projectId) {
     const text = String(newFeedbackText[projectId] || '').trim();
     if (!text) return;
+    if (postingFeedback[projectId]) return;
     const uid  = getCurrentUserId();
     const role = String(currentUser?.role || getCurrentUser()?.role || 'Intern');
+    postingFeedback = { ...postingFeedback, [projectId]: true };
     try {
       const res = await dispatchAction('create_feedback', { proj_id: String(projectId), user_id: uid, commenter_role: role, comment_text: text });
       if (!res?.ok) { formError = res?.error || 'Failed to post comment.'; return; }
       newFeedbackText = { ...newFeedbackText, [projectId]: '' };
       await loadFeedback(projectId);
     } catch (e) { formError = e?.message || 'Failed to post comment.'; }
+    finally {
+      postingFeedback = { ...postingFeedback, [projectId]: false };
+    }
   }
 
   async function submitReply(projectId, parentId) {
     const text = String(replyText[projectId] || '').trim();
     if (!text) return;
+    if (postingReply[projectId]) return;
     const uid  = getCurrentUserId();
     const role = String(currentUser?.role || getCurrentUser()?.role || 'Intern');
+    postingReply = { ...postingReply, [projectId]: true };
     try {
       const res = await dispatchAction('create_feedback', { proj_id: String(projectId), parent_id: String(parentId), user_id: uid, commenter_role: role, comment_text: text });
       if (!res?.ok) { formError = res?.error || 'Failed to post reply.'; return; }
@@ -1126,15 +1136,24 @@
       replyingTo   = { ...replyingTo,   [projectId]: null };
       await loadFeedback(projectId);
     } catch (e) { formError = e?.message || 'Failed to post reply.'; }
+    finally {
+      postingReply = { ...postingReply, [projectId]: false };
+    }
   }
 
   async function deleteFeedback(projectId, feedbackId) {
+    const feedbackKey = String(feedbackId || '');
+    if (!feedbackKey || deletingFeedback[feedbackKey]) return;
     const uid = getCurrentUserId();
+    deletingFeedback = { ...deletingFeedback, [feedbackKey]: true };
     try {
       const res = await dispatchAction('delete_feedback', { feedback_id: feedbackId, user_id: uid });
       if (!res?.ok) { formError = res?.error || 'Delete failed.'; return; }
       await loadFeedback(projectId);
     } catch (e) { formError = e?.message || 'Delete failed.'; }
+    finally {
+      deletingFeedback = { ...deletingFeedback, [feedbackKey]: false };
+    }
   }
 
   function normalizeSubmission_(s) {
@@ -2536,13 +2555,36 @@
                                   <span class="fb-role-badge" class:fb-badge-sup={thread.commenter_role === 'Supervisor'}>{thread.commenter_role || 'Intern'}</span>
                                   <div style="flex:1"></div>
                                   {#if thread.commenter_id === (currentUser?.user_id || getCurrentUser()?.user_id)}
-                                    <button class="icon-btn" title="Delete" on:click={() => deleteFeedback(p.id, thread.feedback_id)}><Trash2 size={13}/></button>
+                                    <button
+                                      class="icon-btn fb-delete-btn"
+                                      class:icon-btn-busy={!!deletingFeedback[String(thread.feedback_id || '')]}
+                                      disabled={!!deletingFeedback[String(thread.feedback_id || '')]}
+                                      title="Delete"
+                                      on:click={() => deleteFeedback(p.id, thread.feedback_id)}
+                                    >
+                                      {#if deletingFeedback[String(thread.feedback_id || '')]}
+                                        <Loader2 size={13} class="spin" />
+                                      {:else}
+                                        <Trash2 size={13}/>
+                                      {/if}
+                                    </button>
                                   {/if}
                                 </div>
                                 <div class="fb-comment-text">{thread.comment_text}</div>
                                 <div class="fb-actions">
                                   <button class="fb-reply-btn" on:click={() => { replyingTo = { ...replyingTo, [p.id]: replyingTo[p.id] === thread.feedback_id ? null : thread.feedback_id }; }}>↩ Reply</button>
                                 </div>
+                                {#if replyingTo[p.id] === thread.feedback_id}
+                                  <div class="fb-reply-compose">
+                                    <textarea class="fb-reply-input" rows="2" placeholder="Write a reply…" value={replyText[p.id] || ''} on:input={(e) => { replyText = { ...replyText, [p.id]: e.target.value }; }}></textarea>
+                                    <div class="fb-action-btns">
+                                      <button class="sub-action-btn" class:sub-action-btn-busy={!!postingReply[p.id]} disabled={!!postingReply[p.id]} on:click={() => submitReply(p.id, thread.feedback_id)}>
+                                        {#if postingReply[p.id]}<Loader2 size={13} class="spin" /> Sending...{:else}Send{/if}
+                                      </button>
+                                      <button class="sub-cancel-btn" on:click={() => { replyingTo = { ...replyingTo, [p.id]: null }; }}>Cancel</button>
+                                    </div>
+                                  </div>
+                                {/if}
                               </div>
 
                               {#each feedbackChildren(p.id, thread.feedback_id) as c1}
@@ -2551,7 +2593,19 @@
                                     <span class="fb-role-badge" class:fb-badge-sup={c1.commenter_role === 'Supervisor'}>{c1.commenter_role || 'Intern'}</span>
                                     <div style="flex:1"></div>
                                     {#if c1.commenter_id === (currentUser?.user_id || getCurrentUser()?.user_id)}
-                                      <button class="icon-btn" title="Delete" on:click={() => deleteFeedback(p.id, c1.feedback_id)}><Trash2 size={13}/></button>
+                                      <button
+                                        class="icon-btn fb-delete-btn"
+                                        class:icon-btn-busy={!!deletingFeedback[String(c1.feedback_id || '')]}
+                                        disabled={!!deletingFeedback[String(c1.feedback_id || '')]}
+                                        title="Delete"
+                                        on:click={() => deleteFeedback(p.id, c1.feedback_id)}
+                                      >
+                                        {#if deletingFeedback[String(c1.feedback_id || '')]}
+                                          <Loader2 size={13} class="spin" />
+                                        {:else}
+                                          <Trash2 size={13}/>
+                                        {/if}
+                                      </button>
                                     {/if}
                                   </div>
                                   <div class="fb-comment-text">{c1.comment_text}</div>
@@ -2562,7 +2616,9 @@
                                     <div class="fb-reply-compose">
                                       <textarea class="fb-reply-input" rows="2" placeholder="Write a reply…" value={replyText[p.id] || ''} on:input={(e) => { replyText = { ...replyText, [p.id]: e.target.value }; }}></textarea>
                                       <div class="fb-action-btns">
-                                        <button class="sub-action-btn" on:click={() => submitReply(p.id, c1.feedback_id)}>Send</button>
+                                        <button class="sub-action-btn" class:sub-action-btn-busy={!!postingReply[p.id]} disabled={!!postingReply[p.id]} on:click={() => submitReply(p.id, c1.feedback_id)}>
+                                          {#if postingReply[p.id]}<Loader2 size={13} class="spin" /> Sending...{:else}Send{/if}
+                                        </button>
                                         <button class="sub-cancel-btn" on:click={() => { replyingTo = { ...replyingTo, [p.id]: null }; }}>Cancel</button>
                                       </div>
                                     </div>
@@ -2574,7 +2630,19 @@
                                         <span class="fb-role-badge" class:fb-badge-sup={c2.commenter_role === 'Supervisor'}>{c2.commenter_role || 'Intern'}</span>
                                         <div style="flex:1"></div>
                                         {#if c2.commenter_id === (currentUser?.user_id || getCurrentUser()?.user_id)}
-                                          <button class="icon-btn" title="Delete" on:click={() => deleteFeedback(p.id, c2.feedback_id)}><Trash2 size={13}/></button>
+                                          <button
+                                            class="icon-btn fb-delete-btn"
+                                            class:icon-btn-busy={!!deletingFeedback[String(c2.feedback_id || '')]}
+                                            disabled={!!deletingFeedback[String(c2.feedback_id || '')]}
+                                            title="Delete"
+                                            on:click={() => deleteFeedback(p.id, c2.feedback_id)}
+                                          >
+                                            {#if deletingFeedback[String(c2.feedback_id || '')]}
+                                              <Loader2 size={13} class="spin" />
+                                            {:else}
+                                              <Trash2 size={13}/>
+                                            {/if}
+                                          </button>
                                         {/if}
                                       </div>
                                       <div class="fb-comment-text">{c2.comment_text}</div>
@@ -2585,7 +2653,9 @@
                                         <div class="fb-reply-compose">
                                           <textarea class="fb-reply-input" rows="2" placeholder="Write a reply…" value={replyText[p.id] || ''} on:input={(e) => { replyText = { ...replyText, [p.id]: e.target.value }; }}></textarea>
                                           <div class="fb-action-btns">
-                                            <button class="sub-action-btn" on:click={() => submitReply(p.id, c2.feedback_id)}>Send</button>
+                                            <button class="sub-action-btn" class:sub-action-btn-busy={!!postingReply[p.id]} disabled={!!postingReply[p.id]} on:click={() => submitReply(p.id, c2.feedback_id)}>
+                                              {#if postingReply[p.id]}<Loader2 size={13} class="spin" /> Sending...{:else}Send{/if}
+                                            </button>
                                             <button class="sub-cancel-btn" on:click={() => { replyingTo = { ...replyingTo, [p.id]: null }; }}>Cancel</button>
                                           </div>
                                         </div>
@@ -2597,7 +2667,19 @@
                                             <span class="fb-role-badge" class:fb-badge-sup={c3.commenter_role === 'Supervisor'}>{c3.commenter_role || 'Intern'}</span>
                                             <div style="flex:1"></div>
                                             {#if c3.commenter_id === (currentUser?.user_id || getCurrentUser()?.user_id)}
-                                              <button class="icon-btn" title="Delete" on:click={() => deleteFeedback(p.id, c3.feedback_id)}><Trash2 size={13}/></button>
+                                              <button
+                                                class="icon-btn fb-delete-btn"
+                                                class:icon-btn-busy={!!deletingFeedback[String(c3.feedback_id || '')]}
+                                                disabled={!!deletingFeedback[String(c3.feedback_id || '')]}
+                                                title="Delete"
+                                                on:click={() => deleteFeedback(p.id, c3.feedback_id)}
+                                              >
+                                                {#if deletingFeedback[String(c3.feedback_id || '')]}
+                                                  <Loader2 size={13} class="spin" />
+                                                {:else}
+                                                  <Trash2 size={13}/>
+                                                {/if}
+                                              </button>
                                             {/if}
                                           </div>
                                           <div class="fb-comment-text">{c3.comment_text}</div>
@@ -2608,7 +2690,9 @@
                                             <div class="fb-reply-compose">
                                               <textarea class="fb-reply-input" rows="2" placeholder="Write a reply…" value={replyText[p.id] || ''} on:input={(e) => { replyText = { ...replyText, [p.id]: e.target.value }; }}></textarea>
                                               <div class="fb-action-btns">
-                                                <button class="sub-action-btn" on:click={() => submitReply(p.id, c3.feedback_id)}>Send</button>
+                                                <button class="sub-action-btn" class:sub-action-btn-busy={!!postingReply[p.id]} disabled={!!postingReply[p.id]} on:click={() => submitReply(p.id, c3.feedback_id)}>
+                                                  {#if postingReply[p.id]}<Loader2 size={13} class="spin" /> Sending...{:else}Send{/if}
+                                                </button>
                                                 <button class="sub-cancel-btn" on:click={() => { replyingTo = { ...replyingTo, [p.id]: null }; }}>Cancel</button>
                                               </div>
                                             </div>
@@ -2629,7 +2713,21 @@
                           <!-- New root comment composer -->
                           <div class="fb-new-comment">
                             <textarea class="fb-reply-input" rows="3" placeholder="Add a comment…" value={newFeedbackText[p.id] || ''} on:input={(e) => { newFeedbackText = { ...newFeedbackText, [p.id]: e.target.value }; }}></textarea>
-                            <button class="sub-action-btn" style="margin-top:6px" on:click={() => submitFeedback(p.id)}>Post Comment</button>
+                            <button
+                              class="sub-action-btn fb-post-btn"
+                              class:sub-action-btn-busy={!!postingFeedback[p.id]}
+                              disabled={!!postingFeedback[p.id]}
+                              on:click={() => submitFeedback(p.id)}
+                              aria-label="Post comment"
+                            >
+                              {#if postingFeedback[p.id]}
+                                <Loader2 size={14} class="spin" />
+                                <span>Posting...</span>
+                              {:else}
+                                <Send size={14} />
+                                <span>Post Comment</span>
+                              {/if}
+                            </button>
                           </div>
                         {/if}
                       </div>
@@ -3379,6 +3477,30 @@
     display:flex; flex-direction:column;
     padding:0.6rem 0; border-top:1px solid var(--color-border); margin-top:0.25rem;
   }
+  .fb-post-btn {
+    margin-top: 6px;
+    align-self: flex-end;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: #2563eb !important;
+    border-color: #2563eb !important;
+    color: #ffffff !important;
+    transition: opacity 0.16s ease, transform 0.12s ease, filter 0.16s ease;
+  }
+  .fb-post-btn:hover:not(:disabled) {
+    opacity: 0.9;
+    filter: saturate(0.94);
+  }
+  .fb-post-btn:active:not(:disabled) {
+    opacity: 0.78;
+    transform: translateY(0);
+  }
+  .fb-post-btn.sub-action-btn-busy {
+    background: #1d4ed8 !important;
+    border-color: #1d4ed8 !important;
+    color: #ffffff !important;
+  }
 
   .log-date { font-weight:600; padding:0.45rem 0.75rem; background:transparent; color:var(--color-text); font-size:0.9rem; font-family:inherit; }
   .log-date-block { margin-bottom:8px; overflow:hidden; }
@@ -3532,6 +3654,26 @@
   .icon-btn-busy {
     border-color: var(--color-accent) !important;
     background: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface)) !important;
+  }
+  .fb-delete-btn {
+    color: #ef4444 !important;
+    border-color: rgba(239, 68, 68, 0.38) !important;
+    background: rgba(239, 68, 68, 0.08) !important;
+    transition: opacity 0.16s ease, transform 0.12s ease, filter 0.16s ease;
+  }
+  .fb-delete-btn:hover:not(:disabled) {
+    border-color: rgba(239, 68, 68, 0.62) !important;
+    background: rgba(239, 68, 68, 0.14) !important;
+    opacity: 0.9;
+  }
+  .fb-delete-btn:active:not(:disabled) {
+    opacity: 0.75;
+    transform: translateY(0);
+  }
+  .fb-delete-btn.icon-btn-busy {
+    color: #ef4444 !important;
+    border-color: rgba(239, 68, 68, 0.7) !important;
+    background: rgba(239, 68, 68, 0.2) !important;
   }
 
   /* ── Archive table ───────────────────────────────────────────────────── */
@@ -3700,6 +3842,19 @@
   @media (max-width: 768px) {
     .stat-cards { grid-template-columns: 1fr; }
     .quick-head { gap: 0.75rem; }
+    .proj-detail-tabs {
+      padding: 0 0.32rem;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 0;
+    }
+    .proj-detail-tab-btn {
+      min-width: 0;
+      width: 100%;
+      padding: 0.6rem 0.2rem;
+      font-size: 0.75rem;
+      text-align: center;
+    }
     .quick-actions { width: 100%; flex-wrap: wrap; gap: 0.42rem; }
     .quick-actions > * { width: 100%; }
     .search-wrap,

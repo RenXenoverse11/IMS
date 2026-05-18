@@ -586,10 +586,7 @@
         // non-fatal
       }
     })();
-    refreshIntervalId = setInterval(() => {
-      updateNow();
-      refreshOverview();
-    }, 15000);
+    // Auto-refresh disabled: keep data stable until the user manually reloads the page.
   });
 
   onDestroy(() => {

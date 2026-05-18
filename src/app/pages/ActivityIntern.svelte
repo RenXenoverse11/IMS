@@ -6422,6 +6422,53 @@ let assignedTasksError = '';
     .daily-logs-content {
       grid-template-columns: 1fr;
     }
+
+    .activity-shell.projects-page .quick-head {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0.65rem;
+    }
+
+    .activity-shell.projects-page .quick-actions {
+      margin-left: 0;
+      width: 100%;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 0.5rem;
+      align-items: stretch;
+    }
+
+    .activity-shell.projects-page .quick-actions > * {
+      width: 100%;
+      min-width: 0;
+    }
+
+    .activity-shell.projects-page .quick-actions .search-wrap {
+      grid-column: 1 / -1;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    .activity-shell.projects-page .quick-actions .status-control {
+      width: 100%;
+    }
+
+    .activity-shell.projects-page .quick-actions .quick-status {
+      width: 100%;
+      padding: 0 1.65rem 0 0.62rem;
+      font-size: 0.82rem;
+      text-overflow: ellipsis;
+    }
+
+    .activity-shell.projects-page .quick-actions .status-control::after {
+      right: 0.62rem;
+    }
+
+    .activity-shell.projects-page .quick-actions .primary {
+      width: 100%;
+      justify-content: center;
+      padding: 0 0.72rem;
+    }
   }
 
   @media (max-width: 720px) {
@@ -6456,28 +6503,9 @@ let assignedTasksError = '';
       padding: 12px;
     }
 
-    .activity-shell.projects-page .quick-head {
-      flex-direction: column;
-      align-items: stretch;
-      gap: 0.65rem;
-    }
-
-    .activity-shell.projects-page .quick-actions {
-      margin-left: 0;
-      width: 100%;
-      flex-wrap: wrap;
-      justify-content: flex-start;
-      gap: 0.5rem;
-    }
-
-    .activity-shell.projects-page .quick-actions > * {
-      width: 100%;
-    }
-
     .activity-shell.projects-page .quick-actions .search-wrap,
     .activity-shell.projects-page .quick-actions .quick-status,
     .activity-shell.projects-page .quick-actions .primary {
-      width: 100%;
       height: 2.35rem;
       min-height: 2.35rem;
       border-radius: 0.72rem;
