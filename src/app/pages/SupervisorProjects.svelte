@@ -2,7 +2,7 @@
 // @ts-nocheck
   import { onMount, onDestroy } from 'svelte';
   import { getCurrentUser, subscribeToCurrentUser, callApiAction } from '../lib/auth.js';
-  import { FolderOpen, Clock3, Tag, Users2, CalendarDays, Loader2, Grid, Archive, RotateCcw, Eye, Download } from 'lucide-svelte';
+  import { FolderOpen, Clock3, Tag, Users2, CalendarDays, Loader2, Grid, Archive, RotateCcw, Eye, Download, Plus, Trash2, Pencil, ExternalLink, Link2 } from 'lucide-svelte';
   import FeedbackThread from '../components/FeedbackThread.svelte';
 
   export let currentUser = null;
@@ -36,8 +36,39 @@
   let isLoadingFolders   = false;
   let isSavingFolder     = false;
   let isUploadingFile    = false;
+  let isSavingLink       = false;
+  let isSavingMilestone  = false;
+  let isCreatingMilestone = false;
+  let archivingProjectIds = new Set();
+  let restoringProjectIds = new Set();
   let formError = '';
   let formSuccess = '';
+  let showAddProjectModal = false;
+  let isSubmittingProject = false;
+  let projectFormError = '';
+  let editingProjectId = null;
+  let usersLoading = false;
+  let bootstrapDepartment = '';
+  let showMembersPanel = false;
+  let showSupervisorsPanel = false;
+  let memberSearch = '';
+  let supervisorSearch = '';
+  let membersSelectEl = null;
+  let supervisorsSelectEl = null;
+  const MAX_ASSIGNMENT_CHIPS = 3;
+  let showDeleteProjectModal = false;
+  let projectToDelete = null;
+  let isDeletingProject = false;
+  let projectForm = {
+    priority_level: 'Low',
+    title: '',
+    description: '',
+    members: [],
+    supervisor: [],
+    timeline_start: '',
+    timeline_end: '',
+    status: 'Not Started'
+  };
   const FILE_TYPE_OPTIONS = ['Document', 'Powerpoint', 'PDF', 'Word'];
 
   function extToKind_(ext) {
@@ -89,11 +120,16 @@
   }
 
   function triggerFilePicker(projectId, folderId) {
+    if (!ensureManageableProject(projectId, 'upload attachments to this project')) return;
     const el = document.getElementById(`proj-file-input-${projectId}-${folderId}`);
     if (el) el.click();
   }
 
   function handleFileSelect(projectId, folderId, ev) {
+    if (!ensureManageableProject(projectId, 'upload attachments to this project')) {
+      ev.target.value = '';
+      return;
+    }
     const file = ev.target.files && ev.target.files[0];
     if (!file) return;
     const defaultName = file.name.replace(/\.[^/.]+$/, '');
@@ -108,6 +144,8 @@
   }
 
   async function confirmUpload(projectId, folderId) {
+    const project = ensureManageableProject(projectId, 'upload attachments to this project');
+    if (!project) return;
     if (!pendingUpload || pendingUpload.projectId !== projectId || pendingUpload.folderId !== folderId || !pendingUpload.file) return;
     const file = pendingUpload.file;
     const chosenName = (String(pendingUpload.name || '').trim() || file.name.replace(/\.[^/.]+$/, '')) + (pendingUpload.ext ? '.' + pendingUpload.ext : '');
@@ -115,9 +153,8 @@
     const ext = pendingUpload.ext || (file.name.match(/\.([^.]+)$/) || [])[1] || '';
     const mimeType = extToMime_(ext);
     const fileSizeMb = (file.size / (1024 * 1024)).toFixed(3);
-    const projObj = allProjects.find(p => p.id === String(projectId));
-    const projId = String(projObj?.proj_id || projectId);
-    const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    const projId = String(project?.proj_id || projectId);
+    const uid = getCurrentUserId();
     isUploadingFile = true;
     formError = '';
     try {
@@ -132,7 +169,7 @@
         reader.readAsDataURL(file);
       });
 
-      const res = await callApiAction('create_proj_submission', {
+      const res = await callApiAction('create_proj_submission_supervisor', {
         proj_id: projId,
         folder_id: folderId,
         user_id: uid,
@@ -174,13 +211,16 @@
   }
 
   async function addLinkSubmission(projectId, folderId) {
+    const project = ensureManageableProject(projectId, 'add links to this project');
+    if (!project) return;
     if (!String(viewingLinkUrl || '').trim()) { formError = 'Link URL is required.'; return; }
-    const projObj = allProjects.find(p => p.id === String(projectId));
-    const projId = String(projObj?.proj_id || projectId);
-    const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    if (isSavingLink) return;
+    const projId = String(project?.proj_id || projectId);
+    const uid = getCurrentUserId();
     formError = '';
+    isSavingLink = true;
     try {
-      const res = await callApiAction('create_proj_submission', {
+      const res = await callApiAction('create_proj_submission_supervisor', {
         proj_id: projId,
         folder_id: folderId,
         user_id: uid,
@@ -208,6 +248,8 @@
       setTimeout(() => { formSuccess = ''; }, 2000);
     } catch (e) {
       formError = e?.message || 'Failed to save link.';
+    } finally {
+      isSavingLink = false;
     }
   }
 
@@ -280,33 +322,71 @@
   }
 
   async function deleteSubmission(projectId, folderId, subId) {
+    const project = ensureManageableProject(projectId, 'delete attachments from this project');
+    if (!project) return;
     allProjects = allProjects.map(p => p.id === projectId ? {
       ...p,
       folders: (p.folders || []).map(f => f.id === folderId ? { ...f, submissions: (f.submissions || []).filter(s => s.id !== subId) } : f)
     } : p);
     try {
-      const res = await callApiAction('delete_proj_submission', { submission_id: subId });
+      const res = await callApiAction('delete_proj_submission_supervisor', {
+        submission_id: subId,
+        user_id: getCurrentUserId()
+      });
       if (!res?.ok) { setFlashError(res?.error || 'Delete submission failed.'); return; }
       setFlashMessage('Submission removed.');
     } catch (e) { setFlashError(e?.message || 'Delete submission failed.'); }
   }
 
+  function normalizeSubmission_(s) {
+    const isFile = s.kind !== 'link';
+    return {
+      id:            s.submission_id,
+      submission_id: s.submission_id,
+      kind:          isFile ? 'file' : 'link',
+      name:          s.file_name || '',
+      file_type:     s.file_type || '',
+      file_size:     s.file_size || '',
+      uploaded_at:   s.uploaded_at || '',
+      drive_url:     isFile ? (s.link_url || '') : '',
+      gdrive:        s.gdrive || '',
+      title:         !isFile ? (s.link_label || s.link_url || '') : '',
+      url:           !isFile ? (s.link_url || '') : '',
+      added_at:      !isFile ? (s.uploaded_at || '') : ''
+    };
+  }
+
   async function addFolder(projectId) {
-    const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
-    const projObj = allProjects.find(p => p.id === projectId);
-    const projId = String(projObj?.proj_id || projectId);
+    const project = ensureManageableProject(projectId, 'add folders to this project');
+    if (!project) return;
+    const uid = getCurrentUserId();
+    const projId = String(project?.proj_id || projectId);
     isSavingFolder = true;
     try {
-      const res = await callApiAction('create_proj_folder', { proj_id: projId, folder_name: 'New Folder', user_id: uid });
-      if (!res?.ok) { setFlashError(res?.error || 'Failed to create folder.'); return; }
-      const newFolder = { id: res.folder_id, folder_id: res.folder_id, name: 'New Folder', gdrive_link: res.gdrive_link || '', submissions: [] };
-      allProjects = allProjects.map(p => p.id === projectId ? { ...p, folders: [...(p.folders || []), newFolder] } : p);
+      const res = await callApiAction('create_proj_folder_supervisor', {
+        proj_id: projId,
+        folder_name: 'New Folder',
+        user_id: uid
+      });
+      if (!res?.ok) { formError = res?.error || 'Failed to create folder.'; return; }
+      const newFolder = {
+        id: res.folder_id,
+        folder_id: res.folder_id,
+        name: 'New Folder',
+        gdrive_link: res.gdrive_link || '',
+        submissions: []
+      };
+      allProjects = allProjects.map(p => p.id === projectId
+        ? { ...p, folders: [...(p.folders || []), newFolder] } : p);
       expandedFolderIds.add(res.folder_id);
       expandedFolderIds = new Set(expandedFolderIds);
       renamingFolderId = res.folder_id;
       renamingFolderName = 'New Folder';
-    } catch (e) { setFlashError(e?.message || 'Failed to create folder.'); }
-    finally { isSavingFolder = false; }
+    } catch (e) {
+      formError = e?.message || 'Failed to create folder.';
+    } finally {
+      isSavingFolder = false;
+    }
   }
 
   function startRenaming(folderId, currentName) {
@@ -315,39 +395,63 @@
   }
 
   async function confirmRename(projectId) {
+    const project = ensureManageableProject(projectId, 'rename folders in this project');
+    if (!project) return;
     if (!renamingFolderId) return;
     const newName = String(renamingFolderName || '').trim() || 'New Folder';
-    const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    const uid = getCurrentUserId();
     const savedId = renamingFolderId;
     renamingFolderId = null;
     renamingFolderName = '';
-    allProjects = allProjects.map(p => p.id === projectId ? { ...p, folders: (p.folders || []).map(f => f.id === savedId ? { ...f, name: newName } : f) } : p);
+    allProjects = allProjects.map(p => p.id === projectId ? {
+      ...p,
+      folders: (p.folders || []).map(f => f.id === savedId ? { ...f, name: newName } : f)
+    } : p);
     try {
-      const res = await callApiAction('update_proj_folder', { folder_id: savedId, folder_name: newName, user_id: uid });
-      if (!res?.ok) { setFlashError(res?.error || 'Rename failed.'); }
-    } catch (e) { setFlashError(e?.message || 'Rename failed.'); }
+      const res = await callApiAction('update_proj_folder_supervisor', {
+        folder_id: savedId,
+        folder_name: newName,
+        user_id: uid
+      });
+      if (!res?.ok) { formError = res?.error || 'Rename failed.'; }
+    } catch (e) {
+      formError = e?.message || 'Rename failed.';
+    }
   }
 
   async function deleteFolder(projectId, folderId) {
+    const project = ensureManageableProject(projectId, 'delete folders from this project');
+    if (!project) return;
     if (activeLinkFolderId === folderId) activeLinkFolderId = null;
     if (pendingUpload.folderId === folderId) cancelPendingUpload();
-    allProjects = allProjects.map(p => p.id === projectId ? { ...p, folders: (p.folders || []).filter(f => f.id !== folderId) } : p);
+    allProjects = allProjects.map(p => p.id === projectId ? {
+      ...p,
+      folders: (p.folders || []).filter(f => f.id !== folderId)
+    } : p);
     expandedFolderIds.delete(folderId);
     expandedFolderIds = new Set(expandedFolderIds);
     try {
-      const res = await callApiAction('delete_proj_folder', { folder_id: folderId });
-      if (!res?.ok) { setFlashError(res?.error || 'Delete folder failed.'); return; }
-      setFlashMessage('Folder deleted.');
-    } catch (e) { setFlashError(e?.message || 'Delete folder failed.'); }
+      const res = await callApiAction('delete_proj_folder_supervisor', {
+        folder_id: folderId,
+        user_id: getCurrentUserId()
+      });
+      if (!res?.ok) { formError = res?.error || 'Delete folder failed.'; return; }
+      formSuccess = 'Folder deleted.';
+      setTimeout(() => { formSuccess = ''; }, 2000);
+    } catch (e) {
+      formError = e?.message || 'Delete folder failed.';
+    }
   }
-  // Milestones + Feedback state and helpers (adapted from ProjectsIntern)
+
   let newMilestoneInputs = {};
+  let newMilestoneLinkedFiles = {};
+  let newMilestoneFilePicker = {};
   let editingMilestoneId = null;
   let editingMilestoneInputs = {};
   let showAddMilestoneFor = {};
 
   let expandedMilestoneIds = new Set();
-  let milestoneFilePicker  = {};  // { [milestoneId]: boolean }
+  let milestoneFilePicker  = {};
 
   function toggleMilestoneExpand(milestoneId) {
     if (expandedMilestoneIds.has(milestoneId)) expandedMilestoneIds.delete(milestoneId);
@@ -360,7 +464,24 @@
   }
 
   function parseMilestoneFiles(m) {
-    try { const v = m.linked_files || ''; if (!v) return []; return JSON.parse(v); } catch(e) { return []; }
+    try { const v = m.linked_files || ''; if (!v) return []; return JSON.parse(v); } catch (e) { return []; }
+  }
+
+  function getNewMilestoneFiles(projectId) {
+    return Array.isArray(newMilestoneLinkedFiles[projectId]) ? newMilestoneLinkedFiles[projectId] : [];
+  }
+
+  function toggleNewMilestoneFilePicker(projectId) {
+    newMilestoneFilePicker = { ...newMilestoneFilePicker, [projectId]: !newMilestoneFilePicker[projectId] };
+  }
+
+  function toggleNewMilestoneFile(projectId, submission) {
+    const current = getNewMilestoneFiles(projectId);
+    const exists = current.find(f => f.id === submission.id);
+    const updated = exists
+      ? current.filter(f => f.id !== submission.id)
+      : [...current, { id: submission.id, name: submission.name, drive_url: submission.drive_url || '' }];
+    newMilestoneLinkedFiles = { ...newMilestoneLinkedFiles, [projectId]: updated };
   }
 
   function projectFileSubmissions(projectId) {
@@ -376,6 +497,7 @@
   }
 
   function toggleAddMilestone(projectId) {
+    if (!ensureManageableProject(projectId, 'add milestones to this project')) return;
     const init = newMilestoneInputs[projectId] || { milestone: '', date: '' };
     newMilestoneInputs = { ...newMilestoneInputs, [projectId]: init };
     showAddMilestoneFor = { ...showAddMilestoneFor, [projectId]: !Boolean(showAddMilestoneFor[projectId]) };
@@ -383,88 +505,191 @@
 
   async function createMilestone(projectId) {
     formError = '';
-    const proj = allProjects.find(p => p.id === projectId);
+    const proj = ensureManageableProject(projectId, 'add milestones to this project');
     if (!proj) return;
     const projId = String(proj.proj_id || projectId);
     const inputs = newMilestoneInputs[projectId] || { milestone: '', date: '' };
     const text = String(inputs.milestone || '').trim();
     const date = String(inputs.date || '').trim();
     if (!text) { formError = 'Milestone text is required.'; return; }
-    const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    const uid = getCurrentUserId();
+    const linkedFilesJson = JSON.stringify(getNewMilestoneFiles(projectId));
+    isCreatingMilestone = true;
     try {
-      const res = await callApiAction('create_milestone', { proj_id: projId, milestone: text, date: date, status: 'Not Started', done: false, user_id: uid });
+      const res = await callApiAction('create_milestone_supervisor', {
+        proj_id: projId,
+        milestone: text,
+        date,
+        status: 'Not Started',
+        done: false,
+        user_id: uid,
+        linked_files: linkedFilesJson
+      });
       if (!res?.ok) { formError = res?.error || 'Failed to create milestone.'; return; }
-      const item = { id: res.milestone_id, milestone: text, date: date, status: 'Not Started', created_at: res.created_at, created_by: uid, done: false };
-      allProjects = allProjects.map(p => p.id === projectId ? { ...p, milestones: [ ...(p.milestones || []), item ] } : p);
+      const item = {
+        id: res.milestone_id,
+        milestone: text,
+        date,
+        status: 'Not Started',
+        created_at: res.created_at,
+        created_by: uid,
+        done: false,
+        linked_files: linkedFilesJson
+      };
+      allProjects = allProjects.map(p => p.id === projectId ? {
+        ...p,
+        milestones: [...(p.milestones || []), item]
+      } : p);
       newMilestoneInputs = { ...newMilestoneInputs, [projectId]: { milestone: '', date: '' } };
+      newMilestoneLinkedFiles = { ...newMilestoneLinkedFiles, [projectId]: [] };
+      newMilestoneFilePicker = { ...newMilestoneFilePicker, [projectId]: false };
       showAddMilestoneFor = { ...showAddMilestoneFor, [projectId]: false };
       formSuccess = 'Milestone added.';
       setTimeout(() => { formSuccess = ''; }, 2000);
-    } catch (e) { formError = e?.message || 'Failed to create milestone.'; }
+    } catch (e) {
+      formError = e?.message || 'Failed to create milestone.';
+    } finally {
+      isCreatingMilestone = false;
+    }
   }
 
   async function deleteMilestone(projectId, milestoneId) {
+    const project = ensureManageableProject(projectId, 'delete milestones from this project');
+    if (!project) return;
     if (!milestoneId) return;
-    allProjects = allProjects.map(p => p.id === projectId ? { ...p, milestones: (p.milestones || []).filter(m => m.id !== milestoneId) } : p);
+    allProjects = allProjects.map(p => p.id === projectId ? {
+      ...p,
+      milestones: (p.milestones || []).filter(m => m.id !== milestoneId)
+    } : p);
     try {
-      const res = await callApiAction('delete_milestone', { milestone_id: milestoneId });
+      const res = await callApiAction('delete_milestone_supervisor', {
+        milestone_id: milestoneId,
+        user_id: getCurrentUserId()
+      });
       if (!res?.ok) { setFlashError(res?.error || 'Failed to delete milestone.'); return; }
       setFlashMessage('Milestone deleted.');
-      setTimeout(() => { }, 1500);
-    } catch (e) { setFlashError(e?.message || 'Failed to delete milestone.'); }
+    } catch (e) {
+      setFlashError(e?.message || 'Failed to delete milestone.');
+    }
   }
 
   function startEditMilestone(projectId, m) {
+    if (!ensureManageableProject(projectId, 'edit milestones in this project')) return;
     editingMilestoneId = m.id;
-    editingMilestoneInputs = { ...editingMilestoneInputs, [m.id]: { milestone: m.milestone || '', date: m.date || '', status: m.status || 'Not Started' } };
+    editingMilestoneInputs = {
+      ...editingMilestoneInputs,
+      [m.id]: { milestone: m.milestone || '', date: m.date || '', status: m.status || 'Not Started' }
+    };
   }
 
-  function cancelEditMilestone() { editingMilestoneId = null; }
+  function cancelEditMilestone() {
+    editingMilestoneId = null;
+  }
 
   async function saveEditedMilestone(projectId, milestoneId) {
+    const project = ensureManageableProject(projectId, 'edit milestones in this project');
+    if (!project) return;
     if (!milestoneId) return;
     const inputs = editingMilestoneInputs[milestoneId] || { milestone: '', date: '' };
     const text = String(inputs.milestone || '').trim();
     const date = String(inputs.date || '').trim();
     if (!text) { formError = 'Milestone text is required.'; return; }
-    const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    const uid = getCurrentUserId();
+    isSavingMilestone = true;
     try {
-      const res = await callApiAction('update_milestone', { milestone_id: milestoneId, milestone: text, date: date, status: String(inputs.status || 'Not Started'), user_id: uid });
+      const res = await callApiAction('update_milestone_supervisor', {
+        milestone_id: milestoneId,
+        milestone: text,
+        date,
+        status: canonicalStatusLabel(inputs.status || 'Not Started'),
+        user_id: uid
+      });
       if (!res?.ok) { formError = res?.error || 'Failed to update milestone.'; return; }
-      try { await loadProjectMilestones(projectId); } catch (e) { allProjects = allProjects.map(p => p.id === projectId ? { ...p, milestones: (p.milestones || []).map(mm => mm.id === milestoneId ? { ...mm, milestone: text, date: date, status: String(inputs.status || 'Not Started') } : mm) } : p); }
+      try {
+        await loadProjectMilestones(projectId);
+      } catch (e) {
+        allProjects = allProjects.map(p => p.id === projectId ? {
+          ...p,
+          milestones: (p.milestones || []).map(mm => mm.id === milestoneId
+            ? { ...mm, milestone: text, date, status: canonicalStatusLabel(inputs.status || 'Not Started') }
+            : mm)
+        } : p);
+      }
       editingMilestoneId = null;
       formSuccess = 'Milestone updated.';
       setTimeout(() => { formSuccess = ''; }, 1500);
-    } catch (e) { formError = e?.message || 'Failed to update milestone.'; }
+    } catch (e) {
+      formError = e?.message || 'Failed to update milestone.';
+    } finally {
+      isSavingMilestone = false;
+    }
   }
 
   async function changeMilestoneStatus(projectId, milestoneId, newStatus) {
+    const project = ensureManageableProject(projectId, 'update milestone status in this project');
+    if (!project) return;
     if (!milestoneId) return;
-    const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    const uid = getCurrentUserId();
     try {
-      const res = await callApiAction('update_milestone', { milestone_id: milestoneId, status: String(newStatus || 'Not Started'), user_id: uid });
+      const res = await callApiAction('update_milestone_supervisor', {
+        milestone_id: milestoneId,
+        status: canonicalStatusLabel(newStatus || 'Not Started'),
+        user_id: uid
+      });
       if (!res?.ok) { setFlashError(res?.error || 'Failed to update status.'); return; }
-      allProjects = allProjects.map(p => p.id === projectId ? { ...p, milestones: (p.milestones || []).map(mm => mm.id === milestoneId ? { ...mm, status: String(newStatus || 'Not Started'), done: (String(newStatus || '').toLowerCase() === 'approved' || Boolean(mm.done)) } : mm) } : p);
+      allProjects = allProjects.map(p => p.id === projectId ? {
+        ...p,
+        milestones: (p.milestones || []).map(mm => mm.id === milestoneId
+          ? { ...mm, status: canonicalStatusLabel(newStatus || 'Not Started'), done: (String(newStatus || '').toLowerCase() === 'approved' || Boolean(mm.done)) }
+          : mm)
+      } : p);
       try { await loadProjectMilestones(projectId); } catch (e) {}
       setFlashMessage('Status updated.');
-    } catch (e) { setFlashError(e?.message || 'Failed to update status.'); }
+    } catch (e) {
+      setFlashError(e?.message || 'Failed to update status.');
+    }
   }
 
   async function toggleMilestoneFile(projectId, milestoneId, submission) {
+    const project = ensureManageableProject(projectId, 'link files to milestones in this project');
+    if (!project) return;
     const proj = allProjects.find(p => p.id === projectId);
     if (!proj) return;
     const m = (proj.milestones || []).find(x => x.id === milestoneId);
     if (!m) return;
     const current = parseMilestoneFiles(m);
     const exists = current.find(f => f.id === submission.id);
-    const updated = exists ? current.filter(f => f.id !== submission.id) : [...current, { id: submission.id, name: submission.name, drive_url: submission.drive_url || '' }];
+    const updated = exists
+      ? current.filter(f => f.id !== submission.id)
+      : [...current, { id: submission.id, name: submission.name, drive_url: submission.drive_url || '' }];
     const linkedJson = JSON.stringify(updated);
-    const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    const previousJson = JSON.stringify(current);
+    const uid = getCurrentUserId();
     try {
-      const res = await callApiAction('update_milestone', { milestone_id: milestoneId, linked_files: linkedJson, user_id: uid });
-      if (!res?.ok) { formError = res?.error || 'Failed to update linked files.'; return; }
-      allProjects = allProjects.map(proj2 => proj2.id !== projectId ? proj2 : { ...proj2, milestones: (proj2.milestones || []).map(mm => mm.id === milestoneId ? { ...mm, linked_files: linkedJson } : mm) });
-    } catch (e) { formError = e?.message || 'Failed to update linked files.'; }
+      allProjects = allProjects.map(proj2 => proj2.id !== projectId ? proj2 : {
+        ...proj2,
+        milestones: (proj2.milestones || []).map(mm => mm.id === milestoneId ? { ...mm, linked_files: linkedJson } : mm)
+      });
+
+      const res = await callApiAction('update_milestone_supervisor', {
+        milestone_id: milestoneId,
+        linked_files: linkedJson,
+        user_id: uid
+      });
+      if (!res?.ok) {
+        allProjects = allProjects.map(proj2 => proj2.id !== projectId ? proj2 : {
+          ...proj2,
+          milestones: (proj2.milestones || []).map(mm => mm.id === milestoneId ? { ...mm, linked_files: previousJson } : mm)
+        });
+        formError = res?.error || 'Failed to update linked files.';
+      }
+    } catch (e) {
+      allProjects = allProjects.map(proj2 => proj2.id !== projectId ? proj2 : {
+        ...proj2,
+        milestones: (proj2.milestones || []).map(mm => mm.id === milestoneId ? { ...mm, linked_files: previousJson } : mm)
+      });
+      formError = e?.message || 'Failed to update linked files.';
+    }
   }
 
   // Feedback helpers
@@ -588,6 +813,119 @@
     ).trim();
   }
 
+  function getCurrentUserId() {
+    return String(currentUser?.user_id || getCurrentUser()?.user_id || '').trim();
+  }
+
+  function canManageProject(project) {
+    const currentUserId = getCurrentUserId();
+    const creatorId = String(project?.created_by || '').trim();
+    return Boolean(currentUserId && creatorId && currentUserId === creatorId);
+  }
+
+  function canArchiveProject(project) {
+    const currentUserId = getCurrentUserId();
+    const projId = String(project?.proj_id || project?.id || '').trim();
+    return Boolean(currentUserId && projId);
+  }
+
+  function ensureArchivableProject(projectOrId, actionLabel) {
+    const project = typeof projectOrId === 'object'
+      ? projectOrId
+      : allProjects.find((item) => String(item.id || item.proj_id || '').trim() === String(projectOrId || '').trim());
+
+    if (!project) {
+      setFlashError('Project not found.');
+      return null;
+    }
+
+    if (!canArchiveProject(project)) {
+      setFlashError(`You cannot ${actionLabel}.`);
+      return null;
+    }
+
+    return project;
+  }
+
+  function ensureManageableProject(projectOrId, actionLabel) {
+    const project = typeof projectOrId === 'object'
+      ? projectOrId
+      : allProjects.find((item) => String(item.id || item.proj_id || '').trim() === String(projectOrId || '').trim());
+
+    if (!project) {
+      setFlashError('Project not found.');
+      return null;
+    }
+
+    if (!canManageProject(project)) {
+      setFlashError(`Only the supervisor who created this project can ${actionLabel}.`);
+      return null;
+    }
+
+    return project;
+  }
+
+  function resetProjectForm() {
+    projectForm = {
+      priority_level: 'Low',
+      title: '',
+      description: '',
+      members: [],
+      supervisor: [],
+      timeline_start: '',
+      timeline_end: '',
+      status: 'Not Started'
+    };
+    editingProjectId = null;
+    projectFormError = '';
+  }
+
+  function validateProjectForm() {
+    if (!String(projectForm.title || '').trim()) return 'Project title is required.';
+    if (!String(projectForm.timeline_start || '').trim() || !String(projectForm.timeline_end || '').trim()) {
+      return 'Timeline start and end are required.';
+    }
+    return '';
+  }
+
+  function normalizeText(value) {
+    return String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  }
+
+  function getDepartmentValue(user) {
+    if (!user || typeof user !== 'object') return '';
+    return user.department ?? user.Department ?? user.dept ?? user.Dept ?? user.departmentName ?? user.DepartmentName ?? '';
+  }
+
+  function sameDepartment(userDepartment, targetDepartment) {
+    const userDept = normalizeText(userDepartment);
+    const targetDept = normalizeText(targetDepartment);
+    return Boolean(userDept && targetDept && userDept === targetDept);
+  }
+
+  function isInternUser(user) {
+    const role = normalizeText(user?.role || user?.Role || user?.user_role || user?.userRole || '');
+    return role.includes('intern') || role.includes('student') || role === 'ojt';
+  }
+
+  function isSupervisorUser(user) {
+    const role = normalizeText(user?.role || user?.Role || user?.user_role || user?.userRole || '');
+    return role.includes('supervisor') || role.includes('mentor');
+  }
+
+  function getProfilePhotoUrl(user) {
+    return String(user?.profile_photo_url || user?.profilePhotoUrl || user?.photo_url || user?.avatar_url || '').trim();
+  }
+
+  function getInitials(nameValue) {
+    const parts = String(nameValue || '')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2);
+    return (parts.map((part) => part.charAt(0)).join('') || '?').toUpperCase();
+  }
+
   function resolveUserName(userId) {
     const key = String(userId || '').trim();
     if (!key) return ICONS.emDash;
@@ -628,6 +966,56 @@
       .split(',')
       .map((item) => String(item || '').trim())
       .filter(Boolean);
+  }
+
+  function inferSingleDepartmentFromUsers(list) {
+    const departments = new Set(
+      (Array.isArray(list) ? list : [])
+        .map((user) => normalizeText(getDepartmentValue(user)))
+        .filter(Boolean)
+    );
+    return departments.size === 1 ? [...departments][0] : '';
+  }
+
+  function getProjectDepartmentContext() {
+    return projectForm.department ?? projectForm.Department ?? projectForm.dept ?? projectForm.Dept ?? projectForm.departmentName ?? projectForm.DepartmentName
+      ?? currentUser?.department ?? currentUser?.Department ?? currentUser?.dept ?? currentUser?.Dept
+      ?? currentUser?.departmentName ?? currentUser?.DepartmentName
+      ?? bootstrapDepartment
+      ?? inferSingleDepartmentFromUsers(users)
+      ?? '';
+  }
+
+  function assignmentEmptyMessage(type) {
+    const isSupervisor = type === 'supervisor';
+    if (usersLoading) return isSupervisor ? 'Loading supervisors...' : 'Loading interns...';
+    if (!departmentContext && !allInterns.length && !allSupervisors.length) {
+      return `Your department is missing. Update your profile department to select ${isSupervisor ? 'supervisors' : 'interns'}.`;
+    }
+    if (isSupervisor) return allSupervisors.length ? 'No supervisors found in your department' : 'No supervisors found';
+    return allInterns.length ? 'No interns found in your department' : 'No interns found';
+  }
+
+  function normalizeBootstrapUsers(list) {
+    const seen = new Set();
+    const normalized = [];
+    (Array.isArray(list) ? list : []).forEach((user) => {
+      const id = getUserId(user);
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      normalized.push({
+        ...user,
+        id,
+        user_id: id,
+        name: getDisplayName(user),
+        full_name: user?.full_name || user?.name || user?.fullName || '',
+        email: user?.email || '',
+        role: user?.role || user?.Role || '',
+        department: getDepartmentValue(user),
+        profile_photo_url: getProfilePhotoUrl(user)
+      });
+    });
+    return normalized;
   }
 
   function normalizePriorityLabel(value) {
@@ -731,6 +1119,7 @@
   function normalizeProject(project) {
     const priority = normalizePriorityLabel(project?.priority_level || project?.priority || 'Low');
     const status = canonicalStatusLabel(project?.status || 'Not Started');
+    const archived = Boolean(project?.supervisor_archived ?? project?.archived);
     const progressPercentRaw = project?.progress_percent ?? project?.progress ?? project?.progressPercentage ?? null;
     const progressPercent = progressPercentRaw === null || progressPercentRaw === undefined || progressPercentRaw === ''
       ? null
@@ -751,7 +1140,8 @@
       deadline: String(project?.deadline || project?.timeline_end || project?.end_date || '').trim(),
       created_at: String(project?.created_at || '').trim(),
       created_by: String(project?.created_by || '').trim(),
-      archived: canonicalStatusLabel(project?.status || '').toLowerCase() === 'archived',
+      archived,
+      supervisor_archived: archived,
       owner_name: String(
         project?.owner_name ||
         project?.created_by_name ||
@@ -778,8 +1168,220 @@
     return String(a.title || '').localeCompare(String(b.title || ''));
   }
 
+  function toggleMember(value) {
+    const next = Array.isArray(projectForm.members) ? [...projectForm.members] : [];
+    const idx = next.indexOf(value);
+    if (idx === -1) next.push(value);
+    else next.splice(idx, 1);
+    projectForm = { ...projectForm, members: next };
+  }
+
+  function toggleSupervisor(value) {
+    const next = Array.isArray(projectForm.supervisor) ? [...projectForm.supervisor] : [];
+    const idx = next.indexOf(value);
+    if (idx === -1) next.push(value);
+    else next.splice(idx, 1);
+    projectForm = { ...projectForm, supervisor: next };
+  }
+
+  function toggleMembersDropdown() {
+    showMembersPanel = !showMembersPanel;
+    if (showMembersPanel) showSupervisorsPanel = false;
+  }
+
+  function toggleSupervisorsDropdown() {
+    showSupervisorsPanel = !showSupervisorsPanel;
+    if (showSupervisorsPanel) showMembersPanel = false;
+  }
+
+  function filterAssignmentOptions(options, query) {
+    const needle = normalizeText(query);
+    if (!needle) return options;
+    return options.filter((option) => normalizeText(`${option.label} ${option.email || ''}`).includes(needle));
+  }
+
+  function openAddProjectModal() {
+    resetProjectForm();
+    showMembersPanel = false;
+    showSupervisorsPanel = false;
+    memberSearch = '';
+    supervisorSearch = '';
+    showAddProjectModal = true;
+  }
+
+  function openEditProjectModal(project) {
+    const target = ensureManageableProject(project, 'edit this project');
+    if (!target) return;
+
+    editingProjectId = String(target.id || target.proj_id || '').trim();
+    projectForm = {
+      priority_level: normalizePriorityLabel(target.priority_level || target.priority || 'Low'),
+      title: String(target.title || target.proj_name || '').trim(),
+      description: String(target.description || '').trim(),
+      members: Array.isArray(target.members) ? [...target.members] : splitList(target.members),
+      supervisor: Array.isArray(target.supervisors) ? [...target.supervisors] : splitList(target.supervisor),
+      timeline_start: String(target.timeline_start || '').trim(),
+      timeline_end: String(target.timeline_end || target.deadline || '').trim(),
+      status: canonicalStatusLabel(target.status || 'Not Started')
+    };
+    projectFormError = '';
+    showMembersPanel = false;
+    showSupervisorsPanel = false;
+    memberSearch = '';
+    supervisorSearch = '';
+    showAddProjectModal = true;
+  }
+
+  function closeAddProjectModal() {
+    showAddProjectModal = false;
+    showMembersPanel = false;
+    showSupervisorsPanel = false;
+    memberSearch = '';
+    supervisorSearch = '';
+    resetProjectForm();
+  }
+
+  function handleModalPointerDown(event) {
+    if (!showAddProjectModal) return;
+    const target = event.target;
+    if (showMembersPanel && membersSelectEl && !membersSelectEl.contains(target)) {
+      showMembersPanel = false;
+    }
+    if (showSupervisorsPanel && supervisorsSelectEl && !supervisorsSelectEl.contains(target)) {
+      showSupervisorsPanel = false;
+    }
+  }
+
+  async function submitProject() {
+    const err = validateProjectForm();
+    projectFormError = err;
+    if (err) return;
+
+    const supervisorId = getCurrentUserId();
+    if (!supervisorId) {
+      projectFormError = 'No supervisor account found.';
+      return;
+    }
+
+    isSubmittingProject = true;
+    try {
+      const isEditing = Boolean(editingProjectId);
+      const action = editingProjectId ? 'update_proj_supervisor' : 'create_proj_supervisor';
+      const result = await callApiAction(action, {
+        user_id: supervisorId,
+        proj_id: editingProjectId || '',
+        proj_name: projectForm.title,
+        description: projectForm.description,
+        priority: projectForm.priority_level,
+        status: canonicalStatusLabel(projectForm.status),
+        members: projectForm.members,
+        supervisor: projectForm.supervisor,
+        start_date: projectForm.timeline_start,
+        end_date: projectForm.timeline_end
+      });
+
+      if (!result?.ok) {
+        projectFormError = result?.error || (editingProjectId ? 'Update failed.' : 'Create failed.');
+        return;
+      }
+
+      const creatorName = getDisplayName(currentUser || getCurrentUser() || {}) || supervisorId;
+      const updatedProject = normalizeProject({
+        proj_id: result.proj_id || editingProjectId,
+        proj_name: projectForm.title,
+        description: projectForm.description,
+        priority: projectForm.priority_level,
+        status: canonicalStatusLabel(projectForm.status),
+        members: Array.isArray(result.members) ? result.members : projectForm.members,
+        supervisor: Array.isArray(result.supervisor) ? result.supervisor : projectForm.supervisor,
+        start_date: projectForm.timeline_start,
+        end_date: projectForm.timeline_end,
+        created_at: new Date().toISOString(),
+        created_by: supervisorId,
+        created_by_name: creatorName,
+        owner_name: creatorName
+      });
+
+      if (isEditing) {
+        allProjects = allProjects.map((item) => (
+          item.id === editingProjectId
+            ? {
+                ...item,
+                ...updatedProject,
+                created_at: item.created_at,
+                created_by: item.created_by,
+                created_by_name: item.created_by_name || updatedProject.created_by_name,
+                owner_name: item.owner_name || updatedProject.owner_name
+              }
+            : item
+        )).sort(sortProjects);
+      } else {
+        allProjects = [...allProjects, updatedProject].sort(sortProjects);
+      }
+      activeView = 'Projects';
+      filterPriority = 'all';
+      filterStatus = 'all';
+      filterIntern = 'all';
+      searchQuery = String(updatedProject.title || '').trim();
+      closeAddProjectModal();
+      setFlashMessage(isEditing ? 'Project updated successfully.' : 'Project added successfully.');
+    } catch (error) {
+      projectFormError = error?.message || (editingProjectId ? 'Update failed.' : 'Create failed.');
+    } finally {
+      isSubmittingProject = false;
+    }
+  }
+
+  function openDeleteProjectModal(project) {
+    const target = ensureManageableProject(project, 'delete this project');
+    if (!target) return;
+    projectToDelete = target;
+    showDeleteProjectModal = true;
+  }
+
+  function closeDeleteProjectModal() {
+    projectToDelete = null;
+    showDeleteProjectModal = false;
+  }
+
+  async function confirmDeleteProject() {
+    const project = ensureManageableProject(projectToDelete, 'delete this project');
+    if (!project) {
+      closeDeleteProjectModal();
+      return;
+    }
+
+    isDeletingProject = true;
+    try {
+      const res = await callApiAction('delete_proj_supervisor', {
+        proj_id: project.proj_id || project.id,
+        user_id: getCurrentUserId()
+      });
+      if (!res?.ok) {
+        setFlashError(res?.error || 'Delete failed.');
+        return;
+      }
+
+      allProjects = allProjects.filter((item) => item.id !== project.id);
+      if (viewingProjectId === project.id) {
+        viewingProjectId = null;
+        try { localStorage.removeItem('projects.viewingProjectId'); } catch (e) {}
+      }
+      if (String(searchQuery || '').trim().toLowerCase() === String(project.title || '').trim().toLowerCase()) {
+        searchQuery = '';
+      }
+      setFlashMessage('Project deleted.');
+      closeDeleteProjectModal();
+    } catch (error) {
+      setFlashError(error?.message || 'Delete failed.');
+    } finally {
+      isDeletingProject = false;
+    }
+  }
+
   async function loadProjects() {
     isLoading = true;
+    usersLoading = true;
     loadError = '';
 
     try {
@@ -788,11 +1390,13 @@
         allProjects = [];
         users = [];
         userMap = {};
+        bootstrapDepartment = '';
         return;
       }
 
       users = [];
       userMap = {};
+      bootstrapDepartment = '';
 
       const [projectsResult, bootstrapResult] = await Promise.allSettled([
         callApiAction('list_proj_supervisor', { supervisor_user_id: supervisorId }),
@@ -803,8 +1407,9 @@
       const boot = bootstrapResult.status === 'fulfilled' ? bootstrapResult.value : null;
 
       if (boot?.ok) {
+        bootstrapDepartment = String(boot.department || boot.Department || boot.dept || '').trim();
         const list = Array.isArray(boot.users) ? boot.users : [...(boot.interns || []), ...(boot.supervisors || [])];
-        users = Array.isArray(list) ? list : [];
+        users = normalizeBootstrapUsers(list);
         userMap = buildUserMap(users);
       }
 
@@ -833,14 +1438,17 @@
       allProjects = [];
       users = [];
       userMap = {};
+      bootstrapDepartment = '';
       loadError = error?.message || 'Unable to load supervisor projects.';
     } finally {
       isLoading = false;
+      usersLoading = false;
     }
   }
 
   onMount(() => {
     currentUser = getCurrentUser() || currentUser;
+    document.addEventListener('mousedown', handleModalPointerDown);
     unsubscribeAuth = subscribeToCurrentUser((u) => {
       currentUser = u;
       loadProjects();
@@ -848,6 +1456,7 @@
   });
 
   onDestroy(() => {
+    document.removeEventListener('mousedown', handleModalPointerDown);
     if (typeof unsubscribeAuth === 'function') unsubscribeAuth();
     if (flashTimer) clearTimeout(flashTimer);
   });
@@ -899,29 +1508,17 @@
 
   async function loadProjectFolders(projectId) {
     const projId = String(allProjects.find(p => p.id === projectId)?.proj_id || projectId);
+    isLoadingFolders = true;
     try {
       const res = await callApiAction('list_proj_submissions', { proj_id: projId });
       if (res?.ok) {
         const folders = (res.folders || []).map(f => ({
-          id: f.folder_id,
-          folder_id: f.folder_id,
-          name: f.folder_name,
+          id:          f.folder_id,
+          folder_id:   f.folder_id,
+          name:        f.folder_name,
           gdrive_link: f.gdrive_link,
-          created_by: f.created_by,
-          submissions: (f.submissions || []).map(s => ({
-            id: s.submission_id,
-            submission_id: s.submission_id,
-            kind: s.kind === 'link' ? 'link' : 'file',
-            name: s.file_name || s.link_label || '',
-            file_type: s.file_type || '',
-            file_size: s.file_size || '',
-            uploaded_at: s.uploaded_at || '',
-            title: s.kind === 'link' ? (s.link_label || s.link_url || '') : '',
-            url: s.link_url || '',
-            drive_url: s.link_url || '',
-            gdrive: s.gdrive || '',
-            added_at: s.kind === 'link' ? (s.uploaded_at || '') : ''
-          }))
+          created_by:  f.created_by,
+          submissions: (f.submissions || []).map(normalizeSubmission_)
         }));
         allProjects = allProjects.map(p => p.id === projectId ? { ...p, folders } : p);
       } else {
@@ -930,6 +1527,8 @@
     } catch (e) {
       console.error('loadProjectFolders error', e);
       allProjects = allProjects.map(p => p.id === projectId ? { ...p, folders: [] } : p);
+    } finally {
+      isLoadingFolders = false;
     }
   }
 
@@ -940,12 +1539,27 @@
       if (res?.ok) {
         const list = (res.milestones || []).map(m => ({ id: m.milestone_id, milestone: m.milestone, date: m.date, status: canonicalStatusLabel(m.status || 'Not Started'), done: Boolean(m.done), created_at: m.created_at, created_by: m.created_by, linked_files: m.linked_files || '' }));
         allProjects = allProjects.map(p => p.id === projectId ? { ...p, milestones: list } : p);
+        try { localStorage.setItem('projects.milestones.' + String(projectId), JSON.stringify(list)); } catch (e) {}
       } else {
         allProjects = allProjects.map(p => p.id === projectId ? { ...p, milestones: [] } : p);
+        try { localStorage.setItem('projects.milestones.' + String(projectId), JSON.stringify([])); } catch (e) {}
       }
     } catch (e) {
       console.error('loadProjectMilestones error', e);
-      allProjects = allProjects.map(p => p.id === projectId ? { ...p, milestones: [] } : p);
+      let cached = null;
+      try { cached = localStorage.getItem('projects.milestones.' + String(projectId)); } catch (ee) { cached = null; }
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          allProjects = allProjects.map(p => p.id === projectId
+            ? { ...p, milestones: Array.isArray(parsed) ? parsed.map(mm => ({ ...mm, status: canonicalStatusLabel(mm.status || 'Not Started') })) : [] }
+            : p);
+        } catch (ee) {
+          allProjects = allProjects.map(p => p.id === projectId ? { ...p, milestones: [] } : p);
+        }
+      } else {
+        allProjects = allProjects.map(p => p.id === projectId ? { ...p, milestones: [] } : p);
+      }
     }
   }
 
@@ -963,18 +1577,16 @@
   }
 
   async function archiveProject(project) {
-    if (!project || project.archived) return;
+    const targetProject = ensureArchivableProject(project, 'archive this project');
+    const projectId = String(targetProject?.id || targetProject?.proj_id || '').trim();
+    if (!targetProject || targetProject.archived || !projectId || archivingProjectIds.has(projectId)) return;
 
-    const supervisorId = String(currentUser?.user_id || getCurrentUser()?.user_id || '').trim();
-    if (!supervisorId) {
-      setFlashError('No supervisor account found.');
-      return;
-    }
+    archivingProjectIds = new Set([...archivingProjectIds, projectId]);
 
     try {
-      const result = await callApiAction('update_proj_intern', {
-        proj_id: project.proj_id || project.id,
-        user_id: supervisorId,
+      const result = await callApiAction('update_proj_supervisor', {
+        proj_id: targetProject.proj_id || targetProject.id,
+        user_id: getCurrentUserId(),
         status: 'Archived'
       });
 
@@ -984,32 +1596,38 @@
       }
 
       allProjects = allProjects.map((item) => (
-        item.id === project.id
-          ? { ...item, archived: true, status: 'Archived' }
+        item.id === targetProject.id
+          ? { ...item, archived: true, supervisor_archived: true }
           : item
       ));
-      if (String(searchQuery || '').trim().toLowerCase() === String(project.title || '').trim().toLowerCase()) {
+      if (viewingProjectId === targetProject.id) {
+        viewingProjectId = null;
+        try { localStorage.removeItem('projects.viewingProjectId'); } catch (e) {}
+      }
+      if (String(searchQuery || '').trim().toLowerCase() === String(targetProject.title || '').trim().toLowerCase()) {
         searchQuery = '';
       }
       setFlashMessage('Project archived.');
     } catch (error) {
       setFlashError(error?.message || 'Archive failed.');
+    } finally {
+      const next = new Set(archivingProjectIds);
+      next.delete(projectId);
+      archivingProjectIds = next;
     }
   }
 
   async function restoreProject(project) {
-    if (!project) return;
+    const targetProject = ensureArchivableProject(project, 'restore this project');
+    const projectId = String(targetProject?.id || targetProject?.proj_id || '').trim();
+    if (!targetProject || !projectId || restoringProjectIds.has(projectId)) return;
 
-    const supervisorId = String(currentUser?.user_id || getCurrentUser()?.user_id || '').trim();
-    if (!supervisorId) {
-      setFlashError('No supervisor account found.');
-      return;
-    }
+    restoringProjectIds = new Set([...restoringProjectIds, projectId]);
 
     try {
-      const result = await callApiAction('restore_proj_intern', {
-        proj_id: project.proj_id || project.id,
-        user_id: supervisorId
+      const result = await callApiAction('restore_proj_supervisor', {
+        proj_id: targetProject.proj_id || targetProject.id,
+        user_id: getCurrentUserId()
       });
 
       if (!result?.ok) {
@@ -1018,17 +1636,21 @@
       }
 
       allProjects = allProjects.map((item) => (
-        item.id === project.id
-          ? { ...item, archived: false, status: canonicalStatusLabel(result.status || 'Not Started') }
+        item.id === targetProject.id
+          ? { ...item, archived: false, supervisor_archived: false, status: canonicalStatusLabel(result.status || item.status || 'Not Started') }
           : item
       ));
-      if (String(searchQuery || '').trim().toLowerCase() === String(project.title || '').trim().toLowerCase()) {
+      if (String(searchQuery || '').trim().toLowerCase() === String(targetProject.title || '').trim().toLowerCase()) {
         searchQuery = '';
       }
       activeView = 'Projects';
       setFlashMessage('Project restored.');
     } catch (error) {
       setFlashError(error?.message || 'Restore failed.');
+    } finally {
+      const next = new Set(restoringProjectIds);
+      next.delete(projectId);
+      restoringProjectIds = next;
     }
   }
 
@@ -1042,6 +1664,41 @@
       'your supervisor account'
     ).trim() || 'your supervisor account';
   }
+
+  $: departmentContext = normalizeText(getProjectDepartmentContext());
+  $: allInterns = users.filter(isInternUser);
+  $: allSupervisors = users.filter(isSupervisorUser);
+  $: availableInterns = departmentContext
+    ? allInterns.filter((user) => sameDepartment(getDepartmentValue(user), departmentContext))
+    : allInterns;
+  $: availableSupervisors = departmentContext
+    ? allSupervisors.filter((user) => sameDepartment(getDepartmentValue(user), departmentContext))
+    : allSupervisors;
+  $: MEMBER_OPTIONS = availableInterns.map((user) => ({
+    value: getUserId(user),
+    label: getDisplayName(user),
+    email: user?.email || '',
+    photoUrl: getProfilePhotoUrl(user),
+    initials: getInitials(getDisplayName(user))
+  })).filter((option) => option.value);
+  $: SUPERVISOR_OPTIONS = availableSupervisors.map((user) => ({
+    value: getUserId(user),
+    label: getDisplayName(user),
+    email: user?.email || '',
+    photoUrl: getProfilePhotoUrl(user),
+    initials: getInitials(getDisplayName(user))
+  })).filter((option) => option.value);
+  $: selectedMemberOptions = (projectForm.members || []).map((id) => (
+    MEMBER_OPTIONS.find((option) => option.value === id) || { value: id, label: id, initials: getInitials(id) }
+  ));
+  $: selectedSupervisorOptions = (projectForm.supervisor || []).map((id) => (
+    SUPERVISOR_OPTIONS.find((option) => option.value === id) || { value: id, label: id, initials: getInitials(id) }
+  ));
+  $: memberChipList = selectedMemberOptions.slice(0, MAX_ASSIGNMENT_CHIPS);
+  $: supervisorChipList = selectedSupervisorOptions.slice(0, MAX_ASSIGNMENT_CHIPS);
+  $: filteredMemberOptions = filterAssignmentOptions(MEMBER_OPTIONS, memberSearch);
+  $: filteredSupervisorOptions = filterAssignmentOptions(SUPERVISOR_OPTIONS, supervisorSearch);
+  $: isProjectFormValid = String(projectForm.title || '').trim() && String(projectForm.timeline_start || '').trim() && String(projectForm.timeline_end || '').trim();
 
   $: activeProjects = allProjects.filter((p) => !p.archived);
   $: archivedProjects = allProjects.filter((p) => p.archived);
@@ -1165,6 +1822,11 @@
             <option value={p}>{p}</option>
           {/each}
         </select>
+
+        <button type="button" class="primary" on:click={openAddProjectModal}>
+          <Plus size={14} />
+          <span>Add Project</span>
+        </button>
       </div>
     </div>
   </section>
@@ -1287,9 +1949,21 @@
                   <button class="sub-action-btn" on:click={() => viewProject(p)}>
                     <Eye size={12} /> Open
                   </button>
-                <button class="sub-action-btn" title="Archive project" on:click={() => archiveProject(p)}>
-                  <Archive size={12} /> Archive
-                </button>
+                  {#if canArchiveProject(p)}
+                    <button
+                      class="sub-action-btn"
+                      class:sub-action-btn-busy={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                      title={archivingProjectIds.has(String(p.id || p.proj_id || '').trim()) ? 'Archiving...' : 'Archive project'}
+                      disabled={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                      on:click={() => archiveProject(p)}
+                    >
+                      {#if archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                        <Loader2 size={12} class="spin" /> Archiving...
+                      {:else}
+                        <Archive size={12} /> Archive
+                      {/if}
+                    </button>
+                  {/if}
                 </div>
               </div>
             {/each}
@@ -1315,14 +1989,28 @@
       {:else}
         <div class="proj-table-body">
           {#each archivedProjects as p (p.id)}
+            {@const canRestore = canArchiveProject(p)}
             <div class="proj-table-row proj-arc-row">
               <span class="proj-col-name proj-name-cell">
                 <div class="proj-arc-title">{p.title}</div>
               </span>
               <div class="proj-arc-corner">
-                <button class="icon-btn restore" title="Restore project" aria-label="Restore project" on:click={() => restoreProject(p)}>
-                  <RotateCcw size={16} />
-                </button>
+                {#if canRestore}
+                  <button
+                    class="icon-btn restore"
+                    class:icon-btn-busy={restoringProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                    title={restoringProjectIds.has(String(p.id || p.proj_id || '').trim()) ? 'Restoring...' : 'Restore project'}
+                    aria-label={restoringProjectIds.has(String(p.id || p.proj_id || '').trim()) ? 'Restoring project' : 'Restore project'}
+                    disabled={restoringProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                    on:click={() => restoreProject(p)}
+                  >
+                    {#if restoringProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                      <Loader2 size={16} class="spin" />
+                    {:else}
+                      <RotateCcw size={16} />
+                    {/if}
+                  </button>
+                {/if}
               </div>
             </div>
           {/each}
@@ -1359,6 +2047,8 @@
             {@const past = isDeadlinePast(p.timeline_end || p.deadline)}
             {@const pl = normalizePriorityLabel(p.priority_level)}
             {@const isViewing = viewingProjectId === p.id}
+            {@const canManage = canManageProject(p)}
+            {@const canArchive = canArchiveProject(p)}
             <div class="proj-table-row" class:proj-row-active={isViewing}>
               <span class="proj-col-name proj-name-cell">{p.title}</span>
               <span class="proj-col-priority" data-label="Priority">
@@ -1378,9 +2068,22 @@
                 <button class="icon-btn" class:icon-btn-active={isViewing} title="View" aria-label="View" on:click={() => viewProject(p)}>
                   <Eye size={16} />
                 </button>
-                <button class="icon-btn archive" title="Archive" aria-label="Archive" on:click={() => archiveProject(p)}>
-                  <Archive size={16} />
-                </button>
+                {#if canArchive}
+                  <button
+                    class="icon-btn archive"
+                    class:icon-btn-busy={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                    title={archivingProjectIds.has(String(p.id || p.proj_id || '').trim()) ? 'Archiving...' : 'Archive'}
+                    aria-label={archivingProjectIds.has(String(p.id || p.proj_id || '').trim()) ? 'Archiving project' : 'Archive'}
+                    disabled={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                    on:click={() => archiveProject(p)}
+                  >
+                    {#if archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                      <Loader2 size={16} class="spin" />
+                    {:else}
+                      <Archive size={16} />
+                    {/if}
+                  </button>
+                {/if}
               </span>
             </div>
             {#if viewingProjectId === p.id}
@@ -1450,26 +2153,81 @@
                             </div>
                             <div style="display:flex; justify-content:flex-end; margin-top:6px; font-weight:700; font-size:0.86rem">{p.progress_percent != null ? Number(p.progress_percent) : statusToProgress(p.status)}%</div>
                           </div>
+                          {#if canManage}
+                            <div class="detail-manage-footer">
+                              <button class="sub-action-btn" on:click={() => openEditProjectModal(p)}>Edit Project</button>
+                            </div>
+                          {/if}
                         </div>
                       {:else if viewingProjectTab === 'Submissions'}
+                        {#if canManage}
+                          <div class="sub-action-bar">
+                            <button class="sub-action-btn" disabled={isSavingFolder} on:click={() => addFolder(p.id)}>
+                              {#if isSavingFolder}<Loader2 size={13} class="spin" />{:else}<FolderOpen size={13} />{/if} New Folder
+                            </button>
+                          </div>
+                        {/if}
+
                         {#if isLoadingFolders}
                           <div class="proj-detail-empty" style="padding:1rem 1.25rem">
                             <Loader2 size={18} class="spin" /> Loading folders...
                           </div>
                         {:else if !p.folders || p.folders.length === 0}
-                          <div class="proj-detail-empty" style="padding:1rem 1.25rem">No folders yet.</div>
+                          <div class="proj-detail-empty" style="padding:1rem 1.25rem">
+                            {canManage ? 'No folders yet. Click New Folder to get started.' : 'No folders yet.'}
+                          </div>
                         {:else}
                           <div class="folder-list">
                             {#each p.folders as folder (folder.id)}
                               <div class="folder-block">
-                                <div class="folder-header" role="button" tabindex="0" on:click={() => toggleFolder(folder.id)} on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleFolder(folder.id); }}>
+                                <div class="folder-header" role="button" tabindex="0" on:click={() => { if (renamingFolderId !== folder.id) toggleFolder(folder.id); }} on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleFolder(folder.id); }}>
                                   <span class="folder-chevron">{expandedFolderIds.has(folder.id) ? ICONS.chevronDown : ICONS.chevronRight}</span>
                                   <span class="folder-icon">{ICONS.folder}</span>
-                                  <span class="folder-name">{folder.name}</span>
+                                  {#if canManage && renamingFolderId === folder.id}
+                                    <input
+                                      class="folder-rename-input"
+                                      bind:value={renamingFolderName}
+                                      on:click|stopPropagation
+                                      on:keydown={(e) => { if (e.key === 'Enter') confirmRename(p.id); if (e.key === 'Escape') { renamingFolderId = null; } }}
+                                    />
+                                    <button class="folder-rename-confirm" on:click|stopPropagation={() => confirmRename(p.id)}>✓</button>
+                                  {:else}
+                                    <span class="folder-name">{folder.name}</span>
+                                    {#if canManage}
+                                      <button class="folder-action-btn" title="Rename" on:click|stopPropagation={() => startRenaming(folder.id, folder.name)}><Pencil size={12} /></button>
+                                      <button class="folder-action-btn folder-delete-btn" title="Delete folder" on:click|stopPropagation={() => deleteFolder(p.id, folder.id)}><Trash2 size={12} /></button>
+                                    {/if}
+                                  {/if}
                                 </div>
 
                                 {#if expandedFolderIds.has(folder.id)}
                                   <div class="folder-content">
+                                    {#if canManage}
+                                      <div class="sub-action-bar sub-action-bar-inline">
+                                        <input id={"proj-file-input-" + p.id + "-" + folder.id} type="file" on:change={(e) => handleFileSelect(p.id, folder.id, e)} style="display:none" />
+                                        <button class="sub-action-btn" on:click={() => triggerFilePicker(p.id, folder.id)}>
+                                          <ExternalLink size={13} /> Upload File
+                                        </button>
+                                        <button class="sub-action-btn" class:sub-action-btn-active={activeLinkFolderId === folder.id} on:click={() => toggleLinkPanel(folder.id)}>
+                                          <Link2 size={13} /> Add Link
+                                        </button>
+                                      </div>
+                                    {/if}
+
+                                    {#if activeLinkFolderId === folder.id}
+                                      <div class="add-link-form">
+                                        <input class="sub-input" placeholder="Label  e.g. GitHub Repository" bind:value={viewingLinkLabel} />
+                                        <input class="sub-input" placeholder="https://example.com" bind:value={viewingLinkUrl} />
+                                        <div class="add-link-actions">
+                                          <button class="sub-action-btn" class:sub-action-btn-busy={isSavingLink} disabled={isSavingLink} on:click={() => addLinkSubmission(p.id, folder.id)}>
+                                            {#if isSavingLink}<Loader2 size={13} class="spin" /> Saving...{:else}Save Link{/if}
+                                          </button>
+                                          <button class="sub-cancel-btn" disabled={isSavingLink} on:click={() => toggleLinkPanel(folder.id)}>Cancel</button>
+                                        </div>
+                                        {#if formError}<div class="sub-error">{formError}</div>{/if}
+                                      </div>
+                                    {/if}
+
                                     {#if pendingUpload.projectId === p.id && pendingUpload.folderId === folder.id && pendingUpload.file}
                                       <div class="submission-card pending-upload" style="margin:0.5rem 0.75rem;">
                                         <div class="submission-card-left">
@@ -1506,6 +2264,9 @@
                                               <div class="submission-actions">
                                                 <button class="icon-btn" title="View in Drive" on:click={() => viewSubmission(s)}><Eye size={14} /></button>
                                                 <button class="icon-btn" title="Open in Drive" on:click={() => downloadSubmission(s)}><Download size={14} /></button>
+                                                {#if canManage}
+                                                  <button class="icon-btn" title="Delete attachment" on:click={() => deleteSubmission(p.id, folder.id, s.id)}><Trash2 size={14} /></button>
+                                                {/if}
                                               </div>
                                             </div>
                                           {:else}
@@ -1517,6 +2278,9 @@
                                               </div>
                                               <div class="submission-actions">
                                                 <button class="sub-open-btn" on:click={() => viewSubmission(s)}>Open Link</button>
+                                                {#if canManage}
+                                                  <button class="icon-btn" title="Delete link" on:click={() => deleteSubmission(p.id, folder.id, s.id)}><Trash2 size={14} /></button>
+                                                {/if}
                                               </div>
                                             </div>
                                           {/if}
@@ -1621,6 +2385,8 @@
         {@const sm = getStatusMeta(p.status)}
         {@const past = isDeadlinePast(p.deadline)}
         {@const near = !past && isDeadlineNear(p.deadline)}
+        {@const canManage = canManageProject(p)}
+        {@const canArchive = canArchiveProject(p)}
         <div class="project-card">
           <div class="project-card-header">
             <div
@@ -1652,9 +2418,20 @@
             <button class="sub-action-btn" on:click={() => viewProject(p)}>
               <Eye size={12} /> Open
             </button>
-            <button class="sub-action-btn" on:click={() => archiveProject(p)}>
-              <Archive size={12} /> Archive
-            </button>
+            {#if canArchive}
+              <button
+                class="sub-action-btn"
+                class:sub-action-btn-busy={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                disabled={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                on:click={() => archiveProject(p)}
+              >
+                {#if archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                  <Loader2 size={12} class="spin" /> Archiving...
+                {:else}
+                  <Archive size={12} /> Archive
+                {/if}
+              </button>
+            {/if}
           </div>
         </div>
       {/each}
@@ -1662,6 +2439,203 @@
     {/if}
   {/if}
 </section>
+
+{#if showAddProjectModal}
+  <!-- svelte-ignore a11y-click-events-have-key-events -->
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
+  <div class="modal-overlay" on:click={closeAddProjectModal}>
+    <div class="modal-box large" on:click|stopPropagation>
+      <div class="modal-title">{editingProjectId ? 'Edit Project' : 'Add New Project'}</div>
+      <div class="modal-content">
+        {#if projectFormError}
+          <div class="form-alert error">{projectFormError}</div>
+        {/if}
+
+        <div class="form-group">
+          <label class="form-label" for="sup-proj-title">Project Title <span class="req">*</span></label>
+          <input
+            id="sup-proj-title"
+            type="text"
+            class="form-input"
+            bind:value={projectForm.title}
+            placeholder="e.g. IMS Portal Enhancements"
+            maxlength="120"
+          />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="sup-proj-desc">Description</label>
+          <textarea
+            id="sup-proj-desc"
+            class="form-textarea"
+            bind:value={projectForm.description}
+            rows="3"
+            placeholder="Brief description of the project..."
+            maxlength="500"
+          ></textarea>
+        </div>
+
+        <div class="form-group">
+          <div class="form-label">Members</div>
+          <div class="members-select" bind:this={membersSelectEl}>
+            <div class="members-input form-input" on:click={toggleMembersDropdown} role="button" tabindex="0" aria-expanded={showMembersPanel}>
+              <div class="members-value">
+                {#if (projectForm.members || []).length === 0}
+                  <span class="members-placeholder">Select members</span>
+                {:else if (projectForm.members || []).length <= MAX_ASSIGNMENT_CHIPS}
+                  <div class="members-chips">
+                    {#each memberChipList as member (member.value)}
+                      <span class="member-chip" title={member.label}>{member.label}</span>
+                    {/each}
+                  </div>
+                {:else}
+                  <span class="members-count-text">{(projectForm.members || []).length} members selected</span>
+                {/if}
+              </div>
+              <div class="muted">{(projectForm.members || []).length}</div>
+            </div>
+            {#if showMembersPanel}
+              <div class="members-panel members-panel-dropdown">
+                <div class="members-search">
+                  <input class="members-search-input" type="text" placeholder="Search interns..." bind:value={memberSearch} />
+                </div>
+                <div class="members-list">
+                  {#if usersLoading}
+                    <span class="members-empty">{assignmentEmptyMessage('intern')}</span>
+                  {:else if filteredMemberOptions.length}
+                    {#each filteredMemberOptions as member}
+                      <label class="members-item">
+                        <input type="checkbox" checked={(projectForm.members || []).includes(member.value)} on:change={() => toggleMember(member.value)} />
+                        <span class="member-avatar" aria-hidden="true">
+                          {#if member.photoUrl}
+                            <img src={member.photoUrl} alt="" />
+                          {:else}
+                            <span>{member.initials}</span>
+                          {/if}
+                        </span>
+                        <span class="members-name">{member.label}</span>
+                      </label>
+                    {/each}
+                  {:else}
+                    <span class="members-empty">{memberSearch ? 'No matches found.' : assignmentEmptyMessage('intern')}</span>
+                  {/if}
+                </div>
+              </div>
+            {/if}
+          </div>
+        </div>
+
+        <div class="form-group">
+          <div class="form-label">Supervisor</div>
+          <div class="members-select" bind:this={supervisorsSelectEl}>
+            <div class="members-input form-input" on:click={toggleSupervisorsDropdown} role="button" tabindex="0" aria-expanded={showSupervisorsPanel}>
+              <div class="members-value">
+                {#if (projectForm.supervisor || []).length === 0}
+                  <span class="members-placeholder">Select supervisor(s)</span>
+                {:else if (projectForm.supervisor || []).length <= MAX_ASSIGNMENT_CHIPS}
+                  <div class="members-chips">
+                    {#each supervisorChipList as supervisor (supervisor.value)}
+                      <span class="member-chip" title={supervisor.label}>{supervisor.label}</span>
+                    {/each}
+                  </div>
+                {:else}
+                  <span class="members-count-text">{(projectForm.supervisor || []).length} supervisors selected</span>
+                {/if}
+              </div>
+              <div class="muted">{(projectForm.supervisor || []).length}</div>
+            </div>
+            {#if showSupervisorsPanel}
+              <div class="members-panel members-panel-dropdown">
+                <div class="members-search">
+                  <input class="members-search-input" type="text" placeholder="Search supervisors..." bind:value={supervisorSearch} />
+                </div>
+                <div class="members-list">
+                  {#if usersLoading}
+                    <span class="members-empty">{assignmentEmptyMessage('supervisor')}</span>
+                  {:else if filteredSupervisorOptions.length}
+                    {#each filteredSupervisorOptions as supervisor}
+                      <label class="members-item">
+                        <input type="checkbox" checked={(projectForm.supervisor || []).includes(supervisor.value)} on:change={() => toggleSupervisor(supervisor.value)} />
+                        <span class="member-avatar" aria-hidden="true">
+                          {#if supervisor.photoUrl}
+                            <img src={supervisor.photoUrl} alt="" />
+                          {:else}
+                            <span>{supervisor.initials}</span>
+                          {/if}
+                        </span>
+                        <span class="members-name">{supervisor.label}</span>
+                      </label>
+                    {/each}
+                  {:else}
+                    <span class="members-empty">{supervisorSearch ? 'No matches found.' : assignmentEmptyMessage('supervisor')}</span>
+                  {/if}
+                </div>
+              </div>
+            {/if}
+          </div>
+        </div>
+
+        <div class="row-2">
+          <div class="form-group">
+            <label class="form-label" for="sup-proj-priority">Priority</label>
+            <select id="sup-proj-priority" class="form-input" bind:value={projectForm.priority_level}>
+              {#each PRIORITY_OPTIONS as priority}
+                <option value={priority}>{priority}</option>
+              {/each}
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="sup-proj-status">Status</label>
+            <select id="sup-proj-status" class="form-input" bind:value={projectForm.status}>
+              {#each STATUS_OPTIONS as status}
+                <option value={status}>{status}</option>
+              {/each}
+            </select>
+          </div>
+        </div>
+
+        <div class="row-2">
+          <div class="form-group">
+            <label class="form-label" for="sup-proj-start">Timeline Start <span class="req">*</span></label>
+            <input id="sup-proj-start" type="date" class="form-input" bind:value={projectForm.timeline_start} />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="sup-proj-end">Timeline End <span class="req">*</span></label>
+            <input id="sup-proj-end" type="date" class="form-input" bind:value={projectForm.timeline_end} />
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer modal-footer-sticky">
+        <button class="btn-secondary" on:click={closeAddProjectModal}>Cancel</button>
+        <button class="btn-submit" on:click={submitProject} disabled={isSubmittingProject || !isProjectFormValid}>
+          {isSubmittingProject ? 'Saving...' : (editingProjectId ? 'Save Changes' : 'Add Project')}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if showDeleteProjectModal}
+  <!-- svelte-ignore a11y-click-events-have-key-events -->
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
+  <div class="modal-overlay" on:click={closeDeleteProjectModal}>
+    <div class="modal-box" on:click|stopPropagation>
+      <div class="modal-title">Delete Project</div>
+      <p class="modal-body">
+        Are you sure you want to delete <strong>{projectToDelete?.title}</strong>? This cannot be undone.
+      </p>
+      <div class="modal-footer">
+        <button class="btn-secondary" on:click={closeDeleteProjectModal}>Cancel</button>
+        <button class="btn-delete-confirm" on:click={confirmDeleteProject} disabled={isDeletingProject}>
+          {isDeletingProject ? 'Deleting...' : 'Delete'}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <style>
   .projects-page { padding: 8px 0 14px; display: flex; flex-direction: column; gap: 14px; }
@@ -1721,6 +2695,24 @@
     color: var(--color-text);
     height: 2.15rem;
   }
+  .quick-actions .primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    padding: 0 0.95rem;
+    border-radius: 0.7rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    border: none;
+    background: #2563eb;
+    color: #ffffff;
+    height: 2.15rem;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s ease, transform 0.15s ease;
+  }
+  .quick-actions .primary:hover { background: #1d4ed8; transform: translateY(-1px); }
 
   .alert-success {
     padding: 10px 14px;
@@ -1768,6 +2760,10 @@
     background: var(--color-surface);
     border-color: var(--color-border);
     color: var(--color-sidebar-text);
+  }
+  .icon-btn-busy {
+    border-color: var(--color-accent) !important;
+    background: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface)) !important;
   }
   .icon-btn.archive {
     background: transparent;
@@ -2099,6 +3095,15 @@
     cursor: pointer;
     transition: background 0.15s, border-color 0.15s;
   }
+  .sub-action-btn-busy {
+    opacity: 0.72;
+    pointer-events: none;
+  }
+  .sub-action-btn-active {
+    background: rgba(59,130,246,0.1) !important;
+    border-color: #3b82f6 !important;
+    color: #3b82f6 !important;
+  }
   .sub-action-btn:hover { background: var(--color-soft); border-color: var(--color-accent); }
   :global(body.dark) .sub-action-btn { background: #161c27; border-color: #ffffff10; }
 
@@ -2170,6 +3175,19 @@
   :global(body.dark) .quick-actions select,
   :global(body.dark) .quick-status,
   :global(body.dark) .quick-priority { background: #1f2937; border-color: #374151; color: #f1f5f9; }
+  :global(body.dark) .form-input,
+  :global(body.dark) .form-textarea,
+  :global(body.dark) .members-input,
+  :global(body.dark) .members-search-input { background: #111827; border-color: #374151; color: #f1f5f9; }
+  :global(body.dark) .member-chip {
+    background: rgba(255,255,255,0.06);
+    border-color: rgba(255,255,255,0.1);
+    color: #e5edf8;
+  }
+  :global(body.dark) .modal-box { background: #1f2937; border-color: #374151; }
+  :global(body.dark) .modal-body { color: #cbd5e1; }
+  :global(body.dark) .modal-footer.modal-footer-sticky { background: #1f2937; border-top-color: #374151; }
+  :global(body.dark) .members-panel { background: #1f2937; border-color: #374151; }
   :global(body.dark) .search-input { color: #f1f5f9; }
   :global(body.dark) .alert-success { background: #052e16; border-color: #166534; color: #4ade80; }
   :global(body.dark) .alert-error { background: #2d0a0a; border-color: #7f1d1d; color: #f87171; }
@@ -2198,10 +3216,18 @@
     .quick-actions > * { width: 100%; }
     .quick-actions .search-wrap,
     .quick-actions .quick-status,
-    .quick-actions .quick-priority { width: 100%; }
+    .quick-actions .quick-priority,
+    .quick-actions .primary { width: 100%; }
     .search-input { width: 100%; }
     .ov-snippets-grid { grid-template-columns: 1fr; }
     .project-meta { flex-direction: column; align-items: flex-start; gap: 6px; }
+    .row-2 { grid-template-columns: 1fr; }
+    .detail-manage-footer { flex-direction: column; align-items: stretch; }
+    .milestone-create-grid { grid-template-columns: 1fr; }
+    .milestone-create-date { max-width: none; width: 100%; }
+    .milestone-editor,
+    .milestone-editor.inline { grid-template-columns: 1fr; }
+    .modal-box.large { width: min(94vw, 720px); }
   }
 
   /* Inline detail card styles (collapsed project view) */
@@ -2243,6 +3269,254 @@
   .proj-detail-empty { font-size: 0.83rem; color: var(--color-muted, var(--color-sidebar-text)); }
 
   .icon-btn-active { background: rgba(59,130,246,0.12) !important; color: #3b82f6 !important; }
+
+  .form-group { display: flex; flex-direction: column; gap: 5px; }
+  .form-label { font-size: 12px; font-weight: 600; color: var(--color-sidebar-text); }
+  .req { color: #dc2626; }
+  .form-input, .form-textarea {
+    padding: 8px 10px;
+    border-radius: 7px;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface-muted);
+    color: var(--color-text);
+    font-size: 13px;
+    transition: border-color 0.15s;
+    outline: none;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .form-input:focus, .form-textarea:focus { border-color: #2563eb; }
+  .form-textarea { resize: vertical; }
+  .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .form-alert {
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 12.5px;
+    font-weight: 600;
+    line-height: 1.45;
+    margin-bottom: 10px;
+  }
+  .form-alert.error {
+    background: #fff1f2;
+    border: 1px solid #fecdd3;
+    color: #be123c;
+  }
+  .btn-submit {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 20px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    background: #2563eb;
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .btn-submit:hover:not(:disabled) { background: #1d4ed8; }
+  .btn-submit:disabled { opacity: 0.55; cursor: not-allowed; }
+  .btn-secondary {
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    background: var(--color-soft);
+    color: var(--color-text);
+    border: 1px solid var(--color-border);
+    cursor: pointer;
+  }
+  .btn-secondary:hover { background: var(--color-hover); }
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.45);
+    display: grid;
+    place-items: center;
+    z-index: 200;
+  }
+  .modal-box {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    padding: 24px 26px;
+    max-width: 380px;
+    width: 90%;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    box-shadow: 0 20px 48px rgba(0,0,0,.18);
+  }
+  .modal-box.large {
+    max-width: 720px;
+    width: min(92vw, 720px);
+    max-height: 90vh;
+    padding: 0;
+    gap: 0;
+    overflow: hidden;
+  }
+  .modal-box.large .modal-title { padding: 18px 22px 0; }
+  .modal-title { font-size: 15px; font-weight: 700; color: var(--color-heading); }
+  .modal-content {
+    padding: 12px 22px 16px;
+    overflow-y: auto;
+    flex: 1;
+  }
+  .modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .modal-footer.modal-footer-sticky {
+    padding: 12px 22px 16px;
+    border-top: 1px solid var(--color-border);
+    background: var(--color-surface);
+  }
+  .modal-body {
+    margin: 0;
+    color: var(--color-sidebar-text);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .btn-delete-confirm {
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    background: #dc2626;
+    color: #fff;
+    border: none;
+    cursor: pointer;
+  }
+  .btn-delete-confirm:hover:not(:disabled) { background: #b91c1c; }
+  .btn-delete-confirm:disabled { opacity: 0.55; cursor: not-allowed; }
+  .members-input {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 7px;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface-muted);
+    color: var(--color-text);
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .members-input:focus { outline: none; border-color: #2563eb; }
+  .members-input .muted { font-size: 13px; color: var(--color-sidebar-text); font-weight: 500; }
+  .members-panel {
+    margin-top: 8px;
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+  }
+  .members-select { display: flex; flex-direction: column; gap: 8px; }
+  .members-value { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; flex: 1; }
+  .members-placeholder { color: var(--color-sidebar-text); font-weight: 500; }
+  .members-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .member-chip {
+    max-width: 160px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--color-border);
+    background: var(--color-soft);
+    color: var(--color-heading);
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .members-count-text { font-size: 12px; color: var(--color-sidebar-text); font-weight: 600; }
+  .members-panel-dropdown { padding: 10px; }
+  .members-search { padding: 0 4px 8px; }
+  .members-search-input {
+    width: 100%;
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface-muted);
+    color: var(--color-text);
+    font-size: 12px;
+    outline: none;
+  }
+  .members-search-input:focus { border-color: #2563eb; }
+  .members-list { max-height: 200px; overflow-y: auto; padding-right: 4px; }
+  .members-empty { font-size: 12px; color: var(--color-sidebar-text); padding: 4px 8px; display: block; }
+  .members-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--color-heading);
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .members-item + .members-item { margin-top: 6px; }
+  .members-item input[type="checkbox"] { width: 18px; height: 18px; accent-color: #60a5fa; }
+  .member-avatar {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border: 1px solid rgba(148,163,184,0.35);
+    background: linear-gradient(135deg, rgba(37,99,235,0.28), rgba(14,165,233,0.18));
+    color: #dbeafe;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+  }
+  .member-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .members-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .detail-manage-footer {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 0.65rem;
+    margin-top: 0.85rem;
+  }
+  .sub-action-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.2rem 1.25rem 0.85rem;
+    flex-wrap: wrap;
+  }
+  .sub-action-bar-inline {
+    padding: 0.6rem 0.75rem 0.4rem;
+  }
+  .milestone-editor {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 180px auto;
+    gap: 0.65rem;
+    align-items: center;
+    padding: 0 1.25rem 0.95rem;
+  }
+  .milestone-editor.inline {
+    padding: 0;
+    grid-template-columns: minmax(0, 1fr) 170px 150px auto;
+  }
+  .milestone-date { min-width: 0; }
+  .milestone-editor-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+  .sub-cancel-btn.danger {
+    color: #dc2626;
+    font-weight: 600;
+  }
+  .sub-cancel-btn.danger:hover { color: #b91c1c; }
 
   /* Details grid and form styles copied from ProjectsIntern for consistent typography */
   .proj-detail-grid { display:grid; grid-template-columns: 1fr; gap:0.75rem; padding:1rem 1.25rem; }
@@ -2377,6 +3651,42 @@
   .pending-upload .sub-input { width: 220px; }
   .pending-upload .submission-info { font-size:0.82rem; color:var(--color-sidebar-text); }
 
+  .milestone-create-panel {
+    margin: 0 0.75rem 0.85rem;
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--color-border, rgba(226,232,240,0.9));
+    border-radius: 0.95rem;
+    background: color-mix(in srgb, var(--color-surface) 88%, transparent);
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+  }
+  :global(body.dark) .milestone-create-panel {
+    background: #202938;
+    border-color: rgba(148,163,184,0.14);
+  }
+  .milestone-create-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 220px;
+    gap: 0.75rem;
+    align-items: center;
+  }
+  .milestone-create-input,
+  .milestone-create-date {
+    min-height: 2.9rem;
+    font-size: 0.95rem;
+    border-radius: 0.75rem;
+  }
+  .milestone-create-date {
+    max-width: 220px;
+  }
+  .milestone-create-links {
+    gap: 0.35rem;
+  }
+  .milestone-create-actions {
+    justify-content: flex-start;
+  }
+
   .folder-list { display:flex; flex-direction:column; gap:0.5rem; padding:0.5rem 0.75rem 0.75rem; }
   .folder-block { border:1px solid var(--color-border,#e2e8f0); border-radius:8px; overflow:hidden; }
   :global(.dark) .folder-block { border-color:rgba(255,255,255,0.09); }
@@ -2415,6 +3725,8 @@
     color:var(--color-sidebar-text); border-radius:4px; display:flex; align-items:center;
     opacity:0; transition:opacity 0.15s;
   }
+  .folder-header:hover .folder-action-btn { opacity:1; }
+  .folder-delete-btn:hover { color:#ef4444; }
   .folder-content { border-top:1px solid var(--color-border,#e2e8f0); }
   :global(.dark) .folder-content { border-top-color:rgba(255,255,255,0.08); }
 
