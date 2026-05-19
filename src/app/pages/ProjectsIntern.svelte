@@ -381,6 +381,7 @@
 
       if (projectsRes?.ok) {
         projects = (projectsRes.projects || []).map(normalizeProject);
+        overviewActivityLoaded = false;
       }
 
       // Folders and milestones are loaded lazily when a project is opened — ensure properties exist
@@ -505,6 +506,7 @@
         projects = [newProject, ...projects];
         formSuccess = 'Project added successfully!';
       }
+      void refreshOverviewActivity();
       setTimeout(() => { formSuccess = ''; }, 3000);
       resetForm();
       closeAddProjectModal();
@@ -572,6 +574,7 @@
               status: nextStatus, members: inlineForm.members, supervisors: inlineForm.supervisor,
               timeline_start: inlineForm.timeline_start, timeline_end: inlineForm.timeline_end, deadline: inlineForm.timeline_end }
         : proj);
+      void refreshOverviewActivity();
       cancelInlineEdit();
     } catch(e) {
       formError = e?.message || 'Update failed.';
@@ -626,6 +629,7 @@
       });
       if (!res?.ok) { formError = res?.error || 'Delete failed.'; closeDeleteModal(); return; }
       projects = projects.filter(p => p.id !== projectToDelete.id);
+      void refreshOverviewActivity();
       formSuccess = 'Project deleted.';
       setTimeout(() => { formSuccess = ''; }, 2500);
       closeDeleteModal();
@@ -1019,6 +1023,7 @@
       newMilestoneLinkedFiles = { ...newMilestoneLinkedFiles, [projectId]: [] };
       newMilestoneFilePicker = { ...newMilestoneFilePicker, [projectId]: false };
       showAddMilestoneFor = { ...showAddMilestoneFor, [projectId]: false };
+      void refreshOverviewActivity();
       formSuccess = 'Milestone added.';
       setTimeout(() => { formSuccess = ''; }, 2000);
     } catch (e) {
@@ -1043,6 +1048,7 @@
     try {
       const res = await dispatchAction('delete_milestone', { milestone_id: milestoneId });
       if (!res?.ok) { formError = res?.error || 'Failed to delete milestone.'; return; }
+      void refreshOverviewActivity();
       formSuccess = 'Milestone deleted.';
       setTimeout(() => { formSuccess = ''; }, 1500);
     } catch (e) {
@@ -1087,6 +1093,7 @@
         localStorage.setItem(key, JSON.stringify(updated));
       } catch (e) {}
       editingMilestoneId = null;
+      void refreshOverviewActivity();
       formSuccess = 'Milestone updated.';
       setTimeout(() => { formSuccess = ''; }, 1500);
     } catch (e) {
@@ -1106,6 +1113,7 @@
       // update local state immediately and then reload for consistency
       projects = projects.map(p => p.id === projectId ? { ...p, milestones: (p.milestones || []).map(mm => mm.id === milestoneId ? { ...mm, status: canonicalStatusLabel(newStatus || 'Not Started'), done: (canonicalStatusLabel(newStatus || '') === 'Completed' || Boolean(mm.done)) } : mm) } : p);
       try { await loadProjectMilestones(projectId); } catch (e) { /* fallback */ }
+      void refreshOverviewActivity();
       formSuccess = 'Status updated.';
       setTimeout(() => { formSuccess = ''; }, 1200);
     } catch (e) {
@@ -1179,6 +1187,7 @@
       if (!res?.ok) { formError = res?.error || 'Failed to post comment.'; return; }
       newFeedbackText = { ...newFeedbackText, [projectId]: '' };
       await loadFeedback(projectId);
+      void refreshOverviewActivity();
     } catch (e) { formError = e?.message || 'Failed to post comment.'; }
     finally {
       postingFeedback = { ...postingFeedback, [projectId]: false };
@@ -1198,6 +1207,7 @@
       replyText    = { ...replyText,    [projectId]: '' };
       replyingTo   = { ...replyingTo,   [projectId]: null };
       await loadFeedback(projectId);
+      void refreshOverviewActivity();
     } catch (e) { formError = e?.message || 'Failed to post reply.'; }
     finally {
       postingReply = { ...postingReply, [projectId]: false };
@@ -1213,6 +1223,7 @@
       const res = await dispatchAction('delete_feedback', { feedback_id: feedbackId, user_id: uid });
       if (!res?.ok) { formError = res?.error || 'Delete failed.'; return; }
       await loadFeedback(projectId);
+      void refreshOverviewActivity();
     } catch (e) { formError = e?.message || 'Delete failed.'; }
     finally {
       deletingFeedback = { ...deletingFeedback, [feedbackKey]: false };
@@ -1557,6 +1568,7 @@
       if (!res?.ok) { formError = res?.error || 'Archive failed.'; return; }
       projects = projects.map(item => item.id === p.id ? { ...item, archived: true, status: 'Archived' } : item);
       viewingProjectId = null;
+      void refreshOverviewActivity();
       formSuccess = 'Project archived.';
       setTimeout(() => { formSuccess = ''; }, 2000);
     } catch (e) {
@@ -1581,6 +1593,7 @@
       });
       if (!res?.ok) { formError = res?.error || 'Restore failed.'; return; }
       projects = projects.map(item => item.id === p.id ? { ...item, archived: false, status: canonicalStatusLabel(res.status || 'Not Started') } : item);
+      void refreshOverviewActivity();
       formSuccess = 'Project restored.';
       setTimeout(() => { formSuccess = ''; }, 2000);
     } catch (e) {
@@ -1600,12 +1613,17 @@
     loadBootstrap();
     unsubscribeAuth = subscribeToCurrentUser(u => { currentUser = u; loadBootstrap(); });
     document.addEventListener('mousedown', handleModalPointerDown);
+    document.addEventListener('visibilitychange', handleOverviewActivityWake);
+    window.addEventListener('focus', handleOverviewActivityWake);
     window.addEventListener('resize', handleResize);
   });
   onDestroy(() => {
     if (typeof unsubscribeAuth === 'function') unsubscribeAuth();
     document.removeEventListener('mousedown', handleModalPointerDown);
+    document.removeEventListener('visibilitychange', handleOverviewActivityWake);
+    window.removeEventListener('focus', handleOverviewActivityWake);
     window.removeEventListener('resize', handleResize);
+    stopOverviewActivityAutoRefresh();
   });
 
   // ── Derived ───────────────────────────────────────────────────────────────
@@ -1691,20 +1709,72 @@
   let overviewActivity     = [];
   let isLoadingActivity    = false;
   let overviewActivityLoaded = false;
+  let isRefreshingOverviewActivity = false;
+  let overviewActivityRefreshTimer = null;
+  const OVERVIEW_ACTIVITY_REFRESH_MS = 15000;
 
-  async function loadOverviewActivity() {
-    isLoadingActivity = true;
+  async function loadOverviewActivity(options = {}) {
+    const { silent = false } = options;
+    if (isRefreshingOverviewActivity) return;
+    const showLoader = !silent || !overviewActivityLoaded;
+    isRefreshingOverviewActivity = true;
+    if (showLoader) isLoadingActivity = true;
     try {
       const uid = getCurrentUserId();
-      if (!uid) return;
+      if (!uid) {
+        overviewActivity = [];
+        return;
+      }
       const res = await dispatchAction('get_proj_recent_activity', { user_id: uid });
-      if (res?.ok) overviewActivity = res.activities || [];
+      if (res?.ok) overviewActivity = Array.isArray(res.activities) ? res.activities : [];
     } catch(e) {
       console.warn('loadOverviewActivity error', e);
     } finally {
-      isLoadingActivity = false;
+      isRefreshingOverviewActivity = false;
+      if (showLoader) isLoadingActivity = false;
       overviewActivityLoaded = true;
     }
+  }
+
+  function canRefreshOverviewActivity() {
+    return activeView === 'Overview' && !isLoading && projects.length > 0;
+  }
+
+  function markOverviewActivityStale() {
+    overviewActivityLoaded = false;
+  }
+
+  async function refreshOverviewActivity(options = {}) {
+    const { silent = true } = options;
+    markOverviewActivityStale();
+    if (!projects.length) {
+      overviewActivity = [];
+      overviewActivityLoaded = true;
+      return;
+    }
+    if (!canRefreshOverviewActivity()) return;
+    await loadOverviewActivity({ silent });
+  }
+
+  function handleOverviewActivityWake() {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+    if (!canRefreshOverviewActivity()) return;
+    void loadOverviewActivity({ silent: true });
+  }
+
+  function startOverviewActivityAutoRefresh() {
+    if (overviewActivityRefreshTimer || typeof window === 'undefined') return;
+    overviewActivityRefreshTimer = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      if (!canRefreshOverviewActivity()) return;
+      void loadOverviewActivity({ silent: true });
+    }, OVERVIEW_ACTIVITY_REFRESH_MS);
+  }
+
+  function stopOverviewActivityAutoRefresh() {
+    if (!overviewActivityRefreshTimer || typeof window === 'undefined') return;
+    window.clearInterval(overviewActivityRefreshTimer);
+    overviewActivityRefreshTimer = null;
   }
 
 
@@ -1712,6 +1782,14 @@
   // Auto-load activity when the user first opens Overview and projects are ready
   $: if (activeView === 'Overview' && !isLoading && projects.length > 0 && !overviewActivityLoaded && !isLoadingActivity) {
     loadOverviewActivity();
+  }
+  $: if (!isLoading && projects.length === 0 && (overviewActivity.length > 0 || !overviewActivityLoaded)) {
+    overviewActivity = [];
+    overviewActivityLoaded = true;
+  }
+  $: {
+    if (canRefreshOverviewActivity()) startOverviewActivityAutoRefresh();
+    else stopOverviewActivityAutoRefresh();
   }
 
   $: upcomingDeadlines = projects
@@ -1976,17 +2054,17 @@
                 {#each overviewActivity as act}
                   {@const proj = projects.find(p => p.proj_id === act.proj_id || p.id === act.proj_id)}
                   <div class="ov-act-row">
-                    <div class="ov-act-icon {act.type === 'feedback' ? 'ov-act-icon-fb' : 'ov-act-icon-ms'}">
+                    <div class="ov-act-icon {act.type === 'feedback' ? 'ov-act-icon-fb' : act.type === 'project' ? 'ov-act-icon-project' : 'ov-act-icon-ms'}">
                       {#if act.type === 'feedback'}
                         <MessageSquare size={14} />
+                      {:else if act.type === 'project'}
+                        <FolderOpen size={14} />
                       {:else}
                         <Flag size={14} />
                       {/if}
                     </div>
                     <div class="ov-act-body">
-                      <div class="ov-act-text">
-                        {act.type === 'feedback' ? act.text : 'Milestone: ' + act.text}
-                      </div>
+                      <div class="ov-act-text">{act.text}</div>
                       <div class="ov-act-meta">
                         {#if act.proj_name || proj}
                           <span class="ov-act-proj">{act.proj_name || proj?.title || ''}</span>
@@ -4511,6 +4589,7 @@
     display: grid; place-items: center; font-size: 0.95rem;
   }
   .ov-act-icon-fb { background: rgba(99,102,241,0.1); }
+  .ov-act-icon-project { background: rgba(37,99,235,0.12); }
   .ov-act-icon-ms { background: rgba(16,185,129,0.1); }
 
   .ov-act-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }

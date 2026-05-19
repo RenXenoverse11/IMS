@@ -1449,6 +1449,7 @@
   onMount(() => {
     currentUser = getCurrentUser() || currentUser;
     document.addEventListener('mousedown', handleModalPointerDown);
+    window.addEventListener('resize', handleResize);
     unsubscribeAuth = subscribeToCurrentUser((u) => {
       currentUser = u;
       loadProjects();
@@ -1457,6 +1458,7 @@
 
   onDestroy(() => {
     document.removeEventListener('mousedown', handleModalPointerDown);
+    window.removeEventListener('resize', handleResize);
     if (typeof unsubscribeAuth === 'function') unsubscribeAuth();
     if (flashTimer) clearTimeout(flashTimer);
   });
@@ -1748,7 +1750,32 @@
     .filter((p) => String(p.timeline_end || p.deadline || '').trim())
     .sort((a, b) => String(a.timeline_end || a.deadline || '').localeCompare(String(b.timeline_end || b.deadline || '')))
     .slice(0, 5);
-  $: overviewSnippets = activeProjects.slice(0, 6);
+  $: overviewSnippets = activeProjects;
+
+  // Tagged Projects pagination
+  let taggedProjectsPage = 0;
+  let windowWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
+
+  function handleResize() {
+    const prev = windowWidth;
+    windowWidth = window.innerWidth;
+    // Reset to page 0 if the layout switches between desktop and mobile card counts
+    if ((prev <= 768) !== (windowWidth <= 768)) taggedProjectsPage = 0;
+  }
+
+  $: taggedProjectsPerPage = windowWidth <= 768 ? 2 : 4;
+  $: taggedProjectPageCount = Math.ceil(overviewSnippets.length / taggedProjectsPerPage);
+  $: pagedTaggedSnippets = overviewSnippets.slice(
+    taggedProjectsPage * taggedProjectsPerPage,
+    taggedProjectsPage * taggedProjectsPerPage + taggedProjectsPerPage
+  );
+  $: {
+    if (taggedProjectPageCount === 0 && taggedProjectsPage !== 0) {
+      taggedProjectsPage = 0;
+    } else if (taggedProjectPageCount > 0 && taggedProjectsPage > taggedProjectPageCount - 1) {
+      taggedProjectsPage = taggedProjectPageCount - 1;
+    }
+  }
 </script>
 
 <section class="projects-page">
@@ -1869,7 +1896,7 @@
           <div class="ov-empty">No tagged projects yet.</div>
         {:else}
           <div class="ov-snippets-grid">
-              {#each overviewSnippets as p (p.id)}
+              {#each pagedTaggedSnippets as p (p.id)}
                 {@const sm = getStatusMeta(p.status)}
                 {@const pl = normalizePriorityLabel(p.priority_level)}
               {@const pct = p.progress_percent != null ? Number(p.progress_percent) : statusToProgress(p.status)}
@@ -1915,6 +1942,25 @@
                 </div>
               </div>
             {/each}
+          </div>
+        {/if}
+        {#if taggedProjectPageCount > 1}
+          <div class="proj-page-footer">
+            <div class="proj-page-nav">
+              <button
+                class="proj-page-btn"
+                disabled={taggedProjectsPage === 0}
+                on:click={() => taggedProjectsPage--}
+                aria-label="Previous page"
+              >&#8249;</button>
+              <span class="proj-page-indicator">{taggedProjectsPage + 1} / {taggedProjectPageCount}</span>
+              <button
+                class="proj-page-btn"
+                disabled={taggedProjectsPage >= taggedProjectPageCount - 1}
+                on:click={() => taggedProjectsPage++}
+                aria-label="Next page"
+              >&#8250;</button>
+            </div>
           </div>
         {/if}
       </section>
@@ -2934,6 +2980,43 @@
     font-size: 0.78rem;
     padding: 0.3rem 0.6rem;
   }
+  .proj-page-nav {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .proj-page-footer {
+    margin-top: 0.65rem;
+    display: flex;
+    justify-content: flex-end;
+  }
+  .proj-page-btn {
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-heading);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background 120ms, border-color 120ms;
+    padding: 0;
+  }
+  .proj-page-btn:hover:not(:disabled) {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    color: #fff;
+  }
+  .proj-page-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  :global(body.dark) .proj-page-btn { background: #161c27; border-color: #ffffff10; }
+  .proj-page-indicator {
+    font-size: 0.78rem;
+    color: var(--color-sidebar-text);
+    white-space: nowrap;
+  }
 
   .project-meta { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
   .meta-item { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--color-sidebar-text); }
@@ -3232,6 +3315,7 @@
     .quick-actions .primary { width: 100%; }
     .search-input { width: 100%; }
     .ov-snippets-grid { grid-template-columns: 1fr; }
+    .proj-page-footer { justify-content: center; }
     .project-meta { flex-direction: column; align-items: flex-start; gap: 6px; }
     .row-2 { grid-template-columns: 1fr; }
     .detail-manage-footer { flex-direction: column; align-items: stretch; }
