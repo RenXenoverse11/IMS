@@ -163,6 +163,12 @@
     const dayOfWeek = dateObj.getDay();
     return dayOfWeek === 0 || dayOfWeek === 6;
   })();
+  $: isSelectedDayOff = (() => {
+    if (!form.date) return false;
+    const dateObj = new Date(form.date + "T00:00:00");
+    const dayOfWeek = dateObj.getDay();
+    return getNormalizedDaysOff().includes(dayOfWeek);
+  })();
   $: isFormValid = (() => {
     void form.requestType;
     void form.date;
@@ -1594,13 +1600,13 @@
           {/if}
         {/if}
 
-        <!-- Weekend warning -->
-        {#if form.requestType === "Absence" && isWeekend && form.date}
+        <!-- Day-off warning -->
+        {#if form.requestType === "Absence" && isSelectedDayOff && form.date}
           <div class="weekend-warning">
             <AlertTriangle size={14} />
             <span>
-              This date is a weekend/day off. Absence requests cannot be
-              submitted for weekends.
+              This date is your day off. Absence requests can only be submitted
+              on your working days.
             </span>
           </div>
         {/if}

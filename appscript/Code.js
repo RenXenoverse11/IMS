@@ -2202,15 +2202,15 @@ function handleCreateRequest_(payload) {
     requesterName = String(requesterRecord.user.full_name || '').trim() || 'Student';
   }
 
+  // Get user's schedule to check day-off validation rules
+  var scheduleResult = handleGetInternSchedule_({ intern_user_id: userId });
+  var userDaysOff = scheduleResult.ok && scheduleResult.schedule ? scheduleResult.schedule.days_off : [0, 6];
+
   // Overtime-specific validation
   if (requestType === 'Overtime') {
     if (!startTime || !endTime) {
       return { ok: false, error: 'Start time and end time are required for overtime requests.' };
     }
-
-    // Get user's schedule to check their days_off
-    var scheduleResult = handleGetInternSchedule_({ intern_user_id: userId });
-    var userDaysOff = scheduleResult.ok && scheduleResult.schedule ? scheduleResult.schedule.days_off : [0, 6];
 
     // Check if overtime overlaps with default work schedule
     var overlapError = checkOvertimeScheduleOverlap_(requestDate, startTime, endTime, userDaysOff);
@@ -2221,7 +2221,7 @@ function handleCreateRequest_(payload) {
 
   // Absence-specific validation
   if (requestType === 'Absence') {
-    var absenceError = checkAbsenceOnWeekend_(requestDate);
+    var absenceError = checkAbsenceOnDayOff_(requestDate, userDaysOff);
     if (absenceError) {
       return { ok: false, error: absenceError };
     }
@@ -3388,15 +3388,27 @@ function timeToMinutes_(timeStr) {
   return hours * 60 + minutes;
 }
 
-// Validates that absence is not requested on a weekend (Saturday or Sunday)
-function checkAbsenceOnWeekend_(requestDate) {
+// Validates that absence is not requested on one of the intern's configured day-off days.
+function checkAbsenceOnDayOff_(requestDate, daysOff) {
   var dateObj = new Date(requestDate + 'T00:00:00');
   var dayOfWeek = dateObj.getDay(); // 0=Sunday, 1=Monday, ..., 5=Friday, 6=Saturday
   var dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  var daysOffArray = [];
 
-  if (dayOfWeek === 0 || dayOfWeek === 6) {
-    // It's a weekend
-    return dayNames[dayOfWeek] + 's are your days off. Please select a weekday (Monday-Friday) for your absence request.';
+  if (daysOff) {
+    if (typeof daysOff === 'string') {
+      try {
+        daysOffArray = JSON.parse(daysOff);
+      } catch (e) {
+        daysOffArray = [];
+      }
+    } else if (Array.isArray(daysOff)) {
+      daysOffArray = daysOff;
+    }
+  }
+
+  if (daysOffArray.indexOf(dayOfWeek) !== -1) {
+    return dayNames[dayOfWeek] + ' is your day off. Please select one of your working days for an absence request.';
   }
 
   return '';
