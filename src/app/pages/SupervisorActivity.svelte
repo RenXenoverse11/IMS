@@ -1183,41 +1183,56 @@ function toggleEditAssigneeDropdown() {
 
   {#if loadError}
     <div class="banner error">{loadError}</div>
-  {:else if isLoading}
-    <div class="banner">Loading supervisor overview...</div>
   {/if}
 
   
 
   <section class="kpi-grid">
-    <div class="kpi-card kpi-1">
-      <Clock3 class="kpi-icon" />
-      <div class="kpi-body">
-        <span class="kpi-value">{kpis.today_logs}</span>
-        <span class="kpi-label">Today Logs</span>
+    {#if isLoading}
+      {#each [1, 2, 3, 4] as _}
+        <div class="kpi-card kpi-card-skeleton" aria-hidden="true">
+          <div class="sa-skeleton sa-skeleton-icon shimmer"></div>
+          <div class="kpi-body">
+            <div class="sa-skeleton shimmer" style="height: 11px; width: 120px;"></div>
+            <div class="sa-skeleton shimmer" style="height: 24px; width: 32px;"></div>
+            <div class="sa-skeleton shimmer" style="height: 11px; width: 130px;"></div>
+          </div>
+        </div>
+      {/each}
+    {:else}
+      <div class="kpi-card kpi-1">
+        <Clock3 class="kpi-icon" />
+        <div class="kpi-body">
+          <span class="kpi-title">TODAY LOGS</span>
+          <span class="kpi-value">{kpis.today_logs}</span>
+          <span class="kpi-sub">Intern work logs today</span>
+        </div>
       </div>
-    </div>
-    <div class="kpi-card kpi-2">
-      <CheckCircle class="kpi-icon" />
-      <div class="kpi-body">
-        <span class="kpi-value">{kpis.pending_approvals}</span>
-        <span class="kpi-label">Pending Approvals</span>
+      <div class="kpi-card kpi-2">
+        <CheckCircle class="kpi-icon" />
+        <div class="kpi-body">
+          <span class="kpi-title">PENDING APPROVALS</span>
+          <span class="kpi-value">{kpis.pending_approvals}</span>
+          <span class="kpi-sub">Waiting for your review</span>
+        </div>
       </div>
-    </div>
-    <div class="kpi-card kpi-3">
-      <Users class="kpi-icon" />
-      <div class="kpi-body">
-        <span class="kpi-value">{kpis.active_interns}</span>
-        <span class="kpi-label">Active Interns</span>
+      <div class="kpi-card kpi-3">
+        <Users class="kpi-icon" />
+        <div class="kpi-body">
+          <span class="kpi-title">ACTIVE INTERNS</span>
+          <span class="kpi-value">{kpis.active_interns}</span>
+          <span class="kpi-sub">Total active interns</span>
+        </div>
       </div>
-    </div>
-    <div class="kpi-card kpi-4">
-      <FileText class="kpi-icon" />
-      <div class="kpi-body">
-        <span class="kpi-value">{supervisorTasks.length}</span>
-        <span class="kpi-label">Total Tasks</span>
+      <div class="kpi-card kpi-4">
+        <FileText class="kpi-icon" />
+        <div class="kpi-body">
+          <span class="kpi-title">TOTAL TASKS</span>
+          <span class="kpi-value">{supervisorTasks.length}</span>
+          <span class="kpi-sub">Supervisor-created tasks</span>
+        </div>
       </div>
-    </div>
+    {/if}
   </section>
 
   <!-- Task creation / quick panel -->
@@ -1375,7 +1390,16 @@ function toggleEditAssigneeDropdown() {
         </div>
       
       <div class="log-list panel-scroll-body">
-        {#if overviewWorkLogs.length === 0}
+        {#if isLoading}
+          <div class="sa-skeleton-list" aria-hidden="true">
+            {#each [1, 2, 3] as _}
+              <div class="log-card sa-skeleton-card">
+                <div class="sa-skeleton shimmer" style="height: 14px; width: 42%; margin-bottom: 8px;"></div>
+                <div class="sa-skeleton shimmer" style="height: 12px; width: 55%;"></div>
+              </div>
+            {/each}
+          </div>
+        {:else if overviewWorkLogs.length === 0}
           <p class="empty">No work logs found.</p>
         {:else}
           {#each overviewWorkLogs as log}
@@ -1477,7 +1501,16 @@ function toggleEditAssigneeDropdown() {
         </div>
       </div>
       <div class="progress-list panel-scroll-body">
-        {#if internTasks.length === 0}
+        {#if isLoading}
+          <div class="sa-skeleton-list" aria-hidden="true">
+            {#each [1, 2, 3, 4] as _}
+              <div class="sa-skeleton-row">
+                <div class="sa-skeleton shimmer" style="height: 13px; width: 52%;"></div>
+                <div class="sa-skeleton shimmer" style="height: 22px; width: 78px; border-radius: 999px;"></div>
+              </div>
+            {/each}
+          </div>
+        {:else if internTasks.length === 0}
           <p class="empty">No tasks for selected intern.</p>
         {:else}
           {#each internTasks as item}
@@ -1504,7 +1537,19 @@ function toggleEditAssigneeDropdown() {
         </div>
       </div>
       <div class="archived-list panel-scroll-body">
-        {#if archivedSupervisorTasks.length === 0}
+        {#if isLoading}
+          <div class="sa-skeleton-list" aria-hidden="true">
+            {#each [1, 2, 3] as _}
+              <div class="sa-skeleton-row">
+                <div style="flex:1; min-width:0; display:grid; gap:6px;">
+                  <div class="sa-skeleton shimmer" style="height: 13px; width: 46%;"></div>
+                  <div class="sa-skeleton shimmer" style="height: 11px; width: 58%;"></div>
+                </div>
+                <div class="sa-skeleton shimmer" style="height: 30px; width: 84px; border-radius: 10px;"></div>
+              </div>
+            {/each}
+          </div>
+        {:else if archivedSupervisorTasks.length === 0}
           <p class="empty">No archived items yet.</p>
         {:else}
           <ul style="list-style:none; margin:0; padding:0; display:grid; gap:0.6rem;">
@@ -1555,7 +1600,16 @@ function toggleEditAssigneeDropdown() {
         </div>
       </div>
       <div class="log-list panel-scroll-body">
-        {#if approvedWorkLogs.length === 0}
+        {#if isLoading}
+          <div class="sa-skeleton-list" aria-hidden="true">
+            {#each [1, 2, 3] as _}
+              <div class="log-card sa-skeleton-card">
+                <div class="sa-skeleton shimmer" style="height: 14px; width: 42%; margin-bottom: 8px;"></div>
+                <div class="sa-skeleton shimmer" style="height: 12px; width: 55%;"></div>
+              </div>
+            {/each}
+          </div>
+        {:else if approvedWorkLogs.length === 0}
           <p class="empty">No approved work logs yet.</p>
         {:else}
           {#each approvedWorkLogs as log}
@@ -1645,7 +1699,18 @@ function toggleEditAssigneeDropdown() {
 
       <!-- Tasks list (supervisor-created tasks) -->
       <div class="tasks-list-panel panel-scroll-body">
-        {#if filteredSupervisorTasks.length === 0}
+        {#if isLoading}
+          <div class="sa-skeleton-list" aria-hidden="true">
+            {#each [1, 2, 3, 4] as _}
+              <div class="sa-skeleton-row">
+                <div class="sa-skeleton shimmer" style="height: 13px; width: 44%;"></div>
+                <div class="sa-skeleton shimmer" style="height: 13px; width: 96px;"></div>
+                <div class="sa-skeleton shimmer" style="height: 22px; width: 72px; border-radius: 999px;"></div>
+                <div class="sa-skeleton shimmer" style="height: 28px; width: 70px; border-radius: 10px;"></div>
+              </div>
+            {/each}
+          </div>
+        {:else if filteredSupervisorTasks.length === 0}
           <p class="empty">No tasks yet. Add a task to see it here.</p>
         {:else}
           <div class="tasks-table">
@@ -2193,6 +2258,10 @@ function toggleEditAssigneeDropdown() {
     padding: 0.36rem 0.6rem;
     border-radius: 0.55rem;
     font-size: 0.95rem;
+    border: 1px solid var(--border);
+    background: var(--soft);
+    color: var(--ink);
+    font-weight: 600;
   }
 
   .panel-head h3 {
@@ -2251,7 +2320,7 @@ function toggleEditAssigneeDropdown() {
 
   .empty {
     color: var(--muted);
-    font-size: 0.84rem;
+    font-size: 0.88rem;
     margin: 0;
   }
 
@@ -2300,6 +2369,7 @@ function toggleEditAssigneeDropdown() {
     border-radius: 0.5rem;
     border: 1px solid var(--border);
     background: var(--soft);
+    color: var(--ink);
   }
 
   
@@ -2781,6 +2851,7 @@ function toggleEditAssigneeDropdown() {
     border: 1px solid var(--border);
     background: var(--soft);
     font-size: 0.95rem;
+    color: var(--ink);
   }
 
   /* Task view / edit modal styles copied from ActivityIntern design */
@@ -3148,5 +3219,351 @@ function toggleEditAssigneeDropdown() {
   .sup-attach-empty { font-size: 0.8rem; color: var(--muted); margin: 0; }
 
   .done { text-decoration: line-through; }
+
+  /* Dashboard-aligned visual skin */
+  :global(.supervisor-activity) {
+    gap: 14px;
+    color: #0f172a;
+    font-family: 'DM Sans', sans-serif !important;
+  }
+
+  .banner {
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    color: #64748b;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
+  }
+
+  .banner.error {
+    background: rgba(220, 38, 38, 0.12);
+    border-color: rgba(220, 38, 38, 0.25);
+    color: #dc2626;
+  }
+
+  .kpi-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  .kpi-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
+    min-height: auto;
+    padding: 18px 20px;
+    gap: 14px;
+    align-items: center;
+  }
+
+  .kpi-card::before { display: none; }
+
+  .kpi-icon {
+    width: 18px;
+    height: 18px;
+    min-width: 18px;
+    min-height: 18px;
+    border-radius: 0;
+    box-shadow: none;
+    border: none;
+    background: transparent !important;
+  }
+
+  .kpi-icon::after { display: none; }
+
+  .kpi-icon :global(svg) {
+    width: 18px;
+    height: 18px;
+    color: currentColor;
+    stroke: currentColor;
+  }
+
+  :global(.kpi-card.kpi-1 .kpi-icon) { color: #3b82f6; }
+  :global(.kpi-card.kpi-2 .kpi-icon) { color: #8b5cf6; }
+  :global(.kpi-card.kpi-3 .kpi-icon) { color: #22c55e; }
+  :global(.kpi-card.kpi-4 .kpi-icon) { color: #f59e0b; }
+
+  .kpi-body {
+    gap: 3px;
+  }
+
+  .kpi-title {
+    margin: 0;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: #475569;
+  }
+
+  .kpi-value {
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: -0.8px;
+    line-height: 1;
+    color: #0f172a;
+  }
+
+  .kpi-sub {
+    margin: 0;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: #64748b;
+  }
+
+  .kpi-card-skeleton {
+    pointer-events: none;
+  }
+
+  .sa-skeleton {
+    position: relative;
+    overflow: hidden;
+    background: rgba(15, 23, 42, 0.09);
+    border-radius: 6px;
+  }
+
+  .sa-skeleton-icon {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+  }
+
+  .sa-skeleton-list {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .sa-skeleton-card {
+    pointer-events: none;
+  }
+
+  .sa-skeleton-row {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    border: 1px solid #e2e8f0;
+    background: #f8fafc;
+    border-radius: 12px;
+    padding: 0.65rem 0.75rem;
+  }
+
+  .shimmer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background-image: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0) 0,
+      rgba(255, 255, 255, 0.35) 25%,
+      rgba(255, 255, 255, 0.65) 60%,
+      rgba(255, 255, 255, 0) 100%
+    );
+    animation: saShimmer 1.4s infinite;
+  }
+
+  @keyframes saShimmer {
+    100% {
+      transform: translateX(100%);
+    }
+  }
+
+  .quick-panel {
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0;
+    padding: 0;
+    box-shadow: none !important;
+  }
+
+  .view-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+  }
+
+  .view-controls .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border-radius: 0.7rem;
+    padding: 0.32rem 0.72rem;
+    background: transparent;
+    border: 1px solid var(--color-border);
+    font-size: 0.84rem;
+    height: 2.15rem;
+    line-height: 1;
+    color: var(--color-sidebar-text);
+    font-weight: 600;
+  }
+
+  .view-controls .btn.active {
+    background: var(--color-soft);
+    color: var(--color-heading);
+    border-color: var(--color-border);
+  }
+
+  .search-input,
+  .quick-actions select {
+    border-radius: 10px;
+    border: 1px solid #e2e8f0;
+    background: #f8fafc;
+    color: #0f172a;
+    min-height: 36px;
+  }
+
+  .quick-actions .primary {
+    border-radius: 10px;
+    min-height: 36px;
+    border: none;
+    background: #2563eb;
+    color: #ffffff;
+  }
+
+  .panel {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
+    padding: 0;
+    gap: 0;
+  }
+
+  .panel-head.fullwidth {
+    margin: 0;
+    padding: 16px 18px 14px;
+    border-bottom: 1px solid #e2e8f0;
+    background: #ffffff;
+    border-top-left-radius: 14px;
+    border-top-right-radius: 14px;
+  }
+
+  .panel-head h3 { font-size: 14px; color: #0f172a; }
+
+  .log-list.panel-scroll-body,
+  .progress-list.panel-scroll-body,
+  .tasks-list-panel.panel-scroll-body,
+  .archived-list.panel-scroll-body {
+    padding: 14px;
+  }
+
+  .log-card,
+  .intern-list-item,
+  .attachment-row,
+  .log-attachment-main {
+    border: 1px solid #e2e8f0;
+    background: #f8fafc;
+    border-radius: 12px;
+    box-shadow: none;
+  }
+
+  .log-user strong,
+  .task-name,
+  .title-text,
+  .panel .row-value {
+    color: #0f172a;
+  }
+
+  .empty,
+  .muted,
+  .detail-value,
+  .log-task,
+  .row-label {
+    color: #64748b;
+  }
+
+  .status-badge {
+    border: 1px solid transparent;
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .icon-box {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    box-shadow: none;
+  }
+
+  :global(.dark) .banner,
+  :global(.dark) .kpi-card,
+  :global(.dark) .panel,
+  :global(.dark) .icon-box {
+    background: #161c27;
+    border-color: rgba(255, 255, 255, 0.06);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+  }
+
+  :global(.dark) .panel-head.fullwidth {
+    background: #161c27;
+    border-bottom-color: rgba(255, 255, 255, 0.06);
+  }
+
+  :global(.dark) .view-controls .btn,
+  :global(.dark) .search-input,
+  :global(.dark) .quick-actions select,
+  :global(.dark) .small-select,
+  :global(.dark) .small-date,
+  :global(.dark) .log-card,
+  :global(.dark) .intern-list-item,
+  :global(.dark) .attachment-row,
+  :global(.dark) .log-attachment-main {
+    background: #0d1117;
+    border-color: rgba(255, 255, 255, 0.08);
+    color: #e2e8f0;
+  }
+
+  :global(.dark) .kpi-value,
+  :global(.dark) .panel-head h3,
+  :global(.dark) .log-user strong,
+  :global(.dark) .task-name,
+  :global(.dark) .title-text {
+    color: #f1f5f9;
+  }
+
+  :global(.dark) .kpi-title {
+    color: #ffffff;
+  }
+
+  :global(.dark) .empty,
+  :global(.dark) .muted,
+  :global(.dark) .detail-value,
+  :global(.dark) .log-task,
+  :global(.dark) .row-label {
+    color: #b7c6da;
+  }
+
+  :global(.dark) .kpi-sub {
+    color: #94a3b8;
+  }
+
+  :global(.dark) .sa-skeleton {
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  :global(.dark) .sa-skeleton-row {
+    background: #0d1117;
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  :global(.dark) .shimmer::after {
+    background-image: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0) 0,
+      rgba(255, 255, 255, 0.06) 25%,
+      rgba(255, 255, 255, 0.16) 60%,
+      rgba(255, 255, 255, 0) 100%
+    );
+  }
+
+  @media (max-width: 1024px) {
+    .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+
+  @media (max-width: 560px) {
+    .kpi-grid { grid-template-columns: 1fr; }
+  }
 
 </style>
