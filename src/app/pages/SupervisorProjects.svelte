@@ -723,15 +723,56 @@
   async function submitFeedback(projectId) {
     const text = String(newFeedbackText[projectId] || '').trim();
     if (!text) return;
+    if (postingFeedback[projectId]) return;
     const uid  = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
     const role = String(currentUser?.role || getCurrentUser()?.role || 'Supervisor');
+    const activeUser = currentUser || getCurrentUser() || {};
+    const optimisticId = `TMP_FEED_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const optimisticItem = {
+      feedback_id: optimisticId,
+      proj_id: String(projectId),
+      parent_id: '',
+      commenter_id: uid,
+      commenter_role: role,
+      comment_text: text,
+      created_at: new Date().toISOString(),
+      commenter_name: getDisplayName(activeUser) || uid,
+      _optimistic: true
+    };
     postingFeedback = { ...postingFeedback, [projectId]: true };
+    feedbackMap = {
+      ...feedbackMap,
+      [projectId]: [...(feedbackMap[projectId] || []), optimisticItem]
+    };
+    newFeedbackText = { ...newFeedbackText, [projectId]: '' };
     try {
       const res = await callApiAction('create_feedback', { proj_id: String(projectId), user_id: uid, commenter_role: role, comment_text: text });
-      if (!res?.ok) { setFlashError(res?.error || 'Failed to post comment.'); return; }
-      newFeedbackText = { ...newFeedbackText, [projectId]: '' };
-      await loadFeedback(projectId);
-    } catch (e) { setFlashError(e?.message || 'Failed to post comment.'); }
+      if (!res?.ok) {
+        setFlashError(res?.error || 'Failed to post comment.');
+        feedbackMap = {
+          ...feedbackMap,
+          [projectId]: (feedbackMap[projectId] || []).filter((item) => String(item?.feedback_id || '') !== optimisticId)
+        };
+        newFeedbackText = { ...newFeedbackText, [projectId]: text };
+        return;
+      }
+      feedbackMap = {
+        ...feedbackMap,
+        [projectId]: (feedbackMap[projectId] || []).map((item) => (
+          String(item?.feedback_id || '') === optimisticId
+            ? { ...item, feedback_id: String(res.feedback_id || optimisticId), created_at: String(res.created_at || item.created_at || ''), _optimistic: false }
+            : item
+        ))
+      };
+      void loadFeedback(projectId, { silent: true });
+    } catch (e) {
+      setFlashError(e?.message || 'Failed to post comment.');
+      feedbackMap = {
+        ...feedbackMap,
+        [projectId]: (feedbackMap[projectId] || []).filter((item) => String(item?.feedback_id || '') !== optimisticId)
+      };
+      newFeedbackText = { ...newFeedbackText, [projectId]: text };
+    }
     finally {
       postingFeedback = { ...postingFeedback, [projectId]: false };
     }
@@ -740,6 +781,7 @@
   async function submitReply(projectId, parentId) {
     const text = String(replyText[projectId] || '').trim();
     if (!text) return;
+    if (replySubmitting[projectId]) return;
     const uid  = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
     const role = String(currentUser?.role || getCurrentUser()?.role || 'Supervisor');
     replySubmitting = { ...replySubmitting, [projectId]: true };
@@ -748,7 +790,7 @@
       if (!res?.ok) { setFlashError(res?.error || 'Failed to post reply.'); return; }
       replyText    = { ...replyText,    [projectId]: '' };
       replyingTo   = { ...replyingTo,   [projectId]: null };
-      await loadFeedback(projectId);
+      await loadFeedback(projectId, { silent: true });
     } catch (e) { setFlashError(e?.message || 'Failed to post reply.'); }
     finally {
       replySubmitting = { ...replySubmitting, [projectId]: false };
@@ -760,7 +802,7 @@
     try {
       const res = await callApiAction('delete_feedback', { feedback_id: feedbackId, user_id: uid });
       if (!res?.ok) { setFlashError(res?.error || 'Delete failed.'); return; }
-      await loadFeedback(projectId);
+      await loadFeedback(projectId, { silent: true });
     } catch (e) { setFlashError(e?.message || 'Delete failed.'); }
   }
   // user bootstrap and lookup (map user_id -> display name)
@@ -1780,38 +1822,51 @@
 
 <section class="projects-page">
   <div class="stat-cards">
-    <div class="stat-card">
-      <div class="stat-icon tone-blue"><FolderOpen size={16} /></div>
-      <div class="stat-body">
-        <div class="stat-label">Total Projects</div>
-        <div class="stat-value">{totalProjects}</div>
-        <div class="stat-sub">Projects tagged to you</div>
+    {#if isLoading}
+      {#each [1, 2, 3, 4] as _}
+        <div class="stat-card stat-card-skeleton" aria-hidden="true">
+          <div class="stat-icon stat-icon-skeleton ov-skeleton shimmer"></div>
+          <div class="stat-body stat-body-skeleton">
+            <div class="ov-skeleton shimmer" style="height: 11px; width: 108px;"></div>
+            <div class="ov-skeleton shimmer" style="height: 24px; width: 34px;"></div>
+            <div class="ov-skeleton shimmer" style="height: 11px; width: 132px;"></div>
+          </div>
+        </div>
+      {/each}
+    {:else}
+      <div class="stat-card">
+        <div class="stat-icon tone-blue"><FolderOpen size={16} /></div>
+        <div class="stat-body">
+          <div class="stat-label">Total Projects</div>
+          <div class="stat-value">{totalProjects}</div>
+          <div class="stat-sub">Projects tagged to you</div>
+        </div>
       </div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-icon tone-amber"><Clock3 size={16} /></div>
-      <div class="stat-body">
-        <div class="stat-label">In Progress</div>
-        <div class="stat-value">{inProgressCount}</div>
-        <div class="stat-sub">Currently active projects</div>
+      <div class="stat-card">
+        <div class="stat-icon tone-amber"><Clock3 size={16} /></div>
+        <div class="stat-body">
+          <div class="stat-label">In Progress</div>
+          <div class="stat-value">{inProgressCount}</div>
+          <div class="stat-sub">Currently active projects</div>
+        </div>
       </div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-icon tone-green"><Tag size={16} /></div>
-      <div class="stat-body">
-        <div class="stat-label">Review</div>
-        <div class="stat-value">{reviewCount}</div>
-        <div class="stat-sub">Waiting on requested updates</div>
+      <div class="stat-card">
+        <div class="stat-icon tone-green"><Tag size={16} /></div>
+        <div class="stat-body">
+          <div class="stat-label">Review</div>
+          <div class="stat-value">{reviewCount}</div>
+          <div class="stat-sub">Waiting on requested updates</div>
+        </div>
       </div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-icon tone-violet"><Users2 size={16} /></div>
-      <div class="stat-body">
-        <div class="stat-label">Interns</div>
-        <div class="stat-value">{internCount}</div>
-        <div class="stat-sub">Contributors on your tagged projects</div>
+      <div class="stat-card">
+        <div class="stat-icon tone-violet"><Users2 size={16} /></div>
+        <div class="stat-body">
+          <div class="stat-label">Interns</div>
+          <div class="stat-value">{internCount}</div>
+          <div class="stat-sub">Contributors on your tagged projects</div>
+        </div>
       </div>
-    </div>
+    {/if}
   </div>
 
   <section class="quick-panel">
@@ -1873,9 +1928,67 @@
       <button class="retry-btn" on:click={loadProjects}>Retry</button>
     </div>
   {:else if isLoading}
-    <div class="empty-state">
-      <Loader2 size={22} class="spin" />
-      <span>Loading projects...</span>
+    <div class="loading-shell" aria-hidden="true">
+      <section class="card ov-card">
+        <div class="ov-card-head">
+          <div class="ov-skeleton shimmer" style="height: 14px; width: 130px;"></div>
+          <div class="ov-skeleton shimmer" style="height: 12px; width: 80px;"></div>
+        </div>
+        <div class="ov-snippets-grid">
+          {#each [1, 2, 3, 4] as _}
+            <div class="ov-snippet-card ov-snippet-skeleton">
+              <div class="ov-snippet-top">
+                <div class="ov-skeleton shimmer" style="height: 12px; width: 55%;"></div>
+                <div class="ov-snippet-top-right">
+                  <div class="ov-skeleton shimmer" style="height: 20px; width: 82px; border-radius: 999px;"></div>
+                  <div class="ov-skeleton shimmer" style="height: 20px; width: 62px; border-radius: 999px;"></div>
+                </div>
+              </div>
+              <div class="ov-skeleton shimmer" style="height: 8px; width: 100%; border-radius: 999px;"></div>
+              <div class="ov-skeleton shimmer" style="height: 11px; width: 130px;"></div>
+              <div class="ov-snippet-actions">
+                <div class="ov-skeleton shimmer" style="height: 28px; width: 100%; border-radius: 8px;"></div>
+                <div class="ov-skeleton shimmer" style="height: 28px; width: 100%; border-radius: 8px;"></div>
+              </div>
+            </div>
+          {/each}
+        </div>
+      </section>
+
+      <div class="ov-top-grid">
+        <section class="card ov-card ov-card-tight">
+          <div class="ov-card-head">
+            <div class="ov-skeleton shimmer" style="height: 13px; width: 140px;"></div>
+          </div>
+          <div class="ov-skeleton-list">
+            {#each [1, 2, 3, 4] as _}
+              <div class="ov-skeleton-row">
+                <div class="ov-skeleton shimmer" style="height: 11px; width: 88px;"></div>
+                <div class="ov-skeleton shimmer" style="height: 8px; width: 100%; border-radius: 999px;"></div>
+                <div class="ov-skeleton shimmer" style="height: 11px; width: 30px;"></div>
+              </div>
+            {/each}
+          </div>
+        </section>
+
+        <section class="card ov-card ov-card-tight">
+          <div class="ov-card-head">
+            <div class="ov-skeleton shimmer" style="height: 13px; width: 140px;"></div>
+          </div>
+          <div class="ov-skeleton-list">
+            {#each [1, 2, 3] as _}
+              <div class="ov-skeleton-deadline-row">
+                <div class="ov-skeleton shimmer" style="width: 10px; height: 10px; border-radius: 999px;"></div>
+                <div class="ov-skeleton-deadline-info">
+                  <div class="ov-skeleton shimmer" style="height: 12px; width: 150px;"></div>
+                  <div class="ov-skeleton shimmer" style="height: 11px; width: 110px;"></div>
+                </div>
+                <div class="ov-skeleton shimmer" style="height: 20px; width: 76px; border-radius: 999px;"></div>
+              </div>
+            {/each}
+          </div>
+        </section>
+      </div>
     </div>
   {:else if activeView === 'Overview'}
     {#if activeProjects.length === 0}
@@ -2713,6 +2826,13 @@
   .stat-card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1); }
   .stat-icon { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; flex-shrink: 0; }
   .stat-body { display: flex; flex-direction: column; gap: 4px; }
+  .stat-card-skeleton {
+    pointer-events: none;
+    transform: none !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
+  }
+  .stat-icon-skeleton { background: transparent; }
+  .stat-body-skeleton { width: 100%; gap: 7px; }
   .stat-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: #000000; }
   .stat-value { font-size: 24px; font-weight: 700; letter-spacing: -0.8px; line-height: 1; color: #0f172a; }
   .stat-sub { margin-top: 4px; font-size: 11.5px; color: #64748b; }
@@ -2852,6 +2972,40 @@
   }
   .empty-title { font-size: 14px; font-weight: 600; color: var(--color-text); }
   .empty-sub { font-size: 12.5px; }
+  .loading-shell { display: flex; flex-direction: column; gap: 10px; }
+  .loading-shell .ov-card { min-height: 0; }
+
+  .ov-skeleton {
+    position: relative;
+    overflow: hidden;
+    background: rgba(15, 23, 42, 0.09);
+    border-radius: 6px;
+  }
+  :global(body.dark) .ov-skeleton { background: rgba(255, 255, 255, 0.08); }
+  .shimmer::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background-image: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0) 0,
+      rgba(255, 255, 255, 0.35) 25%,
+      rgba(255, 255, 255, 0.65) 60%,
+      rgba(255, 255, 255, 0) 100%
+    );
+    animation: ovShimmer 1.4s infinite;
+  }
+  :global(body.dark) .shimmer::after {
+    background-image: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0) 0,
+      rgba(255, 255, 255, 0.06) 25%,
+      rgba(255, 255, 255, 0.16) 60%,
+      rgba(255, 255, 255, 0) 100%
+    );
+  }
+  @keyframes ovShimmer { 100% { transform: translateX(100%); } }
 
   .ov-top-grid {
     display: grid;
@@ -2903,6 +3057,21 @@
     min-height: 0;
     padding-right: 0.2rem;
     scrollbar-gutter: stable;
+  }
+  .ov-skeleton-list { display: flex; flex-direction: column; gap: 0.6rem; }
+  .ov-skeleton-row {
+    display: grid;
+    grid-template-columns: 7.5rem 1fr 2.2rem;
+    gap: 0.65rem;
+    align-items: center;
+  }
+  .ov-skeleton-deadline-row { display: flex; align-items: center; gap: 0.65rem; }
+  .ov-skeleton-deadline-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
   }
   .ov-bar-row { display: grid; grid-template-columns: 6.8rem 1fr 2.2rem; align-items: center; gap: 0.55rem; }
   .ov-bar-label { font-size: 0.75rem; color: var(--color-heading); white-space: nowrap; }

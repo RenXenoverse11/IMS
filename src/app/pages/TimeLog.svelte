@@ -440,16 +440,7 @@
       return;
     }
     
-    // Auto-capture current time if logging in for today
-    let finalTimeIn = timeIn;
-    const today = new Date().toISOString().split('T')[0];
-    if (date === today && timeIn === DEFAULT_TIME_IN) {
-      const now = new Date();
-      const hours = String(now.getHours()).padStart(2, '0');
-      const minutes = String(now.getMinutes()).padStart(2, '0');
-      finalTimeIn = `${hours}:${minutes}`;
-      timeIn = finalTimeIn;
-    }
+    const finalTimeIn = timeIn;
     
     try {
       const isBlockedByApprovedAbsence = await hasApprovedAbsenceRequestForDate_(user.user_id, date);

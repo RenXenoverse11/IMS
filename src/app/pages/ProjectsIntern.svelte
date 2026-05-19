@@ -1132,8 +1132,11 @@
   let replyText         = {};   // { [projectId]: string }
   // feedback actions removed: status / approve / reject
 
-  async function loadFeedback(projectId) {
-    feedbackLoading = { ...feedbackLoading, [projectId]: true };
+  async function loadFeedback(projectId, options = {}) {
+    const showLoading = options?.showLoading !== false;
+    if (showLoading) {
+      feedbackLoading = { ...feedbackLoading, [projectId]: true };
+    }
     try {
       const res = await dispatchAction('list_feedback', { proj_id: String(projectId) });
       if (res?.ok) feedbackMap = { ...feedbackMap, [projectId]: res.feedback || [] };
@@ -1141,7 +1144,9 @@
     } catch (e) {
       feedbackMap = { ...feedbackMap, [projectId]: [] };
     } finally {
-      feedbackLoading = { ...feedbackLoading, [projectId]: false };
+      if (showLoading) {
+        feedbackLoading = { ...feedbackLoading, [projectId]: false };
+      }
     }
   }
 
@@ -1181,14 +1186,54 @@
     if (postingFeedback[projectId]) return;
     const uid  = getCurrentUserId();
     const role = String(currentUser?.role || getCurrentUser()?.role || 'Intern');
+    const activeUser = currentUser || getCurrentUser() || {};
+    const optimisticId = `TMP_FEED_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const optimisticItem = {
+      feedback_id: optimisticId,
+      proj_id: String(projectId),
+      parent_id: '',
+      commenter_id: uid,
+      commenter_role: role,
+      comment_text: text,
+      created_at: new Date().toISOString(),
+      commenter_name: getDisplayName(activeUser) || uid,
+      _optimistic: true
+    };
     postingFeedback = { ...postingFeedback, [projectId]: true };
+    feedbackMap = {
+      ...feedbackMap,
+      [projectId]: [...(feedbackMap[projectId] || []), optimisticItem]
+    };
+    newFeedbackText = { ...newFeedbackText, [projectId]: '' };
     try {
       const res = await dispatchAction('create_feedback', { proj_id: String(projectId), user_id: uid, commenter_role: role, comment_text: text });
-      if (!res?.ok) { formError = res?.error || 'Failed to post comment.'; return; }
-      newFeedbackText = { ...newFeedbackText, [projectId]: '' };
-      await loadFeedback(projectId);
+      if (!res?.ok) {
+        formError = res?.error || 'Failed to post comment.';
+        feedbackMap = {
+          ...feedbackMap,
+          [projectId]: (feedbackMap[projectId] || []).filter((item) => String(item?.feedback_id || '') !== optimisticId)
+        };
+        newFeedbackText = { ...newFeedbackText, [projectId]: text };
+        return;
+      }
+      feedbackMap = {
+        ...feedbackMap,
+        [projectId]: (feedbackMap[projectId] || []).map((item) => (
+          String(item?.feedback_id || '') === optimisticId
+            ? { ...item, feedback_id: String(res.feedback_id || optimisticId), created_at: String(res.created_at || item.created_at || ''), _optimistic: false }
+            : item
+        ))
+      };
+      void loadFeedback(projectId, { showLoading: false });
       void refreshOverviewActivity();
-    } catch (e) { formError = e?.message || 'Failed to post comment.'; }
+    } catch (e) {
+      formError = e?.message || 'Failed to post comment.';
+      feedbackMap = {
+        ...feedbackMap,
+        [projectId]: (feedbackMap[projectId] || []).filter((item) => String(item?.feedback_id || '') !== optimisticId)
+      };
+      newFeedbackText = { ...newFeedbackText, [projectId]: text };
+    }
     finally {
       postingFeedback = { ...postingFeedback, [projectId]: false };
     }
@@ -1206,7 +1251,7 @@
       if (!res?.ok) { formError = res?.error || 'Failed to post reply.'; return; }
       replyText    = { ...replyText,    [projectId]: '' };
       replyingTo   = { ...replyingTo,   [projectId]: null };
-      await loadFeedback(projectId);
+      await loadFeedback(projectId, { showLoading: false });
       void refreshOverviewActivity();
     } catch (e) { formError = e?.message || 'Failed to post reply.'; }
     finally {
@@ -1222,7 +1267,7 @@
     try {
       const res = await dispatchAction('delete_feedback', { feedback_id: feedbackId, user_id: uid });
       if (!res?.ok) { formError = res?.error || 'Delete failed.'; return; }
-      await loadFeedback(projectId);
+      await loadFeedback(projectId, { showLoading: false });
       void refreshOverviewActivity();
     } catch (e) { formError = e?.message || 'Delete failed.'; }
     finally {
