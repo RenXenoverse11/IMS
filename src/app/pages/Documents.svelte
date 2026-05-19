@@ -2298,6 +2298,7 @@
   .btn {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 0.5rem;
     padding: 0.7rem 1.2rem;
     border-radius: 10px;
@@ -4321,6 +4322,10 @@
   }
 
   .select-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
     background: linear-gradient(135deg, #3b82f6, #2563eb);
     color: white;
     border: none;
