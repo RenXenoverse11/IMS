@@ -2,7 +2,7 @@
 // @ts-nocheck
   import { onMount, onDestroy } from 'svelte';
   import { getCurrentUser, subscribeToCurrentUser, callApiAction } from '../lib/auth.js';
-  import { FolderOpen, Clock3, Tag, Users2, CalendarDays, Loader2, Grid, Archive, RotateCcw, Eye, Download, Plus, Trash2, Pencil, ExternalLink, Link2 } from 'lucide-svelte';
+  import { FolderOpen, Clock3, Tag, Users2, CalendarDays, Loader2, Grid, Archive, RotateCcw, Eye, Download, Plus, Trash2, Pencil, ExternalLink, Link2, Send } from 'lucide-svelte';
   import FeedbackThread from '../components/FeedbackThread.svelte';
 
   export let currentUser = null;
@@ -1860,58 +1860,6 @@
         </div>
       </div>
     {:else}
-      <div class="ov-top-grid">
-        <section class="card ov-card ov-card-tight">
-          <div class="ov-card-head">
-            <div class="ov-card-title">Workload Snapshot</div>
-          </div>
-          {#if workloadRows.length === 0}
-            <div class="ov-empty">No active workload yet.</div>
-          {:else}
-            <div class="ov-status-bars">
-              {#each workloadRows as row}
-                <div class="ov-bar-row">
-                  <span class="ov-bar-label">{row.internName}</span>
-                  <div class="ov-bar-track">
-                    <div class="progress-bar-inner" style="width:{row.pct}%"></div>
-                  </div>
-                  <span class="ov-bar-count"><span class="ov-ms-done">{row.count}</span>/{totalProjects}</span>
-                </div>
-              {/each}
-            </div>
-          {/if}
-        </section>
-
-        <section class="card ov-card ov-card-tight">
-          <div class="ov-card-head">
-            <div class="ov-card-title">Upcoming Deadlines</div>
-          </div>
-          {#if upcomingDeadlines.length === 0}
-            <div class="ov-empty">No upcoming deadlines.</div>
-          {:else}
-            <div class="ov-deadline-list">
-              {#each upcomingDeadlines as p}
-                {@const past = isDeadlinePast(p.timeline_end || p.deadline)}
-                {@const near = !past && isDeadlineNear(p.timeline_end || p.deadline)}
-                {@const sm = getStatusMeta(p.status)}
-                <div class="ov-deadline-row">
-                  <div class="ov-deadline-icon" class:ov-deadline-icon-past={past} class:ov-deadline-icon-near={near && !past}>
-                    <CalendarDays size={13} />
-                  </div>
-                  <div class="ov-deadline-body">
-                    <div class="ov-deadline-name">{p.title}</div>
-                    <div class="ov-deadline-date" class:ov-date-past={past} class:ov-date-near={near && !past}>
-                      <CalendarDays size={11} /> {formatDate(p.timeline_end || p.deadline)}
-                    </div>
-                  </div>
-                  <span class={"proj-status-pill " + sm.cls}>{sm.label}</span>
-                </div>
-              {/each}
-            </div>
-          {/if}
-        </section>
-      </div>
-
       <section class="card ov-card">
         <div class="ov-card-head">
           <div class="ov-card-title">Tagged Projects</div>
@@ -1970,6 +1918,58 @@
           </div>
         {/if}
       </section>
+
+      <div class="ov-top-grid">
+        <section class="card ov-card ov-card-tight">
+          <div class="ov-card-head">
+            <div class="ov-card-title">Workload Snapshot</div>
+          </div>
+          {#if workloadRows.length === 0}
+            <div class="ov-empty">No active workload yet.</div>
+          {:else}
+            <div class="ov-status-bars">
+              {#each workloadRows as row}
+                <div class="ov-bar-row">
+                  <span class="ov-bar-label">{row.internName}</span>
+                  <div class="ov-bar-track">
+                    <div class="progress-bar-inner" style="width:{row.pct}%"></div>
+                  </div>
+                  <span class="ov-bar-count"><span class="ov-ms-done">{row.count}</span>/{totalProjects}</span>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </section>
+
+        <section class="card ov-card ov-card-tight">
+          <div class="ov-card-head">
+            <div class="ov-card-title">Upcoming Deadlines</div>
+          </div>
+          {#if upcomingDeadlines.length === 0}
+            <div class="ov-empty">No upcoming deadlines.</div>
+          {:else}
+            <div class="ov-deadline-list">
+              {#each upcomingDeadlines as p}
+                {@const past = isDeadlinePast(p.timeline_end || p.deadline)}
+                {@const near = !past && isDeadlineNear(p.timeline_end || p.deadline)}
+                {@const sm = getStatusMeta(p.status)}
+                <div class="ov-deadline-row">
+                  <div class="ov-deadline-icon" class:ov-deadline-icon-past={past} class:ov-deadline-icon-near={near && !past}>
+                    <CalendarDays size={13} />
+                  </div>
+                  <div class="ov-deadline-body">
+                    <div class="ov-deadline-name">{p.title}</div>
+                    <div class="ov-deadline-date" class:ov-date-past={past} class:ov-date-near={near && !past}>
+                      <CalendarDays size={11} /> {formatDate(p.timeline_end || p.deadline)}
+                    </div>
+                  </div>
+                  <span class={"proj-status-pill " + sm.cls}>{sm.label}</span>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </section>
+      </div>
 
     {/if}
   {:else if activeView === 'Archive'}
@@ -2365,8 +2365,20 @@
                           {/if}
                           <div class="fb-new-comment">
                             <textarea class="fb-reply-input" rows="3" placeholder="Add a comment..." value={newFeedbackText[p.id] || ''} on:input={(e) => { newFeedbackText = { ...newFeedbackText, [p.id]: e.currentTarget.value }; }}></textarea>
-                            <button class="sub-action-btn" style="margin-top:6px" disabled={!!postingFeedback[p.id]} on:click={() => submitFeedback(p.id)}>
-                              {postingFeedback[p.id] ? 'Posting...' : 'Post Comment'}
+                            <button
+                              class="sub-action-btn fb-post-btn"
+                              class:sub-action-btn-busy={!!postingFeedback[p.id]}
+                              disabled={!!postingFeedback[p.id]}
+                              on:click={() => submitFeedback(p.id)}
+                              aria-label="Post comment"
+                            >
+                              {#if postingFeedback[p.id]}
+                                <Loader2 size={14} class="spin" />
+                                <span>Posting...</span>
+                              {:else}
+                                <Send size={14} />
+                                <span>Post Comment</span>
+                              {/if}
                             </button>
                           </div>
                         {/if}
@@ -3749,6 +3761,30 @@
   .fb-new-comment {
     display:flex; flex-direction:column;
     padding:0.6rem 0; border-top:1px solid var(--color-border); margin-top:0.25rem;
+  }
+  .fb-post-btn {
+    margin-top: 6px;
+    align-self: flex-end;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: #2563eb !important;
+    border-color: #2563eb !important;
+    color: #ffffff !important;
+    transition: opacity 0.16s ease, transform 0.12s ease, filter 0.16s ease;
+  }
+  .fb-post-btn:hover:not(:disabled) {
+    opacity: 0.9;
+    filter: saturate(0.94);
+  }
+  .fb-post-btn:active:not(:disabled) {
+    opacity: 0.78;
+    transform: translateY(0);
+  }
+  .fb-post-btn.sub-action-btn-busy {
+    background: #1d4ed8 !important;
+    border-color: #1d4ed8 !important;
+    color: #ffffff !important;
   }
 
   /* Milestones card styles (adopted from ProjectsIntern, adjusted sizes for Supervisor) */

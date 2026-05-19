@@ -180,6 +180,42 @@ function projRowToObj_(row) {
   };
 }
 
+function projCreatorRole_(userId, cache) {
+  var key = String(userId || '').trim();
+  if (!key) return '';
+  var memo = cache || {};
+  if (Object.prototype.hasOwnProperty.call(memo, key)) {
+    return memo[key];
+  }
+
+  var role = '';
+  try {
+    var record = findUserRecordByUserId_(key);
+    if (record && record.user) {
+      role = String(
+        (typeof getEffectiveUserRole_ === 'function' ? getEffectiveUserRole_(record.user) : record.user.role) || ''
+      ).trim();
+    }
+  } catch (e) {
+    role = '';
+  }
+
+  memo[key] = role;
+  return role;
+}
+
+function projIsStatusOnlyUpdatePayload_(payload) {
+  return Boolean(payload) &&
+    payload.status !== undefined &&
+    payload.proj_name === undefined &&
+    payload.priority === undefined &&
+    payload.members === undefined &&
+    payload.supervisor === undefined &&
+    payload.start_date === undefined &&
+    payload.end_date === undefined &&
+    payload.description === undefined;
+}
+
 // Similar utility functions for milestones
 function milestoneSheet_() {
   return getOrCreateSheetWithHeaders_(MILESTONE_SHEET_, MILESTONE_HEADERS_);
@@ -223,11 +259,15 @@ function handleListProjIntern_(payload) {
   var sheet = projInternSheet_();
   var data  = sheet.getDataRange().getValues();
   var projects = [];
+  var creatorRoleCache = {};
 
   for (var i = 1; i < data.length; i++) {
     var row = data[i];
     if (!String(row[0] || '').trim()) continue;   // skip blank rows
     var obj = projRowToObj_(row);
+    var creatorRole = projCreatorRole_(obj.created_by, creatorRoleCache);
+    obj.created_by_role = creatorRole;
+    obj.creator_is_supervisor = projAssignmentNormalizeText_(creatorRole) === 'supervisor';
     // Return projects where this user is the creator OR a member
     var memberIds = obj.members.split(',').map(function(s){ return s.trim(); });
     if (obj.created_by === userId || memberIds.indexOf(userId) !== -1) {
@@ -324,6 +364,22 @@ function handleUpdateProjIntern_(payload) {
     if (String(data[i][0] || '').trim() === projId) {
       var rowIndex = i + 1;
       var originalRow = data[i].slice();
+      var existingProject = projRowToObj_(data[i]);
+      var creatorRole = projCreatorRole_(existingProject.created_by, {});
+      var isSupervisorCreated = projAssignmentNormalizeText_(creatorRole) === 'supervisor';
+      var isAssignedMember = projAssignmentIdsFromValue_(existingProject.members).indexOf(userId) !== -1;
+      var isCreator = String(existingProject.created_by || '').trim() === userId;
+      var statusOnlyUpdate = projIsStatusOnlyUpdatePayload_(payload);
+
+      if (!isCreator && isSupervisorCreated) {
+        if (!isAssignedMember) {
+          return { ok: false, error: 'You do not have permission to edit this project.' };
+        }
+        if (!statusOnlyUpdate) {
+          return { ok: false, error: 'This project was created by a supervisor. Interns can only update the project status.' };
+        }
+      }
+
       var membersRaw = payload.members;
       var membersStr = data[i][4]; // keep existing if not provided
       if (membersRaw !== undefined) {
@@ -582,6 +638,29 @@ function feedbackRowToObj_(row) {
     updated_by:     String(row[8] || '')
   };
 }
+
+function feedbackCommenterName_(commenterId, cache) {
+  var key = String(commenterId || '').trim();
+  if (!key) return '';
+
+  var memo = cache || {};
+  if (Object.prototype.hasOwnProperty.call(memo, key)) {
+    return memo[key];
+  }
+
+  var name = '';
+  try {
+    var record = findUserRecordByUserId_(key);
+    if (record && record.user) {
+      name = String(record.user.full_name || record.user.email || key).trim();
+    }
+  } catch (e) {
+    name = '';
+  }
+
+  memo[key] = name;
+  return name;
+}
 // For feedback, we can have root comments (parent_id = '') and replies (parent_id = feedback_id of the parent comment).
 function handleListFeedback_(payload) {
   var projId = String(payload.proj_id || '').trim();
@@ -589,10 +668,14 @@ function handleListFeedback_(payload) {
   var sheet = feedbackSheet_();
   var data  = sheet.getDataRange().getValues();
   var items = [];
+  var commenterNameCache = {};
   for (var i = 1; i < data.length; i++) {
     if (!String(data[i][0] || '').trim()) continue;
     var obj = feedbackRowToObj_(data[i]);
-    if (obj.proj_id === projId) items.push(obj);
+    if (obj.proj_id === projId) {
+      obj.commenter_name = feedbackCommenterName_(obj.commenter_id, commenterNameCache);
+      items.push(obj);
+    }
   }
   return { ok: true, feedback: items };
 }

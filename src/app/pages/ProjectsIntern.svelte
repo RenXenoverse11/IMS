@@ -252,6 +252,34 @@
     return String(activeUser.user_id || activeUser.id || activeUser.UserId || activeUser.userId || '').trim();
   }
 
+  function normalizeRoleLabel(value) {
+    const raw = String(value || '').trim();
+    const lower = raw.toLowerCase();
+    if (lower === 'supervisor' || lower === 'mentor') return 'Supervisor';
+    if (lower === 'student' || lower === 'intern' || lower === 'ojt') return 'Student';
+    return raw;
+  }
+
+  function isSupervisorCreatedProject(project) {
+    const explicitFlag = project?.creator_is_supervisor;
+    if (explicitFlag === true || String(explicitFlag || '').trim().toLowerCase() === 'true') {
+      return true;
+    }
+
+    const creatorRole = normalizeRoleLabel(project?.created_by_role || project?.creator_role || '');
+    if (creatorRole) return creatorRole === 'Supervisor';
+
+    const creatorId = String(project?.created_by || '').trim();
+    if (!creatorId) return false;
+    const creator = (Array.isArray(users) ? users : []).find((user) => getUserId(user) === creatorId);
+    return normalizeRoleLabel(creator?.role || creator?.Role || '') === 'Supervisor';
+  }
+
+  function isStatusOnlyEditableProject(project) {
+    const creatorId = String(project?.created_by || '').trim();
+    return Boolean(project && creatorId && creatorId !== getCurrentUserId() && isSupervisorCreatedProject(project));
+  }
+
   function inferSingleDepartmentFromUsers(list) {
     const departments = new Set(
       (Array.isArray(list) ? list : [])
@@ -393,6 +421,7 @@
   }
 
   function normalizeProject(p) {
+    const createdByRole = normalizeRoleLabel(p.created_by_role || p.creator_role || '');
     return {
       id:             p.proj_id      || '',
       proj_id:        p.proj_id      || '',
@@ -407,6 +436,8 @@
       deadline:       p.end_date     || '',
       created_at:     p.created_at   || '',
       created_by:     p.created_by   || '',
+      created_by_role: createdByRole,
+      creator_is_supervisor: p.creator_is_supervisor === true || String(p.creator_is_supervisor || '').trim().toLowerCase() === 'true' || createdByRole === 'Supervisor',
       archived:       canonicalStatusLabel(p.status || '').toLowerCase() === 'archived',
       folders:        null,           // null = not yet loaded; [] = loaded and empty
       progress_logs:  [],
@@ -511,28 +542,35 @@
   }
 
   async function saveInlineEdit(p) {
-    if (!String(inlineForm.title || '').trim()) { formError = 'Project title is required.'; return; }
+    const statusOnlyEdit = isStatusOnlyEditableProject(p);
+    if (!statusOnlyEdit && !String(inlineForm.title || '').trim()) { formError = 'Project title is required.'; return; }
     formError = '';
     isSubmitting = true;
     const uid = getCurrentUserId();
+    const nextStatus = canonicalStatusLabel(inlineForm.status || p.status || 'Not Started');
     try {
-      const res = await dispatchAction('update_proj_intern', {
+      const payload = {
         proj_id:     p.id,
         user_id:     uid,
-        proj_name:   inlineForm.title,
-        description: inlineForm.description,
-        priority:    inlineForm.priority_level,
-        status:      inlineForm.status,
-        members:     inlineForm.members,
-        supervisor:  inlineForm.supervisor,
-        start_date:  inlineForm.timeline_start,
-        end_date:    inlineForm.timeline_end
-      });
+        status:      nextStatus
+      };
+      if (!statusOnlyEdit) {
+        payload.proj_name = inlineForm.title;
+        payload.description = inlineForm.description;
+        payload.priority = inlineForm.priority_level;
+        payload.members = inlineForm.members;
+        payload.supervisor = inlineForm.supervisor;
+        payload.start_date = inlineForm.timeline_start;
+        payload.end_date = inlineForm.timeline_end;
+      }
+      const res = await dispatchAction('update_proj_intern', payload);
       if (!res?.ok) { formError = res?.error || 'Update failed.'; return; }
       projects = projects.map(proj => proj.id === p.id
-        ? { ...proj, title: inlineForm.title, description: inlineForm.description, priority_level: inlineForm.priority_level,
-            status: inlineForm.status, members: inlineForm.members, supervisors: inlineForm.supervisor,
-            timeline_start: inlineForm.timeline_start, timeline_end: inlineForm.timeline_end, deadline: inlineForm.timeline_end }
+        ? statusOnlyEdit
+          ? { ...proj, status: nextStatus }
+          : { ...proj, title: inlineForm.title, description: inlineForm.description, priority_level: inlineForm.priority_level,
+              status: nextStatus, members: inlineForm.members, supervisors: inlineForm.supervisor,
+              timeline_start: inlineForm.timeline_start, timeline_end: inlineForm.timeline_end, deadline: inlineForm.timeline_end }
         : proj);
       cancelInlineEdit();
     } catch(e) {
@@ -1102,6 +1140,31 @@
   function feedbackChildren(projectId, parentId) {
     const list = feedbackMap[projectId] || [];
     return list.filter(f => String(f.parent_id || '') === String(parentId || ''));
+  }
+
+  function isFeedbackSupervisor(feedback) {
+    return normalizeRoleLabel(feedback?.commenter_role || '') === 'Supervisor';
+  }
+
+  function getFeedbackAuthorName(feedback) {
+    const explicitName = String(
+      feedback?.commenter_name ||
+      feedback?.commenter_full_name ||
+      feedback?.commenterName ||
+      ''
+    ).trim();
+    if (explicitName) return explicitName;
+
+    const commenterId = String(feedback?.commenter_id || '').trim();
+    if (!commenterId) return String(feedback?.commenter_role || 'Unknown').trim() || 'Unknown';
+
+    if (commenterId === getCurrentUserId()) {
+      const activeUser = currentUser || getCurrentUser() || {};
+      return getDisplayName(activeUser) || commenterId;
+    }
+
+    const foundUser = (Array.isArray(users) ? users : []).find((user) => getUserId(user) === commenterId);
+    return getDisplayName(foundUser) || String(feedback?.commenter_role || '').trim() || commenterId;
   }
 
   async function submitFeedback(projectId) {
@@ -1786,6 +1849,104 @@
         </div>
       {:else}
 
+        <section class="card ov-card">
+          <div class="ov-card-head">
+            <div class="ov-card-title">Your Projects</div>
+            <div style="display:flex;align-items:center;gap:0.75rem;">
+              <button class="ov-view-all-btn" on:click={() => activeView = 'Projects'}>View all →</button>
+            </div>
+          </div>
+          {#if isLoading}
+            <div class="ov-snippets-grid">
+              {#each [1, 2, 3, 4] as _}
+                <div class="ov-snippet-card ov-snippet-skeleton">
+                  <div class="ov-snippet-top">
+                    <div class="ov-skeleton shimmer" style="height: 12px; width: 55%;"></div>
+                    <div class="ov-snippet-top-right">
+                      <div class="ov-skeleton shimmer" style="height: 20px; width: 82px; border-radius: 999px;"></div>
+                      <div class="ov-skeleton shimmer" style="height: 20px; width: 62px; border-radius: 999px;"></div>
+                    </div>
+                  </div>
+                  <div class="ov-skeleton shimmer" style="height: 8px; width: 100%; border-radius: 999px;"></div>
+                  <div class="ov-skeleton shimmer" style="height: 11px; width: 130px;"></div>
+                  <div class="ov-snippet-actions">
+                    <div class="ov-skeleton shimmer" style="height: 28px; width: 100%; border-radius: 8px;"></div>
+                    <div class="ov-skeleton shimmer" style="height: 28px; width: 100%; border-radius: 8px;"></div>
+                  </div>
+                </div>
+              {/each}
+            </div>
+          {:else if overviewSnippets.length === 0}
+            <div class="ov-empty">No active projects.</div>
+          {:else}
+            <div class="ov-snippets-grid">
+              {#each pagedSnippets as p (p.id)}
+                {@const sm  = STATUS_META[p.status] || STATUS_META['Not Started']}
+                {@const pl  = getPriorityLabel(p.priority_level)}
+                {@const pct = p.progress_percent != null ? p.progress_percent : statusToProgress(p.status)}
+                {@const past = isDeadlinePast(p.timeline_end || p.deadline)}
+                <div class="ov-snippet-card">
+                  <div class="ov-snippet-top">
+                    <div class="ov-snippet-name">{p.title}</div>
+                    <div class="ov-snippet-top-right">
+                      <span class={"proj-status-pill " + sm.cls}>{sm.label}</span>
+                      <span class={"proj-priority-pill priority-" + pl.toLowerCase()}>{pl}</span>
+                    </div>
+                  </div>
+                  <div class="ov-snippet-progress">
+                    <div class="progress-bar-outer">
+                      <div class="progress-bar-inner" style="width:{pct}%"></div>
+                    </div>
+                    <span class="ov-snippet-pct">{pct}%</span>
+                  </div>
+                  {#if p.timeline_end || p.deadline}
+                    <div class="ov-snippet-due" class:ov-date-past={past}>
+                      <CalendarDays size={11} /> Due: {formatDate(p.timeline_end || p.deadline)}
+                    </div>
+                  {/if}
+                  <div class="ov-snippet-actions">
+                    <button class="sub-action-btn" on:click={() => { activeView = 'Projects'; viewProject(p); }}>
+                      <Eye size={12} /> Open
+                    </button>
+                    <button
+                      class="sub-action-btn"
+                      class:sub-action-btn-busy={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                      title="Archive project"
+                      disabled={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                      on:click={() => archiveProject(p)}
+                    >
+                      {#if archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                        <Loader2 size={12} class="spin" /> Archiving...
+                      {:else}
+                        <Archive size={12} /> Archive
+                      {/if}
+                    </button>
+                  </div>
+                </div>
+              {/each}
+            </div>
+          {/if}
+          {#if projectPageCount > 1}
+            <div class="proj-page-footer">
+              <div class="proj-page-nav">
+                <button
+                  class="proj-page-btn"
+                  disabled={projectsPage === 0}
+                  on:click={() => projectsPage--}
+                  aria-label="Previous page"
+                >&#8249;</button>
+                <span class="proj-page-indicator">{projectsPage + 1} / {projectPageCount}</span>
+                <button
+                  class="proj-page-btn"
+                  disabled={projectsPage >= projectPageCount - 1}
+                  on:click={() => projectsPage++}
+                  aria-label="Next page"
+                >&#8250;</button>
+              </div>
+            </div>
+          {/if}
+        </section>
+
         <!-- ── Overview: top 2-col grid ── -->
         <div class="ov-top-grid">
           <!-- Recent Activity -->
@@ -1884,105 +2045,6 @@
             {/if}
           </section>
         </div>
-
-        <!-- ── Project Snippets ── -->
-        <section class="card ov-card">
-          <div class="ov-card-head">
-            <div class="ov-card-title">Your Projects</div>
-            <div style="display:flex;align-items:center;gap:0.75rem;">
-              <button class="ov-view-all-btn" on:click={() => activeView = 'Projects'}>View all →</button>
-            </div>
-          </div>
-          {#if isLoading}
-            <div class="ov-snippets-grid">
-              {#each [1, 2, 3, 4] as _}
-                <div class="ov-snippet-card ov-snippet-skeleton">
-                  <div class="ov-snippet-top">
-                    <div class="ov-skeleton shimmer" style="height: 12px; width: 55%;"></div>
-                    <div class="ov-snippet-top-right">
-                      <div class="ov-skeleton shimmer" style="height: 20px; width: 82px; border-radius: 999px;"></div>
-                      <div class="ov-skeleton shimmer" style="height: 20px; width: 62px; border-radius: 999px;"></div>
-                    </div>
-                  </div>
-                  <div class="ov-skeleton shimmer" style="height: 8px; width: 100%; border-radius: 999px;"></div>
-                  <div class="ov-skeleton shimmer" style="height: 11px; width: 130px;"></div>
-                  <div class="ov-snippet-actions">
-                    <div class="ov-skeleton shimmer" style="height: 28px; width: 100%; border-radius: 8px;"></div>
-                    <div class="ov-skeleton shimmer" style="height: 28px; width: 100%; border-radius: 8px;"></div>
-                  </div>
-                </div>
-              {/each}
-            </div>
-          {:else if overviewSnippets.length === 0}
-            <div class="ov-empty">No active projects.</div>
-          {:else}
-            <div class="ov-snippets-grid">
-              {#each pagedSnippets as p (p.id)}
-                {@const sm  = STATUS_META[p.status] || STATUS_META['Not Started']}
-                {@const pl  = getPriorityLabel(p.priority_level)}
-                {@const pct = p.progress_percent != null ? p.progress_percent : statusToProgress(p.status)}
-                {@const past = isDeadlinePast(p.timeline_end || p.deadline)}
-                <div class="ov-snippet-card">
-                  <div class="ov-snippet-top">
-                    <div class="ov-snippet-name">{p.title}</div>
-                    <div class="ov-snippet-top-right">
-                      <span class={"proj-status-pill " + sm.cls}>{sm.label}</span>
-                      <span class={"proj-priority-pill priority-" + pl.toLowerCase()}>{pl}</span>
-                    </div>
-                  </div>
-                  <div class="ov-snippet-progress">
-                    <div class="progress-bar-outer">
-                      <div class="progress-bar-inner" style="width:{pct}%"></div>
-                    </div>
-                    <span class="ov-snippet-pct">{pct}%</span>
-                  </div>
-                  {#if p.timeline_end || p.deadline}
-                    <div class="ov-snippet-due" class:ov-date-past={past}>
-                      <CalendarDays size={11} /> Due: {formatDate(p.timeline_end || p.deadline)}
-                    </div>
-                  {/if}
-                  <div class="ov-snippet-actions">
-                    <button class="sub-action-btn" on:click={() => { activeView = 'Projects'; viewProject(p); }}>
-                      <Eye size={12} /> Open
-                    </button>
-                    <button
-                      class="sub-action-btn"
-                      class:sub-action-btn-busy={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
-                      title="Archive project"
-                      disabled={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
-                      on:click={() => archiveProject(p)}
-                    >
-                      {#if archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
-                        <Loader2 size={12} class="spin" /> Archiving...
-                      {:else}
-                        <Archive size={12} /> Archive
-                      {/if}
-                    </button>
-                  </div>
-                </div>
-              {/each}
-            </div>
-          {/if}
-          {#if projectPageCount > 1}
-            <div class="proj-page-footer">
-              <div class="proj-page-nav">
-                <button
-                  class="proj-page-btn"
-                  disabled={projectsPage === 0}
-                  on:click={() => projectsPage--}
-                  aria-label="Previous page"
-                >&#8249;</button>
-                <span class="proj-page-indicator">{projectsPage + 1} / {projectPageCount}</span>
-                <button
-                  class="proj-page-btn"
-                  disabled={projectsPage >= projectPageCount - 1}
-                  on:click={() => projectsPage++}
-                  aria-label="Next page"
-                >&#8250;</button>
-              </div>
-            </div>
-          {/if}
-        </section>
       {/if}
     {:else if activeView === 'Projects'}
       <section class="proj-table-panel">
@@ -2059,26 +2121,38 @@
                       <div class="proj-detail-body">
                     {#if viewingProjectTab === 'Details'}
                       {#if inlineEditId === p.id}
+                        {@const statusOnlyEdit = isStatusOnlyEditableProject(p)}
                         <!-- ── Inline Edit Form ───────────────────────── -->
                         <div class="inline-edit-form">
+                          {#if statusOnlyEdit}
+                            <div class="alert-info">This project was created by your supervisor. Only the status can be updated from the intern view.</div>
+                          {/if}
                           <div class="ief-group">
-                            <label class="ief-label" for="ief-title-{p.id}">Project Title <span class="req">*</span></label>
-                            <input id="ief-title-{p.id}" type="text" class="ief-input" bind:value={inlineForm.title} maxlength="120" />
+                            <label class="ief-label" for="ief-title-{p.id}">Project Title {#if !statusOnlyEdit}<span class="req">*</span>{/if}</label>
+                            <input id="ief-title-{p.id}" type="text" class="ief-input" bind:value={inlineForm.title} maxlength="120" disabled={statusOnlyEdit} />
                           </div>
                           <div class="ief-group">
                             <label class="ief-label" for="ief-desc-{p.id}">Description</label>
-                            <textarea id="ief-desc-{p.id}" class="ief-input ief-textarea" bind:value={inlineForm.description} rows="3" maxlength="500"></textarea>
+                            <textarea id="ief-desc-{p.id}" class="ief-input ief-textarea" bind:value={inlineForm.description} rows="3" maxlength="500" disabled={statusOnlyEdit}></textarea>
                           </div>
                           <div class="ief-row-2">
                             <div class="ief-group">
                               <div class="ief-label">Members</div>
                               <!-- svelte-ignore a11y-click-events-have-key-events -->
                               <!-- svelte-ignore a11y-no-static-element-interactions -->
-                              <div class="members-input ief-input" on:click={() => showInlineMembersPanel = !showInlineMembersPanel}>
+                              <div
+                                class="members-input ief-input"
+                                class:is-disabled={statusOnlyEdit}
+                                on:click={() => {
+                                  if (statusOnlyEdit) return;
+                                  showInlineMembersPanel = !showInlineMembersPanel;
+                                }}
+                                aria-disabled={statusOnlyEdit}
+                              >
                                 <div>{(inlineForm.members && inlineForm.members.length) ? inlineForm.members.map(id => MEMBER_OPTIONS.find(o => o.value === id)?.label || id).join(', ') : 'Select members'}</div>
                                 <div class="muted">{(inlineForm.members || []).length}</div>
                               </div>
-                              {#if showInlineMembersPanel}
+                              {#if showInlineMembersPanel && !statusOnlyEdit}
                                 <div class="members-panel" style="margin-top:6px">
                                   {#if usersLoading}
                                     <span class="muted" style="font-size:12px;padding:4px 8px">{assignmentEmptyMessage('intern')}</span>
@@ -2105,8 +2179,13 @@
                               <div class="ief-label">Supervisor</div>
                               <div
                                 class="members-input ief-input"
-                                on:click={() => showInlineSupervisorPanel = !showInlineSupervisorPanel}
+                                class:is-disabled={statusOnlyEdit}
+                                on:click={() => {
+                                  if (statusOnlyEdit) return;
+                                  showInlineSupervisorPanel = !showInlineSupervisorPanel;
+                                }}
                                 on:keydown={(event) => {
+                                  if (statusOnlyEdit) return;
                                   if (event.key === 'Enter' || event.key === ' ') {
                                     event.preventDefault();
                                     showInlineSupervisorPanel = !showInlineSupervisorPanel;
@@ -2114,11 +2193,12 @@
                                 }}
                                 role="button"
                                 tabindex="0"
+                                aria-disabled={statusOnlyEdit}
                               >
                                 <div>{(inlineForm.supervisor && inlineForm.supervisor.length) ? inlineForm.supervisor.map(id => SUPERVISOR_OPTIONS.find(o => o.value === id)?.label || id).join(', ') : 'Select supervisor(s)'}</div>
                                 <div class="muted">{(inlineForm.supervisor || []).length}</div>
                               </div>
-                              {#if showInlineSupervisorPanel}
+                              {#if showInlineSupervisorPanel && !statusOnlyEdit}
                                 <div class="members-panel" style="margin-top:6px">
                                   {#if usersLoading}
                                     <span class="muted" style="font-size:12px;padding:4px 8px">{assignmentEmptyMessage('supervisor')}</span>
@@ -2145,7 +2225,7 @@
                           <div class="ief-row-2">
                             <div class="ief-group">
                               <label class="ief-label" for="ief-pri-{p.id}">Priority Level</label>
-                              <select id="ief-pri-{p.id}" class="ief-input" bind:value={inlineForm.priority_level}>
+                              <select id="ief-pri-{p.id}" class="ief-input" bind:value={inlineForm.priority_level} disabled={statusOnlyEdit}>
                                 {#each PRIORITY_OPTIONS as opt}<option value={opt}>{opt}</option>{/each}
                               </select>
                             </div>
@@ -2159,11 +2239,11 @@
                           <div class="ief-row-2">
                             <div class="ief-group">
                               <label class="ief-label" for="ief-ts-{p.id}">Timeline (Start)</label>
-                              <input id="ief-ts-{p.id}" type="date" class="ief-input" bind:value={inlineForm.timeline_start} />
+                              <input id="ief-ts-{p.id}" type="date" class="ief-input" bind:value={inlineForm.timeline_start} disabled={statusOnlyEdit} />
                             </div>
                             <div class="ief-group">
                               <label class="ief-label" for="ief-te-{p.id}">Timeline (End)</label>
-                              <input id="ief-te-{p.id}" type="date" class="ief-input" bind:value={inlineForm.timeline_end} />
+                              <input id="ief-te-{p.id}" type="date" class="ief-input" bind:value={inlineForm.timeline_end} disabled={statusOnlyEdit} />
                             </div>
                           </div>
                           <!-- inline progress preview driven by status -->
@@ -2178,7 +2258,7 @@
                           <div class="ief-actions">
                             <button class="btn-secondary" on:click={cancelInlineEdit}>Cancel</button>
                             <button class="btn-submit" on:click={() => saveInlineEdit(p)} disabled={isSubmitting}>
-                              {isSubmitting ? 'Saving…' : 'Save Changes'}
+                              {isSubmitting ? 'Saving…' : statusOnlyEdit ? 'Save Status' : 'Save Changes'}
                             </button>
                           </div>
                         </div>
@@ -2244,7 +2324,7 @@
                           </div>
 
                           <div class="pdr-footer">
-                            <button class="sub-action-btn" on:click={() => startInlineEdit(p)}>Edit</button>
+                            <button class="sub-action-btn" on:click={() => startInlineEdit(p)}>{isStatusOnlyEditableProject(p) ? 'Update Status' : 'Edit'}</button>
                           </div>
                         </div>
                       {/if}
@@ -2565,7 +2645,7 @@
                               <!-- Root comment row -->
                               <div class="feedback-card">
                                 <div class="feedback-card-top">
-                                  <span class="fb-role-badge" class:fb-badge-sup={thread.commenter_role === 'Supervisor'}>{thread.commenter_role || 'Intern'}</span>
+                                  <span class="fb-role-badge" class:fb-badge-sup={isFeedbackSupervisor(thread)}>{getFeedbackAuthorName(thread)}</span>
                                   <div style="flex:1"></div>
                                   {#if thread.commenter_id === (currentUser?.user_id || getCurrentUser()?.user_id)}
                                     <button
@@ -2603,7 +2683,7 @@
                               {#each feedbackChildren(p.id, thread.feedback_id) as c1}
                                 <div class="feedback-reply" style="margin-left:1.1rem">
                                   <div class="feedback-card-top">
-                                    <span class="fb-role-badge" class:fb-badge-sup={c1.commenter_role === 'Supervisor'}>{c1.commenter_role || 'Intern'}</span>
+                                    <span class="fb-role-badge" class:fb-badge-sup={isFeedbackSupervisor(c1)}>{getFeedbackAuthorName(c1)}</span>
                                     <div style="flex:1"></div>
                                     {#if c1.commenter_id === (currentUser?.user_id || getCurrentUser()?.user_id)}
                                       <button
@@ -2640,7 +2720,7 @@
                                   {#each feedbackChildren(p.id, c1.feedback_id) as c2}
                                     <div class="feedback-reply" style="margin-left:1.1rem">
                                       <div class="feedback-card-top">
-                                        <span class="fb-role-badge" class:fb-badge-sup={c2.commenter_role === 'Supervisor'}>{c2.commenter_role || 'Intern'}</span>
+                                        <span class="fb-role-badge" class:fb-badge-sup={isFeedbackSupervisor(c2)}>{getFeedbackAuthorName(c2)}</span>
                                         <div style="flex:1"></div>
                                         {#if c2.commenter_id === (currentUser?.user_id || getCurrentUser()?.user_id)}
                                           <button
@@ -2677,7 +2757,7 @@
                                       {#each feedbackChildren(p.id, c2.feedback_id) as c3}
                                         <div class="feedback-reply" style="margin-left:1.1rem">
                                           <div class="feedback-card-top">
-                                            <span class="fb-role-badge" class:fb-badge-sup={c3.commenter_role === 'Supervisor'}>{c3.commenter_role || 'Intern'}</span>
+                                            <span class="fb-role-badge" class:fb-badge-sup={isFeedbackSupervisor(c3)}>{getFeedbackAuthorName(c3)}</span>
                                             <div style="flex:1"></div>
                                             {#if c3.commenter_id === (currentUser?.user_id || getCurrentUser()?.user_id)}
                                               <button
@@ -3136,8 +3216,14 @@
     background: #fef2f2; border: 1px solid #fecaca;
     color: #dc2626; font-size: 13px;
   }
+  .alert-info {
+    padding: 10px 14px; border-radius: 8px;
+    background: #eff6ff; border: 1px solid #bfdbfe;
+    color: #1d4ed8; font-size: 13px;
+  }
   :global(body.dark) .alert-success { background: #052e16; border-color: #166534; color: #4ade80; }
   :global(body.dark) .alert-error   { background: #2d0a0a; border-color: #7f1d1d; color: #f87171; }
+  :global(body.dark) .alert-info    { background: rgba(29, 78, 216, 0.18); border-color: rgba(96, 165, 250, 0.4); color: #bfdbfe; }
 
 
   
@@ -3607,6 +3693,18 @@
     transition: border-color 0.15s;
   }
   .ief-input:focus { outline: none; border-color: #3b82f6; }
+  .ief-input:disabled,
+  .members-input.is-disabled {
+    opacity: 0.72;
+    cursor: not-allowed;
+    color: var(--color-sidebar-text);
+    background: color-mix(in srgb, var(--color-surface-muted) 92%, white 8%);
+  }
+  :global(body.dark) .ief-input:disabled,
+  :global(body.dark) .members-input.is-disabled {
+    background: #0f172a;
+    color: #94a3b8;
+  }
   .ief-textarea { resize: vertical; min-height: 72px; }
   .ief-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
   .ief-actions { display: flex; justify-content: flex-end; gap: 0.5rem; padding-top: 0.25rem; }
@@ -4049,6 +4147,7 @@
   /* Members input styling to match other form controls */
   .members-input { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:8px 10px; border-radius:7px; border:1px solid var(--color-border); background:var(--color-surface-muted); color:var(--color-text); font-size:13px; cursor:pointer; }
   .members-input:focus { outline: none; border-color: #2563eb; }
+  .members-input.is-disabled:hover { border-color: var(--color-border); }
   .members-input .muted { font-size:13px; color:var(--color-sidebar-text); font-weight:500; }
   .members-panel { margin-top:8px; padding:10px; border-radius:8px; border:1px solid var(--color-border); background:var(--color-surface); }
   .members-select { display:flex; flex-direction:column; gap:8px; }
