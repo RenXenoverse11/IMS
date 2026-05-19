@@ -2036,7 +2036,7 @@
         <div class="modal-body">
           <div class="confirmation-content">
             <p>Are you sure you want to delete the folder <strong>"{folderName}"</strong>?</p>
-            <p class="warning-text">All documents in this folder will be moved to the root "All Documents" location. This action cannot be undone.</p>
+            <p class="warning-text">All documents in this folder will be moved to the root "All Documents" location. This action cannot be undone. The folder will be permanently deleted.</p>
           </div>
         </div>
 
@@ -2067,7 +2067,7 @@
         <div class="modal-body">
           <div class="confirmation-content">
             <p>Are you sure you want to delete <strong>"{documentToDelete.name}"</strong>?</p>
-            <p class="warning-text">This action cannot be undone. The document will be permanently removed.</p>
+            <p class="warning-text">This document will be permanently deleted. This action cannot be undone.</p>
           </div>
         </div>
 

@@ -1138,16 +1138,14 @@
     }
   }
 
-  $: totalRequests = requests.filter(
-    (request) => String(request?.status || "").toLowerCase() !== "archived",
-  ).length;
+  $: totalRequests = requests.length;
   $: pendingRequests = requests.filter(
     (request) => String(request?.status || "").toLowerCase() === "pending",
   ).length;
   $: resolvedRequests = requests.filter((request) => {
     const status = String(request?.status || "").toLowerCase();
-    // Include approved, rejected, and archived requests (archived = already resolved)
-    return status === "approved" || status === "rejected" || status === "archived";
+    // Only count active resolved requests (approved or rejected, but NOT archived)
+    return (status === "approved" || status === "rejected");
   }).length;
   $: archivedRequests = requests.filter(
     (request) => String(request?.status || "").toLowerCase() === "archived",
