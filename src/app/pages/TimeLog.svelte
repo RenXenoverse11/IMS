@@ -1,4 +1,4 @@
-<script>
+﻿<script>
   import { onMount, onDestroy, tick } from 'svelte';
   import {
     AlertCircle,
@@ -313,6 +313,12 @@
     return toLocalIsoDate(dateObj);
   }
 
+  function isApprovedAbsenceLoginError_(message) {
+    const text = String(message || '').trim().toLowerCase();
+    if (!text) return false;
+    return text.includes('absence request') || text.includes('login is not allowed');
+  }
+
   function normalizeTimeValue(value, fallback) {
     const to24HourString = (hours, minutes) => `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
     if (value instanceof Date && !Number.isNaN(value.getTime())) {
@@ -385,6 +391,29 @@
     }
   }
 
+  async function hasApprovedAbsenceRequestForDate_(userId, targetDate) {
+    const normalizedUserId = String(userId || '').trim();
+    const rawTargetDate = String(targetDate || '').trim();
+    if (!normalizedUserId || !rawTargetDate) return false;
+    const normalizedDate = normalizeDateOnly(rawTargetDate);
+
+    try {
+      const response = await authApi.callApiAction('list_requests_by_user', { user_id: normalizedUserId });
+      const requests = Array.isArray(response?.requests) ? response.requests : [];
+      return requests.some((request) => {
+        const requestType = String(request?.requestType || request?.request_type || '').trim().toLowerCase();
+        const requestStatus = String(request?.status || '').trim().toLowerCase();
+        const rawRequestDate = String(request?.date || request?.request_date || '').trim();
+        if (!rawRequestDate) return false;
+        const requestDate = normalizeDateOnly(rawRequestDate);
+        return requestType === 'absence' && requestStatus === 'approved' && requestDate === normalizedDate;
+      });
+    } catch (err) {
+      console.error('Error checking approved absence requests:', err);
+      return false;
+    }
+  }
+
   function syncRequiredHoursFromAccount() {
     const user = authApi.getCurrentUser();
     const studentHours = Number(user?.ojt?.total_ojt_hours || 0);
@@ -423,6 +452,14 @@
     }
     
     try {
+      const isBlockedByApprovedAbsence = await hasApprovedAbsenceRequestForDate_(user.user_id, date);
+      if (isBlockedByApprovedAbsence) {
+        logSyncError = `Login is not allowed on ${formatLongDate(date)} because your absence request for this date is approved.`;
+        isLoggedIn = false;
+        isLoggingIn = false;
+        return;
+      }
+
       const response = await authApi.callApiAction('start_session', {
         user_id: user.user_id,
         log_date: date,
@@ -1070,7 +1107,7 @@
     </div>
 
   {:else}
-    {#if logSyncError}
+    {#if logSyncError && !isApprovedAbsenceLoginError_(logSyncError)}
       <div class="tl-error-banner">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
         {logSyncError}
@@ -1182,9 +1219,12 @@
             Log In
           {/if}
         </button>
+        {#if isApprovedAbsenceLoginError_(logSyncError)}
+          <div class="tl-login-inline-error">{logSyncError}</div>
+        {/if}
         {#if isLoggedIn}
           <div class="tl-status-pill tl-status-success">
-            <span class="tl-status-dot"></span> Logged in — proceed to Log Out
+            <span class="tl-status-dot"></span> Logged in â€” proceed to Log Out
           </div>
         {/if}
       </div>
@@ -1234,7 +1274,7 @@
 
         {#if !isLoggedIn}
           <div class="tl-status-pill tl-status-amber">
-            <span class="tl-status-dot"></span> Not logged in — use Time In first
+            <span class="tl-status-dot"></span> Not logged in â€” use Time In first
           </div>
         {/if}
       </div>
@@ -1296,9 +1336,9 @@
                 <td class="tl-td-primary">{formatTableDate(entry.date)}</td>
                 <td><span class="tl-tag tl-tag-blue">TIME ENTRY</span></td>
                 <td class="tl-mono">{entry.timeIn}</td>
-                <td class="tl-mono">{entry.timeOut || '—'}</td>
+                <td class="tl-mono">{entry.timeOut || 'â€”'}</td>
                 <td class="tl-mono tl-hours-val">{formatHours(entry.hours)}h</td>
-                <td class="tl-mono tl-created-val">{entry.createdAt || '—'}</td>
+                <td class="tl-mono tl-created-val">{entry.createdAt || 'â€”'}</td>
                 <td>
                   <span class="tl-tag tl-tag-green">
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
@@ -1389,14 +1429,14 @@
       <div class="tl-modal" role="dialog" aria-modal="true" aria-labelledby="tl-modal-title">
         <div class="tl-modal-header">
           <h2 id="tl-modal-title" class="tl-modal-title">Confirm Delete</h2>
-          <button class="tl-modal-close" on:click={cancelDelete} aria-label="Close">✖</button>
+          <button class="tl-modal-close" on:click={cancelDelete} aria-label="Close">âœ–</button>
         </div>
         <div class="tl-modal-body">
           <p class="tl-modal-msg">Are you sure you want to delete this time entry?</p>
           <div class="tl-modal-preview">
             <div class="tl-preview-row"><span class="tl-preview-label">Date</span><span class="tl-preview-val">{formatTableDate(deleteConfirmEntry.date)}</span></div>
             <div class="tl-preview-row"><span class="tl-preview-label">Time In</span><span class="tl-preview-val">{deleteConfirmEntry.timeIn}</span></div>
-            <div class="tl-preview-row"><span class="tl-preview-label">Time Out</span><span class="tl-preview-val">{deleteConfirmEntry.timeOut || '—'}</span></div>
+            <div class="tl-preview-row"><span class="tl-preview-label">Time Out</span><span class="tl-preview-val">{deleteConfirmEntry.timeOut || 'â€”'}</span></div>
             <div class="tl-preview-row"><span class="tl-preview-label">Hours</span><span class="tl-preview-val tl-preview-bold">{formatHours(deleteConfirmEntry.hours)}h</span></div>
           </div>
           <p class="tl-modal-warning">This action cannot be undone.</p>
@@ -1486,6 +1526,18 @@
     border-radius: var(--tl-radius-sm);
     font-size: 13px;
     color: var(--tl-red);
+    font-weight: 500;
+  }
+
+  .tl-login-inline-error {
+    margin-top: 8px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(220, 38, 38, 0.35);
+    background: rgba(239, 68, 68, 0.12);
+    color: #fecaca;
+    font-size: 12px;
+    line-height: 1.35;
     font-weight: 500;
   }
 
@@ -2310,3 +2362,5 @@
     }
   }
 </style>
+
+

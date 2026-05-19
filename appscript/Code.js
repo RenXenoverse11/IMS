@@ -1144,6 +1144,13 @@ function handleCreateTimeLog_(payload) {
     return { ok: false, error: 'Please verify your email before creating a time log.' };
   }
 
+  if (hasApprovedAbsenceRequestForDate_(userId, logDate)) {
+    return {
+      ok: false,
+      error: 'Login is not allowed on ' + logDate + ' because your absence request for this date is approved.'
+    };
+  }
+
   var sheet = getTimeLogsSheet_();
   var headers = getHeaders_(sheet);
   var values = getSheetValues_(sheet);
@@ -1349,6 +1356,13 @@ function handleStartSession_(payload) {
 
     if (!isEmailVerifiedValue_(userRecord.user.email_verified, userRecord.user)) {
       return { ok: false, error: 'Please verify your email before creating a time log.' };
+    }
+
+    if (hasApprovedAbsenceRequestForDate_(userId, logDate)) {
+      return {
+        ok: false,
+        error: 'Login is not allowed on ' + logDate + ' because your absence request for this date is approved.'
+      };
     }
 
     // Check if user already has active session for this date
@@ -3386,6 +3400,43 @@ function checkAbsenceOnWeekend_(requestDate) {
   }
 
   return '';
+}
+
+function hasApprovedAbsenceRequestForDate_(userId, targetDate) {
+  var normalizedUserId = String(userId || '').trim();
+  var normalizedDate = formatDateValue_(targetDate);
+  if (!normalizedUserId || !normalizedDate) {
+    return false;
+  }
+
+  var sheet = getRequestsSheet_();
+  var rows = readSheetObjects_(sheet);
+
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i] || {};
+    if (String(row.user_id || '').trim() !== normalizedUserId) {
+      continue;
+    }
+
+    var requestType = String(row.request_type || '').trim().toLowerCase();
+    if (requestType !== 'absence') {
+      continue;
+    }
+
+    var statusLower = String(row.status || '').trim().toLowerCase();
+    var archivedPreviousStatusLower = String(row.archived_previous_status || '').trim().toLowerCase();
+    var isApprovedAbsence = statusLower === 'approved' || (statusLower === 'archived' && archivedPreviousStatusLower === 'approved');
+    if (!isApprovedAbsence) {
+      continue;
+    }
+
+    var requestDate = formatDateValue_(row.request_date);
+    if (requestDate === normalizedDate) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function findSupervisorsForStudent_(studentUserId) {
