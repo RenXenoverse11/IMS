@@ -252,6 +252,34 @@
     return String(activeUser.user_id || activeUser.id || activeUser.UserId || activeUser.userId || '').trim();
   }
 
+  function normalizeRoleLabel(value) {
+    const raw = String(value || '').trim();
+    const lower = raw.toLowerCase();
+    if (lower === 'supervisor' || lower === 'mentor') return 'Supervisor';
+    if (lower === 'student' || lower === 'intern' || lower === 'ojt') return 'Student';
+    return raw;
+  }
+
+  function isSupervisorCreatedProject(project) {
+    const explicitFlag = project?.creator_is_supervisor;
+    if (explicitFlag === true || String(explicitFlag || '').trim().toLowerCase() === 'true') {
+      return true;
+    }
+
+    const creatorRole = normalizeRoleLabel(project?.created_by_role || project?.creator_role || '');
+    if (creatorRole) return creatorRole === 'Supervisor';
+
+    const creatorId = String(project?.created_by || '').trim();
+    if (!creatorId) return false;
+    const creator = (Array.isArray(users) ? users : []).find((user) => getUserId(user) === creatorId);
+    return normalizeRoleLabel(creator?.role || creator?.Role || '') === 'Supervisor';
+  }
+
+  function isStatusOnlyEditableProject(project) {
+    const creatorId = String(project?.created_by || '').trim();
+    return Boolean(project && creatorId && creatorId !== getCurrentUserId() && isSupervisorCreatedProject(project));
+  }
+
   function inferSingleDepartmentFromUsers(list) {
     const departments = new Set(
       (Array.isArray(list) ? list : [])
@@ -353,6 +381,7 @@
 
       if (projectsRes?.ok) {
         projects = (projectsRes.projects || []).map(normalizeProject);
+        overviewActivityLoaded = false;
       }
 
       // Folders and milestones are loaded lazily when a project is opened — ensure properties exist
@@ -393,6 +422,7 @@
   }
 
   function normalizeProject(p) {
+    const createdByRole = normalizeRoleLabel(p.created_by_role || p.creator_role || '');
     return {
       id:             p.proj_id      || '',
       proj_id:        p.proj_id      || '',
@@ -407,6 +437,8 @@
       deadline:       p.end_date     || '',
       created_at:     p.created_at   || '',
       created_by:     p.created_by   || '',
+      created_by_role: createdByRole,
+      creator_is_supervisor: p.creator_is_supervisor === true || String(p.creator_is_supervisor || '').trim().toLowerCase() === 'true' || createdByRole === 'Supervisor',
       archived:       canonicalStatusLabel(p.status || '').toLowerCase() === 'archived',
       folders:        null,           // null = not yet loaded; [] = loaded and empty
       progress_logs:  [],
@@ -474,6 +506,7 @@
         projects = [newProject, ...projects];
         formSuccess = 'Project added successfully!';
       }
+      void refreshOverviewActivity();
       setTimeout(() => { formSuccess = ''; }, 3000);
       resetForm();
       closeAddProjectModal();
@@ -511,29 +544,37 @@
   }
 
   async function saveInlineEdit(p) {
-    if (!String(inlineForm.title || '').trim()) { formError = 'Project title is required.'; return; }
+    const statusOnlyEdit = isStatusOnlyEditableProject(p);
+    if (!statusOnlyEdit && !String(inlineForm.title || '').trim()) { formError = 'Project title is required.'; return; }
     formError = '';
     isSubmitting = true;
     const uid = getCurrentUserId();
+    const nextStatus = canonicalStatusLabel(inlineForm.status || p.status || 'Not Started');
     try {
-      const res = await dispatchAction('update_proj_intern', {
+      const payload = {
         proj_id:     p.id,
         user_id:     uid,
-        proj_name:   inlineForm.title,
-        description: inlineForm.description,
-        priority:    inlineForm.priority_level,
-        status:      inlineForm.status,
-        members:     inlineForm.members,
-        supervisor:  inlineForm.supervisor,
-        start_date:  inlineForm.timeline_start,
-        end_date:    inlineForm.timeline_end
-      });
+        status:      nextStatus
+      };
+      if (!statusOnlyEdit) {
+        payload.proj_name = inlineForm.title;
+        payload.description = inlineForm.description;
+        payload.priority = inlineForm.priority_level;
+        payload.members = inlineForm.members;
+        payload.supervisor = inlineForm.supervisor;
+        payload.start_date = inlineForm.timeline_start;
+        payload.end_date = inlineForm.timeline_end;
+      }
+      const res = await dispatchAction('update_proj_intern', payload);
       if (!res?.ok) { formError = res?.error || 'Update failed.'; return; }
       projects = projects.map(proj => proj.id === p.id
-        ? { ...proj, title: inlineForm.title, description: inlineForm.description, priority_level: inlineForm.priority_level,
-            status: inlineForm.status, members: inlineForm.members, supervisors: inlineForm.supervisor,
-            timeline_start: inlineForm.timeline_start, timeline_end: inlineForm.timeline_end, deadline: inlineForm.timeline_end }
+        ? statusOnlyEdit
+          ? { ...proj, status: nextStatus }
+          : { ...proj, title: inlineForm.title, description: inlineForm.description, priority_level: inlineForm.priority_level,
+              status: nextStatus, members: inlineForm.members, supervisors: inlineForm.supervisor,
+              timeline_start: inlineForm.timeline_start, timeline_end: inlineForm.timeline_end, deadline: inlineForm.timeline_end }
         : proj);
+      void refreshOverviewActivity();
       cancelInlineEdit();
     } catch(e) {
       formError = e?.message || 'Update failed.';
@@ -588,6 +629,7 @@
       });
       if (!res?.ok) { formError = res?.error || 'Delete failed.'; closeDeleteModal(); return; }
       projects = projects.filter(p => p.id !== projectToDelete.id);
+      void refreshOverviewActivity();
       formSuccess = 'Project deleted.';
       setTimeout(() => { formSuccess = ''; }, 2500);
       closeDeleteModal();
@@ -981,6 +1023,7 @@
       newMilestoneLinkedFiles = { ...newMilestoneLinkedFiles, [projectId]: [] };
       newMilestoneFilePicker = { ...newMilestoneFilePicker, [projectId]: false };
       showAddMilestoneFor = { ...showAddMilestoneFor, [projectId]: false };
+      void refreshOverviewActivity();
       formSuccess = 'Milestone added.';
       setTimeout(() => { formSuccess = ''; }, 2000);
     } catch (e) {
@@ -1005,6 +1048,7 @@
     try {
       const res = await dispatchAction('delete_milestone', { milestone_id: milestoneId });
       if (!res?.ok) { formError = res?.error || 'Failed to delete milestone.'; return; }
+      void refreshOverviewActivity();
       formSuccess = 'Milestone deleted.';
       setTimeout(() => { formSuccess = ''; }, 1500);
     } catch (e) {
@@ -1049,6 +1093,7 @@
         localStorage.setItem(key, JSON.stringify(updated));
       } catch (e) {}
       editingMilestoneId = null;
+      void refreshOverviewActivity();
       formSuccess = 'Milestone updated.';
       setTimeout(() => { formSuccess = ''; }, 1500);
     } catch (e) {
@@ -1068,6 +1113,7 @@
       // update local state immediately and then reload for consistency
       projects = projects.map(p => p.id === projectId ? { ...p, milestones: (p.milestones || []).map(mm => mm.id === milestoneId ? { ...mm, status: canonicalStatusLabel(newStatus || 'Not Started'), done: (canonicalStatusLabel(newStatus || '') === 'Completed' || Boolean(mm.done)) } : mm) } : p);
       try { await loadProjectMilestones(projectId); } catch (e) { /* fallback */ }
+      void refreshOverviewActivity();
       formSuccess = 'Status updated.';
       setTimeout(() => { formSuccess = ''; }, 1200);
     } catch (e) {
@@ -1104,6 +1150,31 @@
     return list.filter(f => String(f.parent_id || '') === String(parentId || ''));
   }
 
+  function isFeedbackSupervisor(feedback) {
+    return normalizeRoleLabel(feedback?.commenter_role || '') === 'Supervisor';
+  }
+
+  function getFeedbackAuthorName(feedback) {
+    const explicitName = String(
+      feedback?.commenter_name ||
+      feedback?.commenter_full_name ||
+      feedback?.commenterName ||
+      ''
+    ).trim();
+    if (explicitName) return explicitName;
+
+    const commenterId = String(feedback?.commenter_id || '').trim();
+    if (!commenterId) return String(feedback?.commenter_role || 'Unknown').trim() || 'Unknown';
+
+    if (commenterId === getCurrentUserId()) {
+      const activeUser = currentUser || getCurrentUser() || {};
+      return getDisplayName(activeUser) || commenterId;
+    }
+
+    const foundUser = (Array.isArray(users) ? users : []).find((user) => getUserId(user) === commenterId);
+    return getDisplayName(foundUser) || String(feedback?.commenter_role || '').trim() || commenterId;
+  }
+
   async function submitFeedback(projectId) {
     const text = String(newFeedbackText[projectId] || '').trim();
     if (!text) return;
@@ -1116,6 +1187,7 @@
       if (!res?.ok) { formError = res?.error || 'Failed to post comment.'; return; }
       newFeedbackText = { ...newFeedbackText, [projectId]: '' };
       await loadFeedback(projectId);
+      void refreshOverviewActivity();
     } catch (e) { formError = e?.message || 'Failed to post comment.'; }
     finally {
       postingFeedback = { ...postingFeedback, [projectId]: false };
@@ -1135,6 +1207,7 @@
       replyText    = { ...replyText,    [projectId]: '' };
       replyingTo   = { ...replyingTo,   [projectId]: null };
       await loadFeedback(projectId);
+      void refreshOverviewActivity();
     } catch (e) { formError = e?.message || 'Failed to post reply.'; }
     finally {
       postingReply = { ...postingReply, [projectId]: false };
@@ -1150,6 +1223,7 @@
       const res = await dispatchAction('delete_feedback', { feedback_id: feedbackId, user_id: uid });
       if (!res?.ok) { formError = res?.error || 'Delete failed.'; return; }
       await loadFeedback(projectId);
+      void refreshOverviewActivity();
     } catch (e) { formError = e?.message || 'Delete failed.'; }
     finally {
       deletingFeedback = { ...deletingFeedback, [feedbackKey]: false };
@@ -1494,6 +1568,7 @@
       if (!res?.ok) { formError = res?.error || 'Archive failed.'; return; }
       projects = projects.map(item => item.id === p.id ? { ...item, archived: true, status: 'Archived' } : item);
       viewingProjectId = null;
+      void refreshOverviewActivity();
       formSuccess = 'Project archived.';
       setTimeout(() => { formSuccess = ''; }, 2000);
     } catch (e) {
@@ -1518,6 +1593,7 @@
       });
       if (!res?.ok) { formError = res?.error || 'Restore failed.'; return; }
       projects = projects.map(item => item.id === p.id ? { ...item, archived: false, status: canonicalStatusLabel(res.status || 'Not Started') } : item);
+      void refreshOverviewActivity();
       formSuccess = 'Project restored.';
       setTimeout(() => { formSuccess = ''; }, 2000);
     } catch (e) {
@@ -1537,12 +1613,17 @@
     loadBootstrap();
     unsubscribeAuth = subscribeToCurrentUser(u => { currentUser = u; loadBootstrap(); });
     document.addEventListener('mousedown', handleModalPointerDown);
+    document.addEventListener('visibilitychange', handleOverviewActivityWake);
+    window.addEventListener('focus', handleOverviewActivityWake);
     window.addEventListener('resize', handleResize);
   });
   onDestroy(() => {
     if (typeof unsubscribeAuth === 'function') unsubscribeAuth();
     document.removeEventListener('mousedown', handleModalPointerDown);
+    document.removeEventListener('visibilitychange', handleOverviewActivityWake);
+    window.removeEventListener('focus', handleOverviewActivityWake);
     window.removeEventListener('resize', handleResize);
+    stopOverviewActivityAutoRefresh();
   });
 
   // ── Derived ───────────────────────────────────────────────────────────────
@@ -1628,20 +1709,72 @@
   let overviewActivity     = [];
   let isLoadingActivity    = false;
   let overviewActivityLoaded = false;
+  let isRefreshingOverviewActivity = false;
+  let overviewActivityRefreshTimer = null;
+  const OVERVIEW_ACTIVITY_REFRESH_MS = 15000;
 
-  async function loadOverviewActivity() {
-    isLoadingActivity = true;
+  async function loadOverviewActivity(options = {}) {
+    const { silent = false } = options;
+    if (isRefreshingOverviewActivity) return;
+    const showLoader = !silent || !overviewActivityLoaded;
+    isRefreshingOverviewActivity = true;
+    if (showLoader) isLoadingActivity = true;
     try {
       const uid = getCurrentUserId();
-      if (!uid) return;
+      if (!uid) {
+        overviewActivity = [];
+        return;
+      }
       const res = await dispatchAction('get_proj_recent_activity', { user_id: uid });
-      if (res?.ok) overviewActivity = res.activities || [];
+      if (res?.ok) overviewActivity = Array.isArray(res.activities) ? res.activities : [];
     } catch(e) {
       console.warn('loadOverviewActivity error', e);
     } finally {
-      isLoadingActivity = false;
+      isRefreshingOverviewActivity = false;
+      if (showLoader) isLoadingActivity = false;
       overviewActivityLoaded = true;
     }
+  }
+
+  function canRefreshOverviewActivity() {
+    return activeView === 'Overview' && !isLoading && projects.length > 0;
+  }
+
+  function markOverviewActivityStale() {
+    overviewActivityLoaded = false;
+  }
+
+  async function refreshOverviewActivity(options = {}) {
+    const { silent = true } = options;
+    markOverviewActivityStale();
+    if (!projects.length) {
+      overviewActivity = [];
+      overviewActivityLoaded = true;
+      return;
+    }
+    if (!canRefreshOverviewActivity()) return;
+    await loadOverviewActivity({ silent });
+  }
+
+  function handleOverviewActivityWake() {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+    if (!canRefreshOverviewActivity()) return;
+    void loadOverviewActivity({ silent: true });
+  }
+
+  function startOverviewActivityAutoRefresh() {
+    if (overviewActivityRefreshTimer || typeof window === 'undefined') return;
+    overviewActivityRefreshTimer = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      if (!canRefreshOverviewActivity()) return;
+      void loadOverviewActivity({ silent: true });
+    }, OVERVIEW_ACTIVITY_REFRESH_MS);
+  }
+
+  function stopOverviewActivityAutoRefresh() {
+    if (!overviewActivityRefreshTimer || typeof window === 'undefined') return;
+    window.clearInterval(overviewActivityRefreshTimer);
+    overviewActivityRefreshTimer = null;
   }
 
 
@@ -1649,6 +1782,14 @@
   // Auto-load activity when the user first opens Overview and projects are ready
   $: if (activeView === 'Overview' && !isLoading && projects.length > 0 && !overviewActivityLoaded && !isLoadingActivity) {
     loadOverviewActivity();
+  }
+  $: if (!isLoading && projects.length === 0 && (overviewActivity.length > 0 || !overviewActivityLoaded)) {
+    overviewActivity = [];
+    overviewActivityLoaded = true;
+  }
+  $: {
+    if (canRefreshOverviewActivity()) startOverviewActivityAutoRefresh();
+    else stopOverviewActivityAutoRefresh();
   }
 
   $: upcomingDeadlines = projects
@@ -1786,106 +1927,6 @@
         </div>
       {:else}
 
-        <!-- ── Overview: top 2-col grid ── -->
-        <div class="ov-top-grid">
-          <!-- Recent Activity -->
-          <section class="card ov-card ov-card-activity ov-card-tight">
-            <div class="ov-card-head">
-              <div class="ov-card-title">Recent Activity</div>
-              <button class="ov-refresh-btn" title="Refresh" on:click={loadOverviewActivity} disabled={isLoadingActivity}>
-                {#if isLoadingActivity}<Loader2 size={13} class="spin" />{:else}&#8635;{/if}
-              </button>
-            </div>
-            {#if isLoading}
-              <div class="ov-activity-feed">
-                {#each [1, 2, 3, 4] as _}
-                  <div class="ov-act-row">
-                    <div class="ov-skeleton shimmer" style="width: 28px; height: 28px; border-radius: 7px;"></div>
-                    <div class="ov-act-body">
-                      <div class="ov-skeleton shimmer" style="height: 12px; width: 70%;"></div>
-                      <div class="ov-skeleton shimmer" style="height: 11px; width: 45%;"></div>
-                    </div>
-                  </div>
-                {/each}
-              </div>
-            {:else if overviewActivity.length === 0}
-              <div class="ov-empty ov-empty-center">No recent activity found.</div>
-            {:else}
-              <div class="ov-activity-feed">
-                {#each overviewActivity as act}
-                  {@const proj = projects.find(p => p.proj_id === act.proj_id || p.id === act.proj_id)}
-                  <div class="ov-act-row">
-                    <div class="ov-act-icon {act.type === 'feedback' ? 'ov-act-icon-fb' : 'ov-act-icon-ms'}">
-                      {#if act.type === 'feedback'}
-                        <MessageSquare size={14} />
-                      {:else}
-                        <Flag size={14} />
-                      {/if}
-                    </div>
-                    <div class="ov-act-body">
-                      <div class="ov-act-text">
-                        {act.type === 'feedback' ? act.text : 'Milestone: ' + act.text}
-                      </div>
-                      <div class="ov-act-meta">
-                        {#if act.proj_name || proj}
-                          <span class="ov-act-proj">{act.proj_name || proj?.title || ''}</span>
-                        {/if}
-                        {#if act.created_at}
-                          <span class="ov-act-date">{humanizeTime(act.created_at)}</span>
-                        {/if}
-                      </div>
-                    </div>
-                  </div>
-                {/each}
-              </div>
-            {/if}
-          </section>
-
-          <!-- Upcoming Deadlines -->
-          <section class="card ov-card ov-card-tight">
-            <div class="ov-card-head">
-              <div class="ov-card-title">Upcoming Deadlines</div>
-            </div>
-            {#if isLoading}
-              <div class="ov-skeleton-list">
-                {#each [1, 2, 3] as _}
-                  <div class="ov-skeleton-deadline-row">
-                    <div class="ov-skeleton shimmer" style="width: 10px; height: 10px; border-radius: 999px;"></div>
-                    <div class="ov-skeleton-deadline-info">
-                      <div class="ov-skeleton shimmer" style="height: 12px; width: 150px;"></div>
-                      <div class="ov-skeleton shimmer" style="height: 11px; width: 110px;"></div>
-                    </div>
-                    <div class="ov-skeleton shimmer" style="height: 20px; width: 76px; border-radius: 999px;"></div>
-                  </div>
-                {/each}
-              </div>
-            {:else if upcomingDeadlines.length === 0}
-              <div class="ov-empty">No upcoming deadlines.</div>
-            {:else}
-              <div class="ov-deadline-list">
-                {#each upcomingDeadlines as p}
-                  {@const past = isDeadlinePast(p.timeline_end)}
-                  {@const near = isDeadlineNear(p.timeline_end)}
-                  {@const sm   = STATUS_META[p.status] || STATUS_META['Not Started']}
-                  <div class="ov-deadline-row">
-                    <div class="ov-deadline-icon" class:ov-deadline-icon-past={past} class:ov-deadline-icon-near={near && !past}>
-                      <CalendarDays size={13} />
-                    </div>
-                    <div class="ov-deadline-body">
-                      <div class="ov-deadline-name">{p.title}</div>
-                      <div class="ov-deadline-date" class:ov-date-past={past} class:ov-date-near={near && !past}>
-                        <CalendarDays size={11} /> {formatDate(p.timeline_end)}
-                      </div>
-                    </div>
-                    <span class={"proj-status-pill " + sm.cls}>{sm.label}</span>
-                  </div>
-                {/each}
-              </div>
-            {/if}
-          </section>
-        </div>
-
-        <!-- ── Project Snippets ── -->
         <section class="card ov-card">
           <div class="ov-card-head">
             <div class="ov-card-title">Your Projects</div>
@@ -1983,6 +2024,105 @@
             </div>
           {/if}
         </section>
+
+        <!-- ── Overview: top 2-col grid ── -->
+        <div class="ov-top-grid">
+          <!-- Recent Activity -->
+          <section class="card ov-card ov-card-activity ov-card-tight">
+            <div class="ov-card-head">
+              <div class="ov-card-title">Recent Activity</div>
+              <button class="ov-refresh-btn" title="Refresh" on:click={loadOverviewActivity} disabled={isLoadingActivity}>
+                {#if isLoadingActivity}<Loader2 size={13} class="spin" />{:else}&#8635;{/if}
+              </button>
+            </div>
+            {#if isLoading}
+              <div class="ov-activity-feed">
+                {#each [1, 2, 3, 4] as _}
+                  <div class="ov-act-row">
+                    <div class="ov-skeleton shimmer" style="width: 28px; height: 28px; border-radius: 7px;"></div>
+                    <div class="ov-act-body">
+                      <div class="ov-skeleton shimmer" style="height: 12px; width: 70%;"></div>
+                      <div class="ov-skeleton shimmer" style="height: 11px; width: 45%;"></div>
+                    </div>
+                  </div>
+                {/each}
+              </div>
+            {:else if overviewActivity.length === 0}
+              <div class="ov-empty ov-empty-center">No recent activity found.</div>
+            {:else}
+              <div class="ov-activity-feed">
+                {#each overviewActivity as act}
+                  {@const proj = projects.find(p => p.proj_id === act.proj_id || p.id === act.proj_id)}
+                  <div class="ov-act-row">
+                    <div class="ov-act-icon {act.type === 'feedback' ? 'ov-act-icon-fb' : act.type === 'project' ? 'ov-act-icon-project' : 'ov-act-icon-ms'}">
+                      {#if act.type === 'feedback'}
+                        <MessageSquare size={14} />
+                      {:else if act.type === 'project'}
+                        <FolderOpen size={14} />
+                      {:else}
+                        <Flag size={14} />
+                      {/if}
+                    </div>
+                    <div class="ov-act-body">
+                      <div class="ov-act-text">{act.text}</div>
+                      <div class="ov-act-meta">
+                        {#if act.proj_name || proj}
+                          <span class="ov-act-proj">{act.proj_name || proj?.title || ''}</span>
+                        {/if}
+                        {#if act.created_at}
+                          <span class="ov-act-date">{humanizeTime(act.created_at)}</span>
+                        {/if}
+                      </div>
+                    </div>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+          </section>
+
+          <!-- Upcoming Deadlines -->
+          <section class="card ov-card ov-card-tight">
+            <div class="ov-card-head">
+              <div class="ov-card-title">Upcoming Deadlines</div>
+            </div>
+            {#if isLoading}
+              <div class="ov-skeleton-list">
+                {#each [1, 2, 3] as _}
+                  <div class="ov-skeleton-deadline-row">
+                    <div class="ov-skeleton shimmer" style="width: 10px; height: 10px; border-radius: 999px;"></div>
+                    <div class="ov-skeleton-deadline-info">
+                      <div class="ov-skeleton shimmer" style="height: 12px; width: 150px;"></div>
+                      <div class="ov-skeleton shimmer" style="height: 11px; width: 110px;"></div>
+                    </div>
+                    <div class="ov-skeleton shimmer" style="height: 20px; width: 76px; border-radius: 999px;"></div>
+                  </div>
+                {/each}
+              </div>
+            {:else if upcomingDeadlines.length === 0}
+              <div class="ov-empty">No upcoming deadlines.</div>
+            {:else}
+              <div class="ov-deadline-list">
+                {#each upcomingDeadlines as p}
+                  {@const past = isDeadlinePast(p.timeline_end)}
+                  {@const near = isDeadlineNear(p.timeline_end)}
+                  {@const sm   = STATUS_META[p.status] || STATUS_META['Not Started']}
+                  <div class="ov-deadline-row">
+                    <div class="ov-deadline-icon" class:ov-deadline-icon-past={past} class:ov-deadline-icon-near={near && !past}>
+                      <CalendarDays size={13} />
+                    </div>
+                    <div class="ov-deadline-body">
+                      <div class="ov-deadline-name">{p.title}</div>
+                      <div class="ov-deadline-date" class:ov-date-past={past} class:ov-date-near={near && !past}>
+                        <CalendarDays size={11} /> {formatDate(p.timeline_end)}
+                      </div>
+                    </div>
+                    <span class={"proj-status-pill " + sm.cls}>{sm.label}</span>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+          </section>
+        </div>
       {/if}
     {:else if activeView === 'Projects'}
       <section class="proj-table-panel">
@@ -2059,26 +2199,38 @@
                       <div class="proj-detail-body">
                     {#if viewingProjectTab === 'Details'}
                       {#if inlineEditId === p.id}
+                        {@const statusOnlyEdit = isStatusOnlyEditableProject(p)}
                         <!-- ── Inline Edit Form ───────────────────────── -->
                         <div class="inline-edit-form">
+                          {#if statusOnlyEdit}
+                            <div class="alert-info">This project was created by your supervisor. Only the status can be updated from the intern view.</div>
+                          {/if}
                           <div class="ief-group">
-                            <label class="ief-label" for="ief-title-{p.id}">Project Title <span class="req">*</span></label>
-                            <input id="ief-title-{p.id}" type="text" class="ief-input" bind:value={inlineForm.title} maxlength="120" />
+                            <label class="ief-label" for="ief-title-{p.id}">Project Title {#if !statusOnlyEdit}<span class="req">*</span>{/if}</label>
+                            <input id="ief-title-{p.id}" type="text" class="ief-input" bind:value={inlineForm.title} maxlength="120" disabled={statusOnlyEdit} />
                           </div>
                           <div class="ief-group">
                             <label class="ief-label" for="ief-desc-{p.id}">Description</label>
-                            <textarea id="ief-desc-{p.id}" class="ief-input ief-textarea" bind:value={inlineForm.description} rows="3" maxlength="500"></textarea>
+                            <textarea id="ief-desc-{p.id}" class="ief-input ief-textarea" bind:value={inlineForm.description} rows="3" maxlength="500" disabled={statusOnlyEdit}></textarea>
                           </div>
                           <div class="ief-row-2">
                             <div class="ief-group">
                               <div class="ief-label">Members</div>
                               <!-- svelte-ignore a11y-click-events-have-key-events -->
                               <!-- svelte-ignore a11y-no-static-element-interactions -->
-                              <div class="members-input ief-input" on:click={() => showInlineMembersPanel = !showInlineMembersPanel}>
+                              <div
+                                class="members-input ief-input"
+                                class:is-disabled={statusOnlyEdit}
+                                on:click={() => {
+                                  if (statusOnlyEdit) return;
+                                  showInlineMembersPanel = !showInlineMembersPanel;
+                                }}
+                                aria-disabled={statusOnlyEdit}
+                              >
                                 <div>{(inlineForm.members && inlineForm.members.length) ? inlineForm.members.map(id => MEMBER_OPTIONS.find(o => o.value === id)?.label || id).join(', ') : 'Select members'}</div>
                                 <div class="muted">{(inlineForm.members || []).length}</div>
                               </div>
-                              {#if showInlineMembersPanel}
+                              {#if showInlineMembersPanel && !statusOnlyEdit}
                                 <div class="members-panel" style="margin-top:6px">
                                   {#if usersLoading}
                                     <span class="muted" style="font-size:12px;padding:4px 8px">{assignmentEmptyMessage('intern')}</span>
@@ -2105,8 +2257,13 @@
                               <div class="ief-label">Supervisor</div>
                               <div
                                 class="members-input ief-input"
-                                on:click={() => showInlineSupervisorPanel = !showInlineSupervisorPanel}
+                                class:is-disabled={statusOnlyEdit}
+                                on:click={() => {
+                                  if (statusOnlyEdit) return;
+                                  showInlineSupervisorPanel = !showInlineSupervisorPanel;
+                                }}
                                 on:keydown={(event) => {
+                                  if (statusOnlyEdit) return;
                                   if (event.key === 'Enter' || event.key === ' ') {
                                     event.preventDefault();
                                     showInlineSupervisorPanel = !showInlineSupervisorPanel;
@@ -2114,11 +2271,12 @@
                                 }}
                                 role="button"
                                 tabindex="0"
+                                aria-disabled={statusOnlyEdit}
                               >
                                 <div>{(inlineForm.supervisor && inlineForm.supervisor.length) ? inlineForm.supervisor.map(id => SUPERVISOR_OPTIONS.find(o => o.value === id)?.label || id).join(', ') : 'Select supervisor(s)'}</div>
                                 <div class="muted">{(inlineForm.supervisor || []).length}</div>
                               </div>
-                              {#if showInlineSupervisorPanel}
+                              {#if showInlineSupervisorPanel && !statusOnlyEdit}
                                 <div class="members-panel" style="margin-top:6px">
                                   {#if usersLoading}
                                     <span class="muted" style="font-size:12px;padding:4px 8px">{assignmentEmptyMessage('supervisor')}</span>
@@ -2145,7 +2303,7 @@
                           <div class="ief-row-2">
                             <div class="ief-group">
                               <label class="ief-label" for="ief-pri-{p.id}">Priority Level</label>
-                              <select id="ief-pri-{p.id}" class="ief-input" bind:value={inlineForm.priority_level}>
+                              <select id="ief-pri-{p.id}" class="ief-input" bind:value={inlineForm.priority_level} disabled={statusOnlyEdit}>
                                 {#each PRIORITY_OPTIONS as opt}<option value={opt}>{opt}</option>{/each}
                               </select>
                             </div>
@@ -2159,11 +2317,11 @@
                           <div class="ief-row-2">
                             <div class="ief-group">
                               <label class="ief-label" for="ief-ts-{p.id}">Timeline (Start)</label>
-                              <input id="ief-ts-{p.id}" type="date" class="ief-input" bind:value={inlineForm.timeline_start} />
+                              <input id="ief-ts-{p.id}" type="date" class="ief-input" bind:value={inlineForm.timeline_start} disabled={statusOnlyEdit} />
                             </div>
                             <div class="ief-group">
                               <label class="ief-label" for="ief-te-{p.id}">Timeline (End)</label>
-                              <input id="ief-te-{p.id}" type="date" class="ief-input" bind:value={inlineForm.timeline_end} />
+                              <input id="ief-te-{p.id}" type="date" class="ief-input" bind:value={inlineForm.timeline_end} disabled={statusOnlyEdit} />
                             </div>
                           </div>
                           <!-- inline progress preview driven by status -->
@@ -2178,7 +2336,7 @@
                           <div class="ief-actions">
                             <button class="btn-secondary" on:click={cancelInlineEdit}>Cancel</button>
                             <button class="btn-submit" on:click={() => saveInlineEdit(p)} disabled={isSubmitting}>
-                              {isSubmitting ? 'Saving…' : 'Save Changes'}
+                              {isSubmitting ? 'Saving…' : statusOnlyEdit ? 'Save Status' : 'Save Changes'}
                             </button>
                           </div>
                         </div>
@@ -2244,7 +2402,7 @@
                           </div>
 
                           <div class="pdr-footer">
-                            <button class="sub-action-btn" on:click={() => startInlineEdit(p)}>Edit</button>
+                            <button class="sub-action-btn" on:click={() => startInlineEdit(p)}>{isStatusOnlyEditableProject(p) ? 'Update Status' : 'Edit'}</button>
                           </div>
                         </div>
                       {/if}
@@ -2565,7 +2723,7 @@
                               <!-- Root comment row -->
                               <div class="feedback-card">
                                 <div class="feedback-card-top">
-                                  <span class="fb-role-badge" class:fb-badge-sup={thread.commenter_role === 'Supervisor'}>{thread.commenter_role || 'Intern'}</span>
+                                  <span class="fb-role-badge" class:fb-badge-sup={isFeedbackSupervisor(thread)}>{getFeedbackAuthorName(thread)}</span>
                                   <div style="flex:1"></div>
                                   {#if thread.commenter_id === (currentUser?.user_id || getCurrentUser()?.user_id)}
                                     <button
@@ -2603,7 +2761,7 @@
                               {#each feedbackChildren(p.id, thread.feedback_id) as c1}
                                 <div class="feedback-reply" style="margin-left:1.1rem">
                                   <div class="feedback-card-top">
-                                    <span class="fb-role-badge" class:fb-badge-sup={c1.commenter_role === 'Supervisor'}>{c1.commenter_role || 'Intern'}</span>
+                                    <span class="fb-role-badge" class:fb-badge-sup={isFeedbackSupervisor(c1)}>{getFeedbackAuthorName(c1)}</span>
                                     <div style="flex:1"></div>
                                     {#if c1.commenter_id === (currentUser?.user_id || getCurrentUser()?.user_id)}
                                       <button
@@ -2640,7 +2798,7 @@
                                   {#each feedbackChildren(p.id, c1.feedback_id) as c2}
                                     <div class="feedback-reply" style="margin-left:1.1rem">
                                       <div class="feedback-card-top">
-                                        <span class="fb-role-badge" class:fb-badge-sup={c2.commenter_role === 'Supervisor'}>{c2.commenter_role || 'Intern'}</span>
+                                        <span class="fb-role-badge" class:fb-badge-sup={isFeedbackSupervisor(c2)}>{getFeedbackAuthorName(c2)}</span>
                                         <div style="flex:1"></div>
                                         {#if c2.commenter_id === (currentUser?.user_id || getCurrentUser()?.user_id)}
                                           <button
@@ -2677,7 +2835,7 @@
                                       {#each feedbackChildren(p.id, c2.feedback_id) as c3}
                                         <div class="feedback-reply" style="margin-left:1.1rem">
                                           <div class="feedback-card-top">
-                                            <span class="fb-role-badge" class:fb-badge-sup={c3.commenter_role === 'Supervisor'}>{c3.commenter_role || 'Intern'}</span>
+                                            <span class="fb-role-badge" class:fb-badge-sup={isFeedbackSupervisor(c3)}>{getFeedbackAuthorName(c3)}</span>
                                             <div style="flex:1"></div>
                                             {#if c3.commenter_id === (currentUser?.user_id || getCurrentUser()?.user_id)}
                                               <button
@@ -3136,8 +3294,14 @@
     background: #fef2f2; border: 1px solid #fecaca;
     color: #dc2626; font-size: 13px;
   }
+  .alert-info {
+    padding: 10px 14px; border-radius: 8px;
+    background: #eff6ff; border: 1px solid #bfdbfe;
+    color: #1d4ed8; font-size: 13px;
+  }
   :global(body.dark) .alert-success { background: #052e16; border-color: #166534; color: #4ade80; }
   :global(body.dark) .alert-error   { background: #2d0a0a; border-color: #7f1d1d; color: #f87171; }
+  :global(body.dark) .alert-info    { background: rgba(29, 78, 216, 0.18); border-color: rgba(96, 165, 250, 0.4); color: #bfdbfe; }
 
 
   
@@ -3607,6 +3771,18 @@
     transition: border-color 0.15s;
   }
   .ief-input:focus { outline: none; border-color: #3b82f6; }
+  .ief-input:disabled,
+  .members-input.is-disabled {
+    opacity: 0.72;
+    cursor: not-allowed;
+    color: var(--color-sidebar-text);
+    background: color-mix(in srgb, var(--color-surface-muted) 92%, white 8%);
+  }
+  :global(body.dark) .ief-input:disabled,
+  :global(body.dark) .members-input.is-disabled {
+    background: #0f172a;
+    color: #94a3b8;
+  }
   .ief-textarea { resize: vertical; min-height: 72px; }
   .ief-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
   .ief-actions { display: flex; justify-content: flex-end; gap: 0.5rem; padding-top: 0.25rem; }
@@ -4049,6 +4225,7 @@
   /* Members input styling to match other form controls */
   .members-input { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:8px 10px; border-radius:7px; border:1px solid var(--color-border); background:var(--color-surface-muted); color:var(--color-text); font-size:13px; cursor:pointer; }
   .members-input:focus { outline: none; border-color: #2563eb; }
+  .members-input.is-disabled:hover { border-color: var(--color-border); }
   .members-input .muted { font-size:13px; color:var(--color-sidebar-text); font-weight:500; }
   .members-panel { margin-top:8px; padding:10px; border-radius:8px; border:1px solid var(--color-border); background:var(--color-surface); }
   .members-select { display:flex; flex-direction:column; gap:8px; }
@@ -4412,6 +4589,7 @@
     display: grid; place-items: center; font-size: 0.95rem;
   }
   .ov-act-icon-fb { background: rgba(99,102,241,0.1); }
+  .ov-act-icon-project { background: rgba(37,99,235,0.12); }
   .ov-act-icon-ms { background: rgba(16,185,129,0.1); }
 
   .ov-act-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
