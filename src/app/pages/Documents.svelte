@@ -1317,6 +1317,31 @@
                   >
                     Cancel
                   </button>
+                {:else if documentFilter === 'folders' && showFolderBulkActions}
+                  <span class="selection-info">{selectedFolders.size} selected</span>
+                  <button 
+                    class="btn btn-secondary"
+                    on:click={toggleSelectAllFolders}
+                    title="Select/deselect all deletable folders"
+                  >
+                    {selectAllFoldersChecked ? 'Deselect All' : 'Select All'}
+                  </button>
+                  {#if selectedFolders.size > 0}
+                    <button 
+                      class="btn btn-ghost delete-bulk-btn"
+                      disabled={isDeleteFoldersProcessing}
+                      on:click={deleteBulkFolders}
+                    >
+                      <Trash2 size={14} />
+                      <span>Delete ({selectedFolders.size})</span>
+                    </button>
+                  {/if}
+                  <button 
+                    class="select-btn cancel-btn"
+                    on:click={toggleFolderBulkActions}
+                  >
+                    Cancel
+                  </button>
                 {:else}
                   <span class="docs-count">{documentFilter === 'folders' ? currentChildFolders.length : (isFolderOpen ? folderDocuments.length : filteredDocuments.length)} items</span>
                   <button class="btn btn-ghost" on:click={() => (showCreateFolderModal = true)}>
@@ -1333,25 +1358,6 @@
                   >
                     Select
                   </button>
-                  {#if documentFilter === 'folders' && showFolderBulkActions}
-                    <button 
-                      class="btn btn-secondary"
-                      on:click={toggleSelectAllFolders}
-                      title="Select/deselect all deletable folders"
-                    >
-                      {selectAllFoldersChecked ? 'Deselect All' : 'Select All'}
-                    </button>
-                  {/if}
-                  {#if documentFilter === 'folders' && showFolderBulkActions && selectedFolders.size > 0}
-                    <button 
-                      class="btn btn-danger"
-                      disabled={isDeleteFoldersProcessing}
-                      on:click={deleteBulkFolders}
-                    >
-                      <Trash2 size={14} />
-                      Delete ({selectedFolders.size})
-                    </button>
-                  {/if}
                 {/if}
               </div>
             </div>
@@ -1366,9 +1372,7 @@
                       <th>Name</th>
                       <th>Created By</th>
                       <th>Files</th>
-                      {#if showFolderBulkActions}
-                        <th class="col-actions">Actions</th>
-                      {/if}
+                      <th class="col-actions">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1414,132 +1418,29 @@
                         <td class="col-files">
                           <span class="files-count">{folderDocs.length}</span>
                         </td>
-                        {#if showFolderBulkActions}
-                          <td class="col-actions">
-                            {#if canDelete}
-                              <button 
-                                class="icon-btn delete-btn"
-                                title="Delete folder"
-                                on:click={(e) => {
-                                  e.stopPropagation();
-                                  folderToDelete = folder;
-                                  showDeleteFolderConfirm = true;
-                                }}
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            {:else}
-                              <span class="permission-denied" title="You don't have permission to delete this folder">
-                                🔒
-                              </span>
-                            {/if}
-                          </td>
-                        {/if}
+                        <td class="col-actions">
+                          {#if canDelete}
+                            <button 
+                              class="icon-btn delete-btn"
+                              title="Delete folder"
+                              on:click={(e) => {
+                                e.stopPropagation();
+                                folderToDelete = folder;
+                                showDeleteFolderConfirm = true;
+                              }}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          {:else}
+                            <span class="permission-denied" title="You don't have permission to delete this folder">
+                              🔒
+                            </span>
+                          {/if}
+                        </td>
                       </tr>
-                      {#if false && selectedFolderInTab === folderPath}
-                        <tr class="folder-details-row">
-                          <td colspan="3">
-                            {#if folderDocs.length > 0}
-                              <div class="folder-documents-container">
-                                <h4 class="folder-docs-title">Documents in "{folder}"</h4>
-                                <table class="folder-docs-table">
-                                  <thead>
-                                    <tr>
-                                      <th>Name</th>
-                                      <th>Uploaded By</th>
-                                      <th>Type</th>
-                                      <th>Size</th>
-                                      <th>Uploaded</th>
-                                      <th>Actions</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {#each folderDocs as doc (doc.id)}
-                                      <tr class="doc-row">
-                                        <td class="col-name">
-                                          <div class="file-info">
-                                            <div class="file-icon">
-                                              {#if doc.isLink}
-                                                <Link2 size={16} />
-                                              {:else}
-                                                <FileText size={16} />
-                                              {/if}
-                                            </div>
-                                            <button 
-                                              type="button" 
-                                              class="file-name-btn" 
-                                              title="Open document" 
-                                              on:click={(e) => {
-                                                e.stopPropagation();
-                                                openDocument(doc, e);
-                                              }}
-                                            >
-                                              <span class="file-name">{doc.name}</span>
-                                            </button>
-                                          </div>
-                                        </td>
-                                        <td class="col-creator">{doc.created_by || 'â€”'}</td>
-                                        <td class="col-type">
-                                          <span class="type-badge">{doc.isLink ? 'Link' : 'File'}</span>
-                                        </td>
-                                        <td class="col-size">{doc.size || 'â€”'}</td>
-                                        <td class="col-date">{formatDate(doc.uploadedDate || doc.created_date)}</td>
-                                        <td class="col-actions">
-                                          <div class="action-buttons">
-                                            <button 
-                                              class="icon-btn" 
-                                              title="Download" 
-                                              on:click={(e) => {
-                                                e.stopPropagation();
-                                                openDocument(doc, e);
-                                              }}
-                                            >
-                                              <Download size={14} />
-                                            </button>
-                                            {#if currentUser?.role === 'Supervisor' || currentUser?.user_id === doc.created_by}
-                                              <button 
-                                                class="icon-btn share-btn" 
-                                                title="Share" 
-                                                on:click={(e) => {
-                                                  e.stopPropagation();
-                                                  openShareModal(doc);
-                                                }}
-                                              >
-                                                <Share2 size={14} />
-                                              </button>
-                                              <button 
-                                                class="icon-btn delete-btn" 
-                                                title="Delete" 
-                                                on:click={(e) => {
-                                                  e.stopPropagation();
-                                                  openDeleteConfirm(doc);
-                                                }}
-                                              >
-                                                <Trash2 size={14} />
-                                              </button>
-                                            {/if}
-                                          </div>
-                                        </td>
-                                      </tr>
-                                    {/each}
-                                  </tbody>
-                                </table>
-                              </div>
-                            {:else}
-                              <div class="folder-empty-state">
-                                <FileText size={24} />
-                                <p>No documents in this folder</p>
-                              </div>
-                            {/if}
-                          </td>
-                        </tr>
-                      {/if}
                     {/each}
                   </tbody>
                 </table>
-                {#if currentChildFolders.length === 0}
-                  <p class="no-folders-message">No folders available</p>
-                {/if}
               </div>
             {/if}
 
@@ -2005,33 +1906,24 @@
               });
 
               if (!response?.ok) {
-                alert(response?.error || 'Unable to create folder.');
+                console.error('Folder creation failed:', response?.error);
+                showActionMessage_('Unable to create folder: ' + (response?.error || 'Unknown error'), 'error');
                 return;
               }
 
-              // Add the newly created folder to the local structure immediately
-              const createdPath = normalizeFolderPath_(response?.folder?.path || currentFolder + '/' + folderName);
-              
-              const newFolderObj = {
-                path: createdPath,
-                name: folderName,
-                createdBy: userId,
-                createdByName: displayName,
-              };
-              
-              // Add to subfolders array
-              folderStructure.root.subfolders = [...folderStructure.root.subfolders, newFolderObj];
+              // Reload folders from the database to ensure persistence
+              await loadInitialData_();
 
-              uploadToFolder = createdPath;
+              uploadToFolder = currentFolder !== '/' ? currentFolder : '/';
               documentFilter = 'folders';
               currentFolder = '/'; // Stay in root to show all folders
               selectedFolderInTab = null;
               newFolderName = '';
               showCreateFolderModal = false;
-              showActionMessage_('Folder created.');
+              showActionMessage_('Folder created and saved successfully.');
             } catch (err) {
               console.error('Create folder error:', err);
-              alert('Unable to create folder.');
+              showActionMessage_('Error creating folder: ' + (err?.message || 'Unknown error'), 'error');
             } finally {
               isCreatingFolder = false;
             }

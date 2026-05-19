@@ -5238,17 +5238,26 @@ function handleDeleteFolder_(payload) {
       return { ok: false, error: 'Missing user_id or folder_path.' };
     }
 
+    // Check if user is supervisor
+    var userRecord = findUserRecordByUserId_(userId);
+    var userRole = userRecord && userRecord.user ? String(userRecord.user.role || '') : '';
+    var isSupervisor = userRole === 'Supervisor';
+
     var sheet = getOrCreateSheetWithHeaders_(DOCUMENT_FOLDERS_SHEET_, DOCUMENT_FOLDERS_HEADERS_);
     var rows = readSheetObjects_(sheet);
     var normalizedPath = folderPath.toLowerCase();
     var folderIndex = -1;
     var canDelete = false;
     var folderCreatedBy = '';
+    var groupMemberIds = getGroupMemberIds_(userId);
 
     // Find the folder and check permissions
     for (var i = 0; i < rows.length; i++) {
       var row = rows[i];
-      if (String(row.user_id || '').trim() !== userId) {
+      var folderUserId = String(row.user_id || '').trim();
+      
+      // Check if folder belongs to user's group
+      if (groupMemberIds.indexOf(folderUserId) === -1) {
         continue;
       }
 
@@ -5257,11 +5266,8 @@ function handleDeleteFolder_(payload) {
         folderIndex = i;
         folderCreatedBy = String(row.created_by || '').trim();
         
-        // Check if user is supervisor or created the folder
-        var userRecord = findUserRecordByUserId_(userId);
-        var userRole = userRecord && userRecord.user ? String(userRecord.user.role || '') : '';
-        var isSupervisor = userRole === 'Supervisor';
-        
+        // Supervisors can delete any folder in their group
+        // Interns can only delete folders they created
         if (isSupervisor || folderCreatedBy === userId) {
           canDelete = true;
         }
@@ -5325,12 +5331,26 @@ function getFoldersByGroupMemberIds_(groupMemberIds) {
     }
     seen[key] = true;
     
+    // Determine creator display name: use created_by_name, fallback to id column, then created_by
+    var createdByName = String(row.created_by_name || '').trim();
+    if (!createdByName) {
+      // Try the id column (which may contain the display name)
+      createdByName = String(row.id || '').trim();
+    }
+    if (!createdByName) {
+      // Fallback to created_by field
+      createdByName = String(row.created_by || '').trim();
+    }
+    if (!createdByName) {
+      createdByName = '–';
+    }
+    
     // Return folder object with creator information
     folders.push({
       path: path,
       name: row.folder_name || '',
       created_by: row.created_by || '',
-      created_by_name: row.created_by_name || ''
+      created_by_name: createdByName
     });
   }
   return folders;
