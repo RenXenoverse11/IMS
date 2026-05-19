@@ -1,4 +1,4 @@
-function doGet() {
+﻿function doGet() {
   return HtmlService.createHtmlOutputFromFile('Index')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover')
     .setTitle('IMS')
@@ -288,7 +288,7 @@ function dispatchAction_(payload) {
     return handleChangePassword_(payload);
   }
 
-  // ── Projects Intern ─────────────────────────────────────────────────────
+  // â”€â”€ Projects Intern â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   if (action === 'list_proj_intern') {
     if (typeof handleListProjIntern_ === 'function') return handleListProjIntern_(payload);
     return { ok: false, error: 'Handler not available: handleListProjIntern_' };
@@ -334,7 +334,7 @@ function dispatchAction_(payload) {
     return { ok: false, error: 'Handler not available: handleGetProjUsersBootstrap_' };
   }
 
-  // ── Project Submissions & Folders ────────────────────────────────────────
+  // â”€â”€ Project Submissions & Folders â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   if (action === 'list_proj_submissions') {
     if (typeof handleListProjSubmissions_ === 'function') return handleListProjSubmissions_(payload);
     return { ok: false, error: 'Handler not available: handleListProjSubmissions_' };
@@ -1226,7 +1226,7 @@ function handleListTimeLogsByUser_(payload) {
   }
 
   try {
-    // Read from active_sessions — completed sessions have time_out filled
+    // Read from active_sessions â€” completed sessions have time_out filled
     var sheet = getActiveSessionsSheet_();
     var rows = readSheetObjects_(sheet).filter(function (row) {
       var rowUserId = String(serializeCellValue_(row.user_id) || '').trim();
@@ -5009,60 +5009,65 @@ function handleDeleteDocument_(payload) {
       return { ok: false, error: 'Documents sheet not found.' };
     }
 
-    // Get user record to check role
+    // Resolve requester role and group scope.
     var userRecord = findUserRecordByUserId_(userId);
-    var userRole = userRecord && userRecord.user ? String(userRecord.user.role || '') : '';
-    var isSupervisor = userRole === 'Supervisor';
+    var isSupervisor = Boolean(userRecord && userRecord.user && isSupervisorUser_(userRecord.user));
+    var groupMemberIds = getGroupMemberIds_(userId);
 
     var data = sheet.getDataRange().getValues();
-    Logger.log('=== DELETE DOCUMENT REQUEST ===');
-    Logger.log('Requested docId: [' + docId + ']');
-    Logger.log('Requested userId: [' + userId + ']');
-    Logger.log('User role: ' + userRole);
-    Logger.log('Total rows in sheet: ' + data.length);
-    
-    for (var i = 1; i < data.length; i++) {
-      var row = data[i];
-      var rowDocId = String(row[0] || '').trim();
-      var rowUserId = String(row[1] || '').trim();
-      var rowCreatedBy = String(row[10] || '').trim(); // created_by is typically in column 10
-      
-      Logger.log('Row ' + i + ': docId=[' + rowDocId + '], userId=[' + rowUserId + '], created_by=[' + rowCreatedBy + '], name=[' + String(row[2] || '') + ']');
-      
-      if (rowDocId === docId && rowUserId === userId) {
-        // Check permissions: Supervisor can delete any document, Interns can only delete their own
-        if (isSupervisor || rowCreatedBy === userId) {
-          sheet.deleteRow(i + 1);
-          Logger.log('✓ Document DELETED - Row: ' + (i + 1));
-          return { ok: true, message: 'Document deleted successfully.' };
-        } else {
-          Logger.log('✗ Permission denied - Document created by: ' + rowCreatedBy + ', Requester: ' + userId);
-          return { 
-            ok: false, 
-            error: 'You do not have permission to delete this document. Only supervisors and the document creator can delete it.' 
-          };
-        }
-      }
+    if (!data.length) {
+      return { ok: false, error: 'Documents sheet is empty.' };
     }
 
-    // If no exact match found, provide helpful error
-    Logger.log('✗ Document NOT FOUND - No matching docId and userId combination');
-    Logger.log('Available documents in sheet:');
+    var headerRow = data[0];
+    var idCol = -1;
+    var userIdCol = -1;
+    var createdByCol = -1;
+    for (var h = 0; h < headerRow.length; h++) {
+      var headerName = String(headerRow[h] || '').trim().toLowerCase();
+      if (headerName === 'id') idCol = h;
+      if (headerName === 'user_id') userIdCol = h;
+      if (headerName === 'created_by') createdByCol = h;
+    }
+
+    if (idCol === -1 || userIdCol === -1) {
+      return { ok: false, error: 'Documents sheet is missing required columns.' };
+    }
+
     for (var i = 1; i < data.length; i++) {
       var row = data[i];
-      Logger.log('  - docId: ' + String(row[0] || '') + ', userId: ' + String(row[1] || '') + ', created_by: ' + String(row[10] || '') + ', name: ' + String(row[2] || ''));
+      var rowDocId = String(row[idCol] || '').trim();
+      if (rowDocId !== docId) {
+        continue;
+      }
+
+      var rowOwnerId = String(row[userIdCol] || '').trim();
+      if (groupMemberIds.indexOf(rowOwnerId) === -1) {
+        return { ok: false, error: 'You do not have permission to delete this document.' };
+      }
+
+      var rowCreatedBy = createdByCol >= 0 ? String(row[createdByCol] || '').trim() : '';
+      var effectiveCreatorId = rowCreatedBy || rowOwnerId;
+      var canDelete = isSupervisor || effectiveCreatorId === userId || rowOwnerId === userId;
+      if (!canDelete) {
+        return {
+          ok: false,
+          error: 'You do not have permission to delete this document. Only supervisors and the document creator can delete it.'
+        };
+      }
+
+      sheet.deleteRow(i + 1);
+      return { ok: true, message: 'Document deleted successfully.' };
     }
-    
-    return { 
-      ok: false, 
-      error: 'Document not found. The document may have already been deleted or you may not have permission to delete it.' 
+
+    return {
+      ok: false,
+      error: 'Document not found. The document may have already been deleted or you may not have permission to delete it.'
     };
   } catch (err) {
-    Logger.log('ERROR deleting document: ' + err.message);
     return { ok: false, error: 'Server error: ' + err.message };
   }
 }
-
 function handleShareDocument_(payload) {
   try {
     var docId = String(payload.doc_id || '').trim();
@@ -5240,8 +5245,7 @@ function handleDeleteFolder_(payload) {
 
     // Check if user is supervisor
     var userRecord = findUserRecordByUserId_(userId);
-    var userRole = userRecord && userRecord.user ? String(userRecord.user.role || '') : '';
-    var isSupervisor = userRole === 'Supervisor';
+    var isSupervisor = Boolean(userRecord && userRecord.user && isSupervisorUser_(userRecord.user));
 
     var sheet = getOrCreateSheetWithHeaders_(DOCUMENT_FOLDERS_SHEET_, DOCUMENT_FOLDERS_HEADERS_);
     var rows = readSheetObjects_(sheet);
@@ -5264,7 +5268,7 @@ function handleDeleteFolder_(payload) {
       var existingPath = normalizeDocumentFolderPath_(row.path || '').toLowerCase();
       if (existingPath === normalizedPath) {
         folderIndex = i;
-        folderCreatedBy = String(row.created_by || '').trim();
+        folderCreatedBy = String(row.created_by || row.user_id || '').trim();
         
         // Supervisors can delete any folder in their group
         // Interns can only delete folders they created
@@ -5342,13 +5346,14 @@ function getFoldersByGroupMemberIds_(groupMemberIds) {
       createdByName = String(row.created_by || '').trim();
     }
     if (!createdByName) {
-      createdByName = '–';
+      createdByName = 'â€“';
     }
     
     // Return folder object with creator information
     folders.push({
       path: path,
       name: row.folder_name || '',
+      user_id: row.user_id || '',
       created_by: row.created_by || '',
       created_by_name: createdByName
     });
@@ -6234,7 +6239,7 @@ function sendDailyTimeLogRemindersLegacy_() {
       var body = "Hi " + (uRecord.full_name || 'Student') + ",\n\n" +
                  "This is a reminder that you have not logged your time out yet for today (" + todayISOStr + "). " +
                  "Please log out as soon as possible to keep your time records accurate.\n\n" +
-                 "— Internship Management System";
+                 "â€” Internship Management System";
       MailApp.sendEmail(uRecord.email, subject, body);
       activeEmailsSent++;
     }
@@ -6398,3 +6403,4 @@ function standardizeActAttachmentsSheet() {
     return { ok: false, error: err.message || String(err) };
   }
 }
+

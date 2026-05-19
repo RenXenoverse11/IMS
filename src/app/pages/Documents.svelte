@@ -84,16 +84,17 @@
   const AUTH_SESSION_STORAGE_KEY = 'ims-auth-session-user';
 
   $: filteredDocuments = documents.filter((doc) => {
+    const ownerId = getDocumentOwnerId_(doc);
     const matchesSearch = doc.name.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesFolder = currentFolder === '/' || doc.folder === currentFolder;
     
     // Apply document filter
     let matchesFilter = true;
     if (documentFilter === 'my') {
-      matchesFilter = doc.created_by === userId || doc.user_id === userId;
+      matchesFilter = ownerId === userId;
     } else if (documentFilter === 'shared') {
       const isSharedWithMe = Array.isArray(doc.sharedWith) && doc.sharedWith.some(s => s.email === currentUser?.email || s.id === userId);
-      matchesFilter = isSharedWithMe && doc.created_by !== userId;
+      matchesFilter = isSharedWithMe && ownerId !== userId;
     } else if (documentFilter === 'folders') {
       // When filtering by folders, show documents from the selected folder
       matchesFilter = selectedFolder ? doc.folder === selectedFolder : true;
@@ -127,6 +128,21 @@
   $: documentsInFolder = folderDocuments.length;
   $: currentFolderName = currentFolder === '/' ? '' : getFolderNameFromPath_(currentFolder);
   $: isFolderOpen = documentFilter === 'folders' && currentFolder !== '/';
+  $: deletableFilteredDocuments = filteredDocuments.filter((doc) => canDeleteDocument_(doc));
+  $: if (showBulkActions) {
+    const allowedIds = new Set(deletableFilteredDocuments.map((doc) => doc.id));
+    let changed = false;
+    for (const selectedId of Array.from(selectedDocuments)) {
+      if (!allowedIds.has(selectedId)) {
+        selectedDocuments.delete(selectedId);
+        changed = true;
+      }
+    }
+    if (changed) {
+      selectedDocuments = selectedDocuments;
+    }
+    updateSelectAllStatus();
+  }
 
   function normalizeFolderPath_(value) {
     const raw = String(value?.path || value || '').trim();
@@ -219,9 +235,20 @@
       access_level: accessLevel,
       sharedWith,
       shared_with: sharedWith,
-      created_by: String(doc.created_by || ''),
+      created_by: String(doc.created_by || doc.user_id || doc.userId || ''),
       created_date: String(doc.created_date || ''),
     };
+  }
+
+  function getDocumentOwnerId_(doc) {
+    const value = doc && typeof doc === 'object' ? doc : {};
+    return String(value.created_by || value.user_id || '').trim();
+  }
+
+  function canDeleteDocument_(doc) {
+    if (isSupervisor) return true;
+    const ownerId = getDocumentOwnerId_(doc);
+    return Boolean(ownerId) && ownerId === String(userId || '').trim();
   }
 
   function fileToBase64_(file) {
@@ -364,7 +391,8 @@
           return {
             path: normalizeFolderPath_(folder.path || folder.name),
             name: folder.name,
-            createdBy: folder.created_by || folder.createdBy || '',
+            ownerUserId: folder.user_id || folder.userId || '',
+            createdBy: folder.created_by || folder.createdBy || folder.user_id || folder.userId || '',
             createdByName: displayName,
           };
         });
@@ -404,7 +432,8 @@
             return {
               path: normalizeFolderPath_(folder.path || folder.name),
               name: folder.name,
-              createdBy: folder.created_by || folder.createdBy || '',
+              ownerUserId: folder.user_id || folder.userId || '',
+              createdBy: folder.created_by || folder.createdBy || folder.user_id || folder.userId || '',
               createdByName: displayName,
             };
           });
@@ -743,6 +772,10 @@
   }
 
   function openDeleteConfirm(doc) {
+    if (!canDeleteDocument_(doc)) {
+      showActionMessage_('You do not have permission to delete this document.', 'error');
+      return;
+    }
     documentToDelete = doc;
     showDeleteConfirm = true;
   }
@@ -756,6 +789,11 @@
   }
 
   function toggleDocumentSelection(doc) {
+    if (!canDeleteDocument_(doc)) {
+      showActionMessage_('You do not have permission to delete this document.', 'error');
+      return;
+    }
+
     if (selectedDocuments.has(doc.id)) {
       selectedDocuments.delete(doc.id);
     } else {
@@ -771,18 +809,18 @@
       selectedDocuments.clear();
       selectAllChecked = false;
     } else {
-      // Select all visible documents
-      filteredDocuments.forEach(doc => selectedDocuments.add(doc.id));
+      // Select all visible documents that the user can delete
+      deletableFilteredDocuments.forEach(doc => selectedDocuments.add(doc.id));
       selectAllChecked = true;
     }
     selectedDocuments = selectedDocuments; // trigger reactivity
   }
 
   function updateSelectAllStatus() {
-    if (filteredDocuments.length === 0) {
+    if (deletableFilteredDocuments.length === 0) {
       selectAllChecked = false;
     } else {
-      selectAllChecked = filteredDocuments.every(doc => selectedDocuments.has(doc.id));
+      selectAllChecked = deletableFilteredDocuments.every(doc => selectedDocuments.has(doc.id));
     }
   }
 
@@ -947,7 +985,7 @@
     }
     
     // Interns can only delete folders they created
-    const creatorId = typeof folder === 'string' ? '' : (folder.createdBy || '');
+    const creatorId = typeof folder === 'string' ? '' : (folder.createdBy || folder.ownerUserId || '');
     return creatorId === userId;
   }
 
@@ -1370,8 +1408,8 @@
                     <tr>
                       <th class="col-checkbox"></th>
                       <th>Name</th>
-                      <th>Created By</th>
-                      <th>Files</th>
+                      <th class="col-creator-header">Created By</th>
+                      <th class="col-files-header">Files</th>
                       <th class="col-actions">Actions</th>
                     </tr>
                   </thead>
@@ -1508,12 +1546,17 @@
                   </thead>
                   <tbody>
                     {#each filteredDocuments as doc (doc.id)}
+                      {@const canDeleteDoc = canDeleteDocument_(doc)}
                       <tr 
                         class="table-row" 
-                        class:row-selected={showBulkActions && selectedDocuments.has(doc.id)}
+                        class:row-selected={showBulkActions && canDeleteDoc && selectedDocuments.has(doc.id)}
                         on:click={() => {
                           if (showBulkActions) {
-                            toggleDocumentSelection(doc);
+                            if (canDeleteDoc) {
+                              toggleDocumentSelection(doc);
+                            } else {
+                              showActionMessage_('You do not have permission to delete this document.', 'error');
+                            }
                           } else {
                             openDocument(doc, null);
                           }
@@ -1524,6 +1567,7 @@
                             <input
                               type="checkbox"
                               checked={selectedDocuments.has(doc.id)}
+                              disabled={!canDeleteDoc}
                               on:change={() => toggleDocumentSelection(doc)}
                               on:click={(e) => e.stopPropagation()}
                               class="table-checkbox"
@@ -1583,7 +1627,7 @@
                                 <Download size={14} />
                               {/if}
                             </button>
-                            {#if currentUser?.role === 'Supervisor' || currentUser?.user_id === doc.created_by}
+                            {#if canDeleteDoc}
                               <button 
                                 class="icon-btn share-btn" 
                                 title="Share" 
@@ -4584,34 +4628,6 @@
     font-size: 12px;
   }
 
-  .folder-docs-table thead {
-    background: rgba(15, 108, 189, 0.15);
-  }
-
-  .folder-docs-table thead th {
-    padding: 10px 12px;
-    text-align: left;
-    font-size: 11px;
-    text-transform: uppercase;
-    color: #64748b;
-    letter-spacing: 0.04em;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  }
-
-  .folder-docs-table tbody tr.doc-row {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-    transition: background 0.2s ease;
-  }
-
-  .folder-docs-table tbody tr.doc-row:hover {
-    background: rgba(15, 108, 189, 0.08);
-  }
-
-  .folder-docs-table td {
-    padding: 10px 12px;
-    color: #cbd5e1;
-    vertical-align: middle;
-  }
 
   .folder-empty-state {
     padding: 2rem 1.5rem;
@@ -4623,10 +4639,6 @@
     gap: 0.75rem;
   }
 
-  .folder-empty-state p {
-    margin: 0;
-    font-size: 0.9rem;
-  }
 
   .recent-files-section {
     padding: 1.5rem;
@@ -5130,6 +5142,67 @@
     .icon-btn {
       width: 26px;
       height: 26px;
+    }
+
+    .folder-table-wrapper {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .folders-table {
+      width: 100%;
+      min-width: 0;
+      table-layout: fixed;
+    }
+
+    .folders-table thead th,
+    .folders-table td {
+      padding: 10px 8px;
+    }
+
+    .folders-table .col-checkbox {
+      width: 34px;
+      padding-left: 8px;
+      padding-right: 4px;
+    }
+
+    .folders-table .col-creator,
+    .folders-table .col-creator-header {
+      display: none;
+    }
+
+    .folders-table .col-files,
+    .folders-table .col-files-header {
+      width: 56px;
+      text-align: center;
+      padding-right: 12px;
+    }
+
+    .folders-table .col-actions {
+      width: 68px;
+      text-align: right;
+      padding-left: 10px;
+      padding-right: 8px;
+      border-left: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .folders-table .col-actions .icon-btn {
+      width: 30px;
+      height: 30px;
+    }
+
+    .folders-table th.col-actions {
+      padding-left: 10px;
+      border-left: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .folders-table .file-info {
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .folders-table .file-name {
+      max-width: 100%;
     }
 
     .file-name {
