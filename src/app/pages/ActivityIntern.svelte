@@ -591,6 +591,14 @@ let assignedTasksError = '';
 let archivingTaskMap = {};
 let restoringTaskMap = {};
 
+  function getTaskActionKey(taskOrTitle) {
+    if (taskOrTitle && typeof taskOrTitle === 'object') {
+      return String(taskOrTitle.id || taskOrTitle.title || '').trim();
+    }
+
+    return String(taskOrTitle || '').trim();
+  }
+
   const statusClassMap = {
     Pending: 'status-pending',
     'In Progress': 'status-progress',
@@ -1736,18 +1744,17 @@ let restoringTaskMap = {};
   }
 
   async function archiveTask(targetTitle) {
-    const taskKey = String(targetTitle || '').trim();
-    if (!taskKey || archivingTaskMap[taskKey]) {
-      return false;
-    }
     const taskToArchive = assignedTasks.find((task) => task.title === targetTitle);
 
     if (!taskToArchive) {
       return false;
     }
 
-    const previousAssignedTasks = assignedTasks;
-    const previousArchivedTasks = archivedTasks;
+    const taskKey = getTaskActionKey(taskToArchive);
+    if (!taskKey || archivingTaskMap[taskKey]) {
+      return false;
+    }
+
     const user = getCurrentUser();
     const archivedTask = {
       ...taskToArchive,
@@ -1756,13 +1763,6 @@ let restoringTaskMap = {};
     };
 
     archivingTaskMap = { ...archivingTaskMap, [taskKey]: true };
-
-    archivedTasks = [archivedTask, ...archivedTasks.filter((task) => task.title !== targetTitle)];
-    assignedTasks = assignedTasks.filter((task) => task.title !== targetTitle);
-
-    if (selectedOverviewTaskTitle === targetTitle) {
-      selectedOverviewTaskTitle = '';
-    }
 
     try {
       const result = await callSetActivityTaskArchiveStatus({
@@ -1777,13 +1777,19 @@ let restoringTaskMap = {};
       }
 
       const savedTask = mapCreatedTaskToUi(result.task, archivedTask);
-      archivedTasks = archivedTasks.map((task) =>
-        task.id === savedTask.id || task.title === targetTitle ? savedTask : task
+      assignedTasks = assignedTasks.filter(
+        (task) => getTaskActionKey(task) !== taskKey
       );
+      archivedTasks = [
+        savedTask,
+        ...archivedTasks.filter((task) => getTaskActionKey(task) !== taskKey),
+      ];
+
+      if (selectedOverviewTaskTitle === targetTitle) {
+        selectedOverviewTaskTitle = '';
+      }
       return true;
     } catch (error) {
-      assignedTasks = previousAssignedTasks;
-      archivedTasks = previousArchivedTasks;
       alert('Failed to archive task: ' + (error?.message || error));
       return false;
     } finally {
@@ -1793,18 +1799,17 @@ let restoringTaskMap = {};
   }
 
   async function restoreArchivedTask(targetTitle) {
-    const taskKey = String(targetTitle || '').trim();
-    if (!taskKey || restoringTaskMap[taskKey]) {
-      return;
-    }
     const taskToRestore = archivedTasks.find((task) => task.title === targetTitle);
 
     if (!taskToRestore) {
       return;
     }
 
-    const previousAssignedTasks = assignedTasks;
-    const previousArchivedTasks = archivedTasks;
+    const taskKey = getTaskActionKey(taskToRestore);
+    if (!taskKey || restoringTaskMap[taskKey]) {
+      return;
+    }
+
     const user = getCurrentUser();
     const restoredTask = {
       ...taskToRestore,
@@ -1813,9 +1818,6 @@ let restoringTaskMap = {};
     };
 
     restoringTaskMap = { ...restoringTaskMap, [taskKey]: true };
-
-    assignedTasks = [restoredTask, ...assignedTasks.filter((task) => task.title !== targetTitle)];
-    archivedTasks = archivedTasks.filter((task) => task.title !== targetTitle);
 
     try {
       const result = await callSetActivityTaskArchiveStatus({
@@ -1830,12 +1832,14 @@ let restoringTaskMap = {};
       }
 
       const savedTask = mapCreatedTaskToUi(result.task, restoredTask);
-      assignedTasks = assignedTasks.map((task) =>
-        task.id === savedTask.id || task.title === targetTitle ? savedTask : task
+      assignedTasks = [
+        savedTask,
+        ...assignedTasks.filter((task) => getTaskActionKey(task) !== taskKey),
+      ];
+      archivedTasks = archivedTasks.filter(
+        (task) => getTaskActionKey(task) !== taskKey
       );
     } catch (error) {
-      assignedTasks = previousAssignedTasks;
-      archivedTasks = previousArchivedTasks;
       alert('Failed to restore task: ' + (error?.message || error));
     } finally {
       const { [taskKey]: _, ...rest } = restoringTaskMap;
@@ -2595,15 +2599,15 @@ let restoringTaskMap = {};
                       </button>
                       <button
                         class="task-icon-btn"
-                        class:is-busy={!!archivingTaskMap[String(task.title)]}
+                        class:is-busy={!!archivingTaskMap[getTaskActionKey(task)]}
                         type="button"
-                        title={archivingTaskMap[String(task.title)] ? 'Archiving...' : 'Archive task'}
-                        aria-label={archivingTaskMap[String(task.title)] ? `Archiving ${task.title}` : `Archive ${task.title}`}
-                        aria-busy={!!archivingTaskMap[String(task.title)]}
-                        disabled={!!archivingTaskMap[String(task.title)]}
+                        title={archivingTaskMap[getTaskActionKey(task)] ? 'Archiving...' : 'Archive task'}
+                        aria-label={archivingTaskMap[getTaskActionKey(task)] ? `Archiving ${task.title}` : `Archive ${task.title}`}
+                        aria-busy={!!archivingTaskMap[getTaskActionKey(task)]}
+                        disabled={!!archivingTaskMap[getTaskActionKey(task)]}
                         on:click={() => archiveTask(task.title)}
                       >
-                        {#if archivingTaskMap[String(task.title)]}
+                        {#if archivingTaskMap[getTaskActionKey(task)]}
                           <Loader2 size={16} class="spin" />
                         {:else}
                           <Archive size={16} />
@@ -2644,14 +2648,14 @@ let restoringTaskMap = {};
                       <button
                         type="button"
                         class="task-icon-btn task-icon-btn-restore"
-                        class:is-busy={!!restoringTaskMap[String(task.title)]}
-                        title={restoringTaskMap[String(task.title)] ? 'Restoring...' : 'Restore task'}
-                        aria-label={restoringTaskMap[String(task.title)] ? `Restoring ${task.title}` : `Restore ${task.title}`}
-                        aria-busy={!!restoringTaskMap[String(task.title)]}
-                        disabled={!!restoringTaskMap[String(task.title)]}
+                        class:is-busy={!!restoringTaskMap[getTaskActionKey(task)]}
+                        title={restoringTaskMap[getTaskActionKey(task)] ? 'Restoring...' : 'Restore task'}
+                        aria-label={restoringTaskMap[getTaskActionKey(task)] ? `Restoring ${task.title}` : `Restore ${task.title}`}
+                        aria-busy={!!restoringTaskMap[getTaskActionKey(task)]}
+                        disabled={!!restoringTaskMap[getTaskActionKey(task)]}
                         on:click={() => restoreArchivedTask(task.title)}
                       >
-                        {#if restoringTaskMap[String(task.title)]}
+                        {#if restoringTaskMap[getTaskActionKey(task)]}
                           <Loader2 size={16} class="spin" />
                         {:else}
                           <RotateCcw size={16} />
@@ -3220,7 +3224,6 @@ let restoringTaskMap = {};
             <button type="button" class="task-view-action" on:click={cancelTaskEditFromView}>Cancel</button>
           {:else}
             <button type="button" class="task-view-action" on:click={openTaskEditFromView}>Edit Task</button>
-            <button type="button" class="task-view-action danger" on:click={archiveTaskFromView}>Archive Task</button>
           {/if}
           <button type="button" class="task-view-close" on:click={closeTaskViewForm}>Close</button>
         </div>
@@ -4488,7 +4491,7 @@ let restoringTaskMap = {};
 
   .task-scroll-title {
     color: var(--color-heading);
-    font-size: 0.88rem;
+    font-size: 0.82rem;
     font-weight: 700;
     line-height: 1.3;
     white-space: nowrap;
