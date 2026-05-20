@@ -831,10 +831,13 @@ function getActivityTasks(payload) {
 	try {
 		var supTaskSheet = getOrCreateSheetWithHeaders_('supervisor_task', SUPERVISOR_TASK_HEADERS_);
 		var supTaskRows = readSheetObjects_(supTaskSheet) || [];
+		var supTaskById = {};
 		// Build map: normalised title -> array of sup_taskid for tasks assigned to this intern
 		var supTaskTitleToIds = {};
 		for (var st = 0; st < supTaskRows.length; st++) {
 			var supRow = supTaskRows[st];
+			var supTaskId = String(supRow.sup_taskid || '').trim();
+			if (supTaskId) supTaskById[supTaskId] = supRow;
 			var assignedIds = [];
 			try { assignedIds = JSON.parse(String(supRow.assigned_to || '[]')) || []; } catch (e) { assignedIds = []; }
 			var isAssigned = false;
@@ -909,6 +912,52 @@ function getActivityTasks(payload) {
 					if (!alreadyPresent) t.attachments.push(supAtts[sai]);
 				}
 			}
+		}
+
+		// Backward-compat fix:
+		// older supervisor-assigned activity rows could be stored with created_by=user_id.
+		// infer supervisor ownership using task notifications linked to supervisor_task ids.
+		try {
+			if (requestedUserId) {
+				var notifSheet = getOrCreateSheetWithHeaders_('notifications', ['notification_id', 'user_id', 'title', 'description', 'type', 'related_id', 'is_read', 'created_at']);
+				var notifRows = readSheetObjects_(notifSheet) || [];
+				var supervisorAssignedTaskKeys = {};
+
+				for (var ni = 0; ni < notifRows.length; ni++) {
+					var notif = notifRows[ni] || {};
+					if (String(notif.user_id || '').trim() !== requestedUserId) continue;
+					if (String(notif.type || '').trim().toLowerCase() !== 'task') continue;
+
+					var relatedSupTaskId = String(notif.related_id || '').trim();
+					if (!relatedSupTaskId) continue;
+
+					var matchedSupTask = supTaskById[relatedSupTaskId];
+					if (!matchedSupTask) continue;
+
+					var notifTaskTitle = String(matchedSupTask.task || '').trim().toLowerCase();
+					var notifDueDate = formatDateYMD_(matchedSupTask.due_date || '');
+					var notifAssignedBy = String(matchedSupTask.created_by || '').trim();
+					if (!notifTaskTitle || !notifAssignedBy) continue;
+
+					supervisorAssignedTaskKeys[notifTaskTitle + '::' + notifDueDate + '::' + notifAssignedBy] = true;
+				}
+
+				for (var ti2 = 0; ti2 < tasks.length; ti2++) {
+					var taskRow = tasks[ti2] || {};
+					var taskTitleKey = String(taskRow.task_name || '').trim().toLowerCase();
+					var taskDueKey = formatDateYMD_(taskRow.due_date || '');
+					var taskAssignedBy = String(taskRow.assigned_by || '').trim();
+					if (!taskTitleKey || !taskAssignedBy) continue;
+
+					var inferredKey = taskTitleKey + '::' + taskDueKey + '::' + taskAssignedBy;
+					var sameAsAssignee = String(taskRow.created_by || '').trim() === requestedUserId;
+					if (sameAsAssignee && supervisorAssignedTaskKeys[inferredKey]) {
+						taskRow.created_by = taskAssignedBy;
+					}
+				}
+			}
+		} catch (notifErr) {
+			// Non-fatal: fall back to raw created_by values.
 		}
 	} catch (supErr) {
 		// Non-fatal: intern can still view tasks without supervisor attachments
@@ -1221,8 +1270,8 @@ function handleCreateActivityTask_(payload) {
 	var userInfo = getUserInfoByEmail_(ownerEmail);
 	var user_id = userInfo ? String(userInfo.user_id).trim() : '';
 	var full_name = userInfo ? String(userInfo.full_name).trim() : ownerEmail;
-	var createdBy = user_id;
-	var updatedBy = user_id;
+	var createdBy = String(payload.created_by || '').trim() || user_id;
+	var updatedBy = String(payload.updated_by || '').trim() || createdBy || user_id;
 
 	var activityId = String(payload.id || payload.activity_id || '').trim();
 	if (!activityId) {

@@ -2007,6 +2007,8 @@ function toggleEditAssigneeDropdown() {
     --surface: var(--color-surface, #ffffff);
     --soft: var(--color-soft, #f4f7fb);
     --accent: var(--color-accent, #0f6cbd);
+    --modal-heading: #0f172a;
+    --modal-label: #475569;
     --accent-dark: #0a4a8f;
     --shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
   }
@@ -2903,6 +2905,8 @@ function toggleEditAssigneeDropdown() {
     --border: #2b3c57;
     --surface: #162338;
     --soft: #1c2a44;
+    --modal-heading: #e5edf8;
+    --modal-label: #9ba3af;
   }
 
   /* small date input used in header filters */
@@ -2959,7 +2963,7 @@ function toggleEditAssigneeDropdown() {
 
   .task-view-modal-head h4 {
     margin: 0;
-    color: var(--ink);
+    color: var(--modal-heading);
     font-size: 1rem;
     font-weight: 700;
   }
@@ -3028,7 +3032,7 @@ function toggleEditAssigneeDropdown() {
 
   .task-view-grid label span,
   .task-view-description span {
-    color: var(--muted);
+    color: var(--modal-label);
     font-size: 0.74rem;
     font-weight: 600;
   }
@@ -3037,7 +3041,7 @@ function toggleEditAssigneeDropdown() {
   .task-view-section > .row-label,
   .task-view-section > span,
   .task-view-modal .attachment-editor .attachment-editor-head span {
-    color: var(--muted);
+    color: var(--modal-label);
     font-size: 0.74rem;
     font-weight: 600;
     display: block;
@@ -3046,7 +3050,7 @@ function toggleEditAssigneeDropdown() {
 
   /* Ensure checklist header inside nested container matches other labels */
   .task-view-section .task-view-section-head span {
-    color: var(--muted);
+    color: var(--modal-label);
     font-size: 0.74rem;
     font-weight: 600;
     display: block;
@@ -3145,7 +3149,7 @@ function toggleEditAssigneeDropdown() {
 
   /* ensure the standalone description label in Add Task matches grid labels */
   .task-view-description span {
-    color: var(--muted);
+    color: var(--modal-label);
     font-size: 0.74rem;
     font-weight: 600;
     font-family: inherit;
@@ -3178,7 +3182,7 @@ function toggleEditAssigneeDropdown() {
   }
   
   .attachment-editor-head span {
-    color: var(--muted);
+    color: var(--modal-label);
     font-size: 0.74rem;
     font-weight: 600;
   }
@@ -3211,6 +3215,25 @@ function toggleEditAssigneeDropdown() {
   .task-view-modal .attachment-upload-btn:hover {
     background: rgba(255,255,255,0.02);
   }
+
+  .task-view-section li input[type='text'] {
+    flex: 1;
+    min-width: 0;
+    border: 1px solid var(--border);
+    border-radius: 0.45rem;
+    background: var(--soft);
+    color: var(--ink);
+    padding: 0.36rem 0.52rem;
+    font-size: 0.82rem;
+    font-family: inherit;
+    line-height: 1.2;
+  }
+
+  .task-view-section li input[type='text']::placeholder {
+    color: var(--muted);
+    opacity: 1;
+  }
+
   .hidden-file-input { display: none; }
   .attachment-list {
     list-style: none;
@@ -3610,6 +3633,11 @@ function toggleEditAssigneeDropdown() {
   :global(.dark) .log-task,
   :global(.dark) .row-label {
     color: #b7c6da;
+  }
+
+  :global(.dark) .task-view-section li input[type='text'] {
+    color: #e5edf8;
+    -webkit-text-fill-color: #e5edf8;
   }
 
   :global(.dark) .kpi-sub {

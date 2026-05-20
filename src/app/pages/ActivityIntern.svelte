@@ -623,6 +623,7 @@ let restoringTaskMap = {};
     Nov: '11',
     Dec: '12',
   };
+  const TASK_EDIT_RESTRICTED_MESSAGE = 'You can only modify tasks you created unless you are a supervisor.';
 
   let searchQuery = '';
   let statusFilter = 'All Status';
@@ -1070,6 +1071,7 @@ let restoringTaskMap = {};
       archivedPreviousStatus: String(source.archived_previous_status || source.archivedPreviousStatus || defaultValue.archived_previous_status || defaultValue.archivedPreviousStatus || '').trim(),
       dueDate: dueDateValue,
       owner: String(source.assigned_by || source.owner || defaultValue.assigned_by || defaultValue.owner || ''),
+      createdBy: String(source.created_by || source.createdBy || defaultValue.created_by || defaultValue.createdBy || '').trim(),
       priority: String(source.priority || defaultValue.priority || 'medium'),
       description: String(source.description || defaultValue.description || 'No description provided yet.'),
       attachments,
@@ -1082,6 +1084,22 @@ let restoringTaskMap = {};
 
   function isArchivedActivityTask(task) {
     return String(task?.status || '').trim().toLowerCase() === 'archived';
+  }
+
+  function isSupervisorUser(user = getCurrentUser()) {
+    const role = String(user?.role || user?.effective_role || '').trim().toLowerCase();
+    return role === 'supervisor' || role === 'mentor';
+  }
+
+  function canModifyTask(task) {
+    const currentUser = getCurrentUser();
+    const currentUserId = String(currentUser?.user_id || '').trim();
+    if (!task || !currentUserId) return false;
+    if (isSupervisorUser(currentUser)) return true;
+
+    const creatorUserId = String(task?.createdBy || task?.created_by || '').trim();
+    if (!creatorUserId) return false;
+    return creatorUserId === currentUserId;
   }
 
   function getTaskStatusLabel(task) {
@@ -1389,6 +1407,10 @@ let restoringTaskMap = {};
     if (!viewedTask) {
       return;
     }
+    if (!canModifyTask(viewedTask)) {
+      alert(TASK_EDIT_RESTRICTED_MESSAGE);
+      return;
+    }
 
     taskViewEditForm = {
       title: viewedTask.title,
@@ -1450,6 +1472,10 @@ let restoringTaskMap = {};
     if (taskIndex === -1) return;
 
     const task = assignedTasks[taskIndex];
+    if (!canModifyTask(task)) {
+      alert(TASK_EDIT_RESTRICTED_MESSAGE);
+      return;
+    }
     const user = getCurrentUser();
     const payload = {
       id: taskId || task.id,
@@ -1458,6 +1484,7 @@ let restoringTaskMap = {};
       due_date: toInputDate(task.dueDate),
       description: task.description,
       assigned_by: task.owner,
+      created_by: task.createdBy || task.created_by || '',
       // Include checklist using multiple keys to be compatible with backend handlers
       checklist: task.dailyChecklist,
       dailyChecklist: task.dailyChecklist,
@@ -1538,6 +1565,7 @@ let restoringTaskMap = {};
       due_date: formState.dueDate || toInputDate(task.dueDate),
       description: formState.description.trim() || task.description,
       assigned_by: formState.assignedBy || task.owner,
+      created_by: task.createdBy || task.created_by || '',
       // Send checklist under multiple keys for compatibility with backend Apps Script
       checklist: cleanedChecklist,
       dailyChecklist: cleanedChecklist,
@@ -1567,6 +1595,10 @@ let restoringTaskMap = {};
 
   async function saveTaskEditFromView() {
     if (!viewedTask || isSavingViewedTask) {
+      return;
+    }
+    if (!canModifyTask(viewedTask)) {
+      alert(TASK_EDIT_RESTRICTED_MESSAGE);
       return;
     }
 
@@ -1662,6 +1694,10 @@ let restoringTaskMap = {};
     if (!selectedOverviewTask) {
       return;
     }
+    if (!canModifyTask(selectedOverviewTask)) {
+      alert(TASK_EDIT_RESTRICTED_MESSAGE);
+      return;
+    }
 
     trackerEditForm = {
       title: selectedOverviewTask.title,
@@ -1686,6 +1722,10 @@ let restoringTaskMap = {};
 
   async function saveTrackerEdit() {
     if (!selectedOverviewTask) {
+      return;
+    }
+    if (!canModifyTask(selectedOverviewTask)) {
+      alert(TASK_EDIT_RESTRICTED_MESSAGE);
       return;
     }
 
@@ -1749,6 +1789,10 @@ let restoringTaskMap = {};
     if (!taskToArchive) {
       return false;
     }
+    if (!canModifyTask(taskToArchive)) {
+      alert(TASK_EDIT_RESTRICTED_MESSAGE);
+      return false;
+    }
 
     const taskKey = getTaskActionKey(taskToArchive);
     if (!taskKey || archivingTaskMap[taskKey]) {
@@ -1802,6 +1846,10 @@ let restoringTaskMap = {};
     const taskToRestore = archivedTasks.find((task) => task.title === targetTitle);
 
     if (!taskToRestore) {
+      return;
+    }
+    if (!canModifyTask(taskToRestore)) {
+      alert(TASK_EDIT_RESTRICTED_MESSAGE);
       return;
     }
 
@@ -2139,7 +2187,7 @@ let restoringTaskMap = {};
 
           <div class="task-view-grid">
             <label class="title-field">
-              <span>Task</span>
+              <span>Task Title</span>
               <input id="task-title" type="text" bind:value={addTaskForm.title} required />
             </label>
 
@@ -2158,7 +2206,7 @@ let restoringTaskMap = {};
             </label>
 
             <label class="assigned-field">
-              <span>Assigned By</span>
+              <span>Assigned by</span>
               <select id="task-owner" bind:value={addTaskForm.owner} disabled={isLoadingAssignedSupervisors || assignedSupervisors.length === 0}>
                 {#if isLoadingAssignedSupervisors}
                   <option value="">Loading supervisors...</option>
@@ -2288,16 +2336,47 @@ let restoringTaskMap = {};
             </div>
           </article>
         </div>
+        <div class="daily-logs-content task-loading-worklogs">
+          <article class="worklog-card worklog-form-card task-loading-worklog">
+            <div class="task-loading-head">
+              <div class="act-skeleton shimmer" style="width: 26px; height: 26px; border-radius: 8px;"></div>
+              <div class="act-skeleton shimmer" style="width: 120px; height: 14px;"></div>
+            </div>
+            <div class="task-loading-lines">
+              <div class="act-skeleton shimmer" style="width: 100%; height: 14px;"></div>
+              <div class="act-skeleton shimmer" style="width: 100%; height: 60px;"></div>
+              <div class="act-skeleton shimmer" style="width: 100%; height: 14px;"></div>
+              <div class="act-skeleton shimmer" style="width: 100%; height: 60px;"></div>
+              <div class="act-skeleton shimmer" style="width: 100%; height: 14px;"></div>
+              <div class="act-skeleton shimmer" style="width: 100%; height: 60px;"></div>
+              <div class="act-skeleton shimmer" style="width: 88px; height: 34px; border-radius: 10px;"></div>
+              <div class="act-skeleton shimmer" style="width: 100%; height: 40px; border-radius: 10px;"></div>
+            </div>
+          </article>
+          <article class="worklog-card worklog-list-card task-loading-worklog">
+            <div class="task-loading-worklog-head">
+              <div class="task-loading-head">
+                <div class="act-skeleton shimmer" style="width: 26px; height: 26px; border-radius: 8px;"></div>
+                <div class="act-skeleton shimmer" style="width: 92px; height: 14px;"></div>
+              </div>
+              <div class="task-loading-worklog-filters">
+                <div class="act-skeleton shimmer" style="width: 180px; height: 34px; border-radius: 10px;"></div>
+                <div class="act-skeleton shimmer" style="width: 122px; height: 34px; border-radius: 10px;"></div>
+              </div>
+            </div>
+            <div class="task-loading-worklog-list">
+              {#each [1, 2, 3] as _}
+                <article class="task-loading-worklog-item">
+                  <div class="act-skeleton shimmer" style="width: 42%; height: 14px;"></div>
+                  <div class="act-skeleton shimmer" style="width: 120px; height: 12px;"></div>
+                </article>
+              {/each}
+            </div>
+          </article>
+        </div>
       </section>
     {:else}
       {#if activeView === 'Overview'}
-        <section class="panel tasks-panel">
-          <div class="panel-header section-main-card-head">
-            <div class="section-main-card-copy">
-              <h3 class="section-main-card-title">Task Tracking</h3>
-            </div>
-          </div>
-          <div class="tasks-panel-body">
         <div class="overview-shell">
           <div class="overview-panels">
             <section class="overview-panel task-list-panel" style="background: var(--color-surface);">
@@ -2350,12 +2429,12 @@ let restoringTaskMap = {};
               {/if}
             </section>
 
-            <section class="overview-panel notes-panel">
+            <section class="overview-panel notes-panel task-list-panel">
               <div class="notes-header" style="display: flex; align-items: center; gap: 0.5rem;">
                 <List size={18} style="color: #0f6cbd; background: color-mix(in srgb, #0f6cbd 10%, var(--color-surface)); border-radius: 0.4rem; padding: 0.18rem;" />
                 <div class="notes-title">Recent Activity</div>
               </div>
-              <div class="recent-activity-list" style="margin-bottom: 0.5rem; max-height: 180px; overflow-y: auto; overflow-x: hidden;">
+              <div class="recent-activity-list" style="margin-bottom: 0.5rem;">
                 {#if recentActivities.length === 0}
                   <p class="overview-empty-copy">No recent activities yet.</p>
                 {:else}
@@ -2374,8 +2453,6 @@ let restoringTaskMap = {};
             </section>
           </div>
         </div>
-          </div>
-        </section>
       {:else if activeView === 'List'}
         <section class="intern-task-scroll-shell" role="table" aria-label="Assigned tasks list">
           <div class="intern-task-scroll-head" role="rowgroup" aria-hidden="true">
@@ -2414,10 +2491,10 @@ let restoringTaskMap = {};
                         class="task-icon-btn"
                         class:is-busy={!!archivingTaskMap[getTaskActionKey(task)]}
                         type="button"
-                        title={archivingTaskMap[getTaskActionKey(task)] ? 'Archiving...' : 'Archive task'}
-                        aria-label={archivingTaskMap[getTaskActionKey(task)] ? `Archiving ${task.title}` : `Archive ${task.title}`}
+                        title={!canModifyTask(task) ? 'Only task creator or supervisor can archive this task' : (archivingTaskMap[getTaskActionKey(task)] ? 'Archiving...' : 'Archive task')}
+                        aria-label={!canModifyTask(task) ? `Archive unavailable for ${task.title}` : (archivingTaskMap[getTaskActionKey(task)] ? `Archiving ${task.title}` : `Archive ${task.title}`)}
                         aria-busy={!!archivingTaskMap[getTaskActionKey(task)]}
-                        disabled={!!archivingTaskMap[getTaskActionKey(task)]}
+                        disabled={!canModifyTask(task) || !!archivingTaskMap[getTaskActionKey(task)]}
                         on:click={() => archiveTask(task.title)}
                       >
                         {#if archivingTaskMap[getTaskActionKey(task)]}
@@ -2462,10 +2539,10 @@ let restoringTaskMap = {};
                         type="button"
                         class="task-icon-btn task-icon-btn-restore"
                         class:is-busy={!!restoringTaskMap[getTaskActionKey(task)]}
-                        title={restoringTaskMap[getTaskActionKey(task)] ? 'Restoring...' : 'Restore task'}
-                        aria-label={restoringTaskMap[getTaskActionKey(task)] ? `Restoring ${task.title}` : `Restore ${task.title}`}
+                        title={!canModifyTask(task) ? 'Only task creator or supervisor can restore this task' : (restoringTaskMap[getTaskActionKey(task)] ? 'Restoring...' : 'Restore task')}
+                        aria-label={!canModifyTask(task) ? `Restore unavailable for ${task.title}` : (restoringTaskMap[getTaskActionKey(task)] ? `Restoring ${task.title}` : `Restore ${task.title}`)}
                         aria-busy={!!restoringTaskMap[getTaskActionKey(task)]}
-                        disabled={!!restoringTaskMap[getTaskActionKey(task)]}
+                        disabled={!canModifyTask(task) || !!restoringTaskMap[getTaskActionKey(task)]}
                         on:click={() => restoreArchivedTask(task.title)}
                       >
                         {#if restoringTaskMap[getTaskActionKey(task)]}
@@ -2485,14 +2562,6 @@ let restoringTaskMap = {};
     {/if}
 
     {#if activeView === 'Overview'}
-    <section class="panel daily-logs-panel">
-      <div class="panel-header section-main-card-head">
-        <div class="section-main-card-copy">
-          <h3 class="section-main-card-title">Daily Work Logs</h3>
-          <p class="section-main-card-description">Log your daily activities at the end of each day.</p>
-        </div>
-      </div>
-      <div class="daily-logs-panel-body">
       <div class="daily-logs-content">
         <div class="worklog-card worklog-form-card">
           <h4 class="worklog-card-head">
@@ -2500,57 +2569,57 @@ let restoringTaskMap = {};
             Add Work Log
           </h4>
           <form on:submit|preventDefault={handleAddWorkLog}>
-              <label class="form-group">
-                <span class="form-label">Task</span>
-                <textarea class="form-textarea" bind:value={workLogTask} placeholder="Task worked on" rows="2"></textarea>
+            <label class="form-group">
+              <span class="form-label">Task</span>
+              <textarea class="form-textarea" bind:value={workLogTask} placeholder="Task worked on" rows="2"></textarea>
+            </label>
+            <label class="form-group">
+              <span class="form-label">Notes</span>
+              <textarea class="form-textarea" bind:value={workLogNotes} placeholder="Notes" rows="2"></textarea>
+            </label>
+            <label class="form-group">
+              <span class="form-label">Learnings</span>
+              <textarea class="form-textarea" bind:value={workLogLearnings} placeholder="What did you learn today?" rows="2"></textarea>
+            </label>
+            <div class="form-group">
+              <span class="form-label">Attachment</span>
+              <label class="file-label" for="work-log-file-upload">
+                <FileEdit size={13} />
+                Upload files
               </label>
-              <label class="form-group">
-                <span class="form-label">Notes</span>
-                <textarea class="form-textarea" bind:value={workLogNotes} placeholder="Notes" rows="2"></textarea>
-              </label>
-              <label class="form-group">
-                <span class="form-label">Learnings</span>
-                <textarea class="form-textarea" bind:value={workLogLearnings} placeholder="What did you learn today?" rows="2"></textarea>
-              </label>
-              <div class="form-group">
-                <span class="form-label">Attachment</span>
-                <label class="file-label" for="work-log-file-upload">
-                  <FileEdit size={13} />
-                  Upload files
-                </label>
-                <input id="work-log-file-upload" class="file-input" type="file" multiple on:change={handleWorkLogFileUpload} bind:this={workLogFileInput} />
-                {#if workLogAttachments.length > 0}
-                  <div style="margin-top: 0.6rem; display:flex; flex-direction:column; gap:0.45rem;">
-                    {#each workLogAttachments as att, idx}
-                      <div class="worklog-attachment-row" style="display:flex; align-items:center; gap:0.6rem;">
-                        <div style="flex:1; min-width:0; display:flex; gap:0.6rem; align-items:center;">
-                          <div style="font-size:0.82rem; color:var(--color-muted); width:56px; text-align:center;">{getFileExtension_(att.name) || (att.file.type || '').split('/').pop() || 'file'}</div>
-                          <input
-                            type="text"
-                            class="worklog-attachment-name-input"
-                            value={att.name}
-                            on:input={(e) => renameWorkLogAttachment(idx, e.currentTarget.value)}
-                            style="width:100%; padding:0.4rem 0.6rem; border-radius:0.45rem; border:1px solid var(--color-border); background:var(--color-surface); color:var(--color-text);"
-                          />
-                          <div style="font-size:0.82rem; color:var(--color-muted); white-space:nowrap;">{(att.file.size / 1024 / 1024).toFixed(2)} MB</div>
-                        </div>
-                        <div style="display:flex; gap:0.4rem;">
-                          <button type="button" class="ghost btn-compact" on:click={() => removeWorkLogAttachment(idx)} aria-label="Remove attachment">Remove</button>
-                        </div>
+              <input id="work-log-file-upload" class="file-input" type="file" multiple on:change={handleWorkLogFileUpload} bind:this={workLogFileInput} />
+              {#if workLogAttachments.length > 0}
+                <div style="margin-top: 0.6rem; display:flex; flex-direction:column; gap:0.45rem;">
+                  {#each workLogAttachments as att, idx}
+                    <div class="worklog-attachment-row" style="display:flex; align-items:center; gap:0.6rem;">
+                      <div style="flex:1; min-width:0; display:flex; gap:0.6rem; align-items:center;">
+                        <div style="font-size:0.82rem; color:var(--color-muted); width:56px; text-align:center;">{getFileExtension_(att.name) || (att.file.type || '').split('/').pop() || 'file'}</div>
+                        <input
+                          type="text"
+                          class="worklog-attachment-name-input"
+                          value={att.name}
+                          on:input={(e) => renameWorkLogAttachment(idx, e.currentTarget.value)}
+                          style="width:100%; padding:0.4rem 0.6rem; border-radius:0.45rem; border:1px solid var(--color-border); background:var(--color-surface); color:var(--color-text);"
+                        />
+                        <div style="font-size:0.82rem; color:var(--color-muted); white-space:nowrap;">{(att.file.size / 1024 / 1024).toFixed(2)} MB</div>
                       </div>
-                    {/each}
-                  </div>
-                {/if}
-              </div>
-              <button type="submit" class="submit-worklog-btn" disabled={isSavingWorkLog}>
-                {#if isSavingWorkLog}
-                  <span class="spinning-icon"><Loader2 size={16} /></span>
-                {/if}
-                <span>{isSavingWorkLog ? 'Saving...' : 'Submit'}</span>
-              </button>
-            </form>
+                      <div style="display:flex; gap:0.4rem;">
+                        <button type="button" class="ghost btn-compact" on:click={() => removeWorkLogAttachment(idx)} aria-label="Remove attachment">Remove</button>
+                      </div>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+            <button type="submit" class="submit-worklog-btn" disabled={isSavingWorkLog}>
+              {#if isSavingWorkLog}
+                <span class="spinning-icon"><Loader2 size={16} /></span>
+              {/if}
+              <span>{isSavingWorkLog ? 'Saving...' : 'Submit'}</span>
+            </button>
+          </form>
         </div>
-        <!-- Work Logs Card -->
+
         <div class="worklog-card worklog-list-card">
           <div class="worklog-list-head">
             <h4 class="worklog-card-head">
@@ -2566,452 +2635,111 @@ let restoringTaskMap = {};
             </div>
           </div>
           <div class="worklog-list-scroll">
-          {#if isLoadingWorkLogs}
-            <div class="worklogs-loading-shell" aria-live="polite" aria-busy="true">
-              {#each [1, 2, 3, 4] as _}
-                <article class="worklog-loading-item">
-                  <div class="worklog-loading-trigger">
-                    <div class="worklog-loading-title">
-                      <span class="act-skeleton shimmer wl-sk-title"></span>
-                      <span class="act-skeleton shimmer wl-sk-date"></span>
+            {#if isLoadingWorkLogs}
+              <div class="worklogs-loading-shell" aria-live="polite" aria-busy="true">
+                {#each [1, 2, 3, 4] as _}
+                  <article class="worklog-loading-item">
+                    <div class="worklog-loading-trigger">
+                      <div class="worklog-loading-title">
+                        <span class="act-skeleton shimmer wl-sk-title"></span>
+                        <span class="act-skeleton shimmer wl-sk-date"></span>
+                      </div>
+                      <span class="act-skeleton shimmer wl-sk-chevron"></span>
                     </div>
-                    <span class="act-skeleton shimmer wl-sk-chevron"></span>
-                  </div>
-                </article>
-              {/each}
-            </div>
-          {:else if filteredWorkLogs.length === 0}
-            <div class="worklogs-empty-center">
-              <p class="worklogs-empty">No work logs found for current filter.</p>
-            </div>
-          {:else}
-            <div class="worklogs-accordion-list">
-              {#each filteredWorkLogs as log, idx}
-                <div
-                  class="worklog-accordion-item {expandedWorkLog === idx ? 'expanded' : ''}"
-                  role="button"
-                  tabindex="0"
-                  on:mouseenter={() => hoveredWorkLog = idx}
-                  on:mouseleave={() => hoveredWorkLog = null}
-                  on:click={(e) => handleWorklogItemClick(e, idx)}
-                  on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleWorklogItemClick(e, idx); } }}
-                >
-                  <button class="worklog-accordion-trigger" type="button" aria-expanded={expandedWorkLog === idx} on:click={() => expandedWorkLog = expandedWorkLog === idx ? null : idx}>
-                    <span class="worklog-title-meta">
-                      <span class="worklog-task-title">{log.task}</span>
-                      <span class="worklog-date">{formatWorklogDate(log.date)}</span>
-                    </span>
-                    <span class="chevron-corner">
+                  </article>
+                {/each}
+              </div>
+            {:else if filteredWorkLogs.length === 0}
+              <div class="worklogs-empty-center">
+                <p class="worklogs-empty">No work logs found for current filter.</p>
+              </div>
+            {:else}
+              <div class="worklogs-accordion-list">
+                {#each filteredWorkLogs as log, idx}
+                  <div
+                    class="worklog-accordion-item {expandedWorkLog === idx ? 'expanded' : ''}"
+                    role="button"
+                    tabindex="0"
+                    on:mouseenter={() => hoveredWorkLog = idx}
+                    on:mouseleave={() => hoveredWorkLog = null}
+                    on:click={(e) => handleWorklogItemClick(e, idx)}
+                    on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleWorklogItemClick(e, idx); } }}
+                  >
+                    <button class="worklog-accordion-trigger" type="button" aria-expanded={expandedWorkLog === idx} on:click={() => expandedWorkLog = expandedWorkLog === idx ? null : idx}>
+                      <span class="worklog-title-meta">
+                        <span class="worklog-task-title">{log.task}</span>
+                        <span class="worklog-date">{formatWorklogDate(log.date)}</span>
+                      </span>
                       <span class="chevron-corner">
                         <svelte:component this={ChevronDown} size={16} class={expandedWorkLog === idx ? 'chevron-open' : ''} />
                       </span>
-                    </span>
-                  </button>
-                  {#if expandedWorkLog === idx}
-                    <div class="worklog-accordion-body">
-                      <div class="worklog-section">
-                        <span class="worklog-label">Notes</span>
-                        <div class="worklog-notes">{log.notes}</div>
-                      </div>
-                      <div class="worklog-section">
-                        <span class="worklog-label">Learnings</span>
-                        <div class="worklog-learnings">{log.learnings}</div>
-                      </div>
-                      {#if log.attachments && log.attachments.length > 0}
+                    </button>
+                    {#if expandedWorkLog === idx}
+                      <div class="worklog-accordion-body">
                         <div class="worklog-section">
-                          <span class="worklog-label">Attachments ({log.attachments.length})</span>
-                          <div class="worklog-attachments">
-                            {#each log.attachments as file}
-                              <div class="worklog-attachment-item">
-                                <div class="worklog-attachment-main">
-                                  <span class="worklog-attachment-name">
-                                    {file.file_name || `${file.file_type || 'file'}`}
-                                  </span>
-                                  <span class="worklog-attachment-meta">
-                                    {file.file_type || 'file'} • {file.file_size || ''}
-                                  </span>
-                                </div>
-                                <div class="worklog-attachment-actions">
-                                  {#if file.link}
-                                    <a
-                                      class="worklog-attachment-action"
-                                      href={file.link}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      aria-label="View attachment"
-                                      title="View"
-                                    >
-                                      <ExternalLink size={14} />
-                                    </a>
-                                    <a
-                                      class="worklog-attachment-action"
-                                      href={getDriveDownloadUrl(file.link)}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      aria-label="Download attachment"
-                                      title="Download"
-                                    >
-                                      <Download size={14} />
-                                    </a>
-                                  {:else}
-                                    <span class="worklog-attachment-chip">No link</span>
-                                  {/if}
-                                </div>
-                              </div>
-                            {/each}
-                          </div>
+                          <span class="worklog-label">Notes</span>
+                          <div class="worklog-notes">{log.notes}</div>
                         </div>
-                      {/if}
-                    </div>
-                  {/if}
-                </div>
-              {/each}
-            </div>
-          {/if}
+                        <div class="worklog-section">
+                          <span class="worklog-label">Learnings</span>
+                          <div class="worklog-learnings">{log.learnings}</div>
+                        </div>
+                        {#if log.attachments && log.attachments.length > 0}
+                          <div class="worklog-section">
+                            <span class="worklog-label">Attachments ({log.attachments.length})</span>
+                            <div class="worklog-attachments">
+                              {#each log.attachments as file}
+                                <div class="worklog-attachment-item">
+                                  <div class="worklog-attachment-main">
+                                    <span class="worklog-attachment-name">
+                                      {file.file_name || `${file.file_type || 'file'}`}
+                                    </span>
+                                    <span class="worklog-attachment-meta">
+                                      {file.file_type || 'file'} - {file.file_size || ''}
+                                    </span>
+                                  </div>
+                                  <div class="worklog-attachment-actions">
+                                    {#if file.link}
+                                      <a
+                                        class="worklog-attachment-action"
+                                        href={file.link}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        aria-label="View attachment"
+                                        title="View"
+                                      >
+                                        <ExternalLink size={14} />
+                                      </a>
+                                      <a
+                                        class="worklog-attachment-action"
+                                        href={getDriveDownloadUrl(file.link)}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        aria-label="Download attachment"
+                                        title="Download"
+                                      >
+                                        <Download size={14} />
+                                      </a>
+                                    {:else}
+                                      <span class="worklog-attachment-chip">No link</span>
+                                    {/if}
+                                  </div>
+                                </div>
+                              {/each}
+                            </div>
+                          </div>
+                        {/if}
+                      </div>
+                    {/if}
+                  </div>
+                {/each}
+              </div>
+            {/if}
           </div>
         </div>
-
-      <style>
-        .worklogs-empty {
-          color: var(--color-muted);
-          font-size: 0.92rem;
-          margin: 1.2rem 0 0 0.2rem;
-        }
-        .worklogs-accordion-list {
-          display: flex;
-          flex-direction: column;
-          gap: 0.7rem;
-        }
-        .worklog-accordion-item {
-          border-radius: 0.7rem;
-          transition: box-shadow 0.15s, border-color 0.15s, background 0.15s;
-          box-shadow: 0 2px 8px -6px rgba(60,72,100,0.08);
-          overflow: hidden;
-          border: 1px solid var(--color-border);
-          background: var(--color-surface);
-          position: relative;
-        }
-        :global(html.dark) .worklog-accordion-item {
-          border: 1px solid #ffffff0f !important;
-          background: #161c27 !important;
-        }
-        .worklog-accordion-item.expanded,
-        .worklog-accordion-item:hover {
-          border-color: var(--color-accent);
-          background: color-mix(in srgb, var(--color-border) 30%, var(--color-surface));
-        }
-        :global(html.dark) .worklog-accordion-item.expanded,
-        :global(html.dark) .worklog-accordion-item:hover {
-          border-color: #38bdf8 !important;
-          background: #1e2736 !important;
-          box-shadow: 0 4px 16px -8px rgba(56,189,248,0.2) !important;
-        }
-        }
-        .worklog-accordion-trigger {
-          width: 100%;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 0.7rem;
-          text-align: left;
-          background: transparent;
-          border: none;
-          outline: none;
-          padding: 0.9rem 1rem;
-          cursor: pointer;
-          font-family: inherit;
-          font-size: 1rem;
-          font-weight: 600;
-          color: var(--color-heading);
-          transition: background 0.12s;
-          position: relative; /* allow absolutely-positioned chevron inside */
-        }
-        :global(html.dark) .worklog-accordion-trigger {
-          color: #e5edf8 !important;
-        }
-        .worklog-title-meta {
-          display: flex;
-          flex-direction: column;
-          align-items: flex-start;
-          gap: 0.13rem;
-        }
-        /* Corner chevron common style used for both task and worklog items */
-        .chevron-corner {
-          position: absolute;
-          top: 12px;
-          right: 14px;
-          width: 28px;
-          height: 28px;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          border-radius: 6px;
-          color: var(--color-muted);
-          background: transparent;
-          transition: background 0.12s, color 0.12s, transform 0.12s;
-          pointer-events: none; /* let the button handle clicks */
-        }
-
-        .worklog-accordion-item:hover .chevron-corner,
-        .worklog-accordion-item.expanded .chevron-corner {
-          color: var(--color-accent);
-        }
-
-        /* Ensure content doesn't overlap the chevron */
-        .worklog-accordion-trigger {
-          padding: 1.05rem 1.4rem;
-          padding-right: 3.4rem;
-        }
-
-        /* also ensure task accordion trigger supports corner chevron */
-        .task-accordion-trigger {
-          position: relative;
-        }
-        .worklog-task-title {
-          font-size: 1rem;
-          font-weight: 700;
-          color: var(--color-heading);
-          margin-bottom: 0.1rem;
-        }
-        :global(html.dark) .worklog-task-title {
-          color: #e5edf8 !important;
-        }
-        .worklog-date {
-          font-size: 0.85rem;
-          color: var(--color-muted);
-          font-weight: 500;
-        }
-        :global(html.dark) .worklog-date {
-          color: #8eaec9 !important;
-        }
-        .worklog-accordion-body {
-          padding: 0.7rem 1.2rem 1.1rem 2.1rem;
-          background: var(--color-soft);
-          border-top: 1px solid var(--color-border);
-          display: flex;
-          flex-direction: column;
-          gap: 0.7rem;
-          animation: fadeIn 0.18s;
-        }
-        :global(html.dark) .worklog-accordion-body {
-          background: #0d1117 !important;
-          border-top: 1px solid #ffffff0f !important;
-        }
-        .worklog-section {
-          margin-bottom: 0.1rem;
-        }
-        .worklog-label {
-          display: inline-block;
-          font-size: 0.89rem;
-          font-weight: 700;
-          color: var(--color-heading);
-          margin-bottom: 0.18rem;
-        }
-        :global(html.dark) .worklog-label {
-          color: #e5edf8 !important;
-        }
-        .worklog-notes, .worklog-learnings {
-          font-size: 0.97rem;
-          color: var(--color-text);
-          margin-left: 0.1rem;
-          margin-bottom: 0.1rem;
-          line-height: 1.5;
-          font-style: normal;
-        }
-        :global(html.dark) .worklog-notes, :global(html.dark) .worklog-learnings {
-          color: #cfdceb !important;
-        }
-        .worklog-attachment-chip {
-          border-radius: 0.5rem;
-          padding: 0.18rem 0.7rem;
-          font-size: 0.85rem;
-          font-weight: 600;
-          cursor: pointer;
-          transition: background 0.13s, border-color 0.13s;
-          background: var(--color-border);
-          color: var(--color-accent);
-          border: 1px solid var(--color-border);
-        }
-        :global(html.dark) .worklog-attachment-chip {
-          background: #1e2736 !important;
-          color: #38bdf8 !important;
-          border: 1px solid #ffffff1a !important;
-        }
-        .worklog-attachment-chip:focus,
-        .worklog-attachment-chip:hover {
-          background: var(--color-border);
-          border-color: var(--color-accent);
-          outline: none;
-          color: var(--color-accent);
-        }
-        :global(html.dark) .worklog-attachment-chip:focus,
-        :global(html.dark) .worklog-attachment-chip:hover {
-          background: #1e2736 !important;
-          border-color: #38bdf8 !important;
-          outline: none;
-          color: #38bdf8 !important;
-        }
-        .worklog-attachments {
-          display: grid;
-          gap: 0.6rem;
-          margin-top: 0.2rem;
-        }
-
-        .worklog-attachment-item {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 0.8rem;
-          padding: 0.5rem 0.7rem;
-          border-radius: 0.7rem;
-          background: color-mix(in srgb, var(--color-border) 35%, var(--color-surface));
-          border: 1px solid var(--color-border);
-        }
-
-        :global(html.dark) .worklog-attachment-item {
-          background: #1e2736 !important;
-          border: 1px solid #ffffff1a !important;
-        }
-
-        .worklog-attachment-main {
-          display: flex;
-          flex-direction: column;
-          gap: 0.1rem;
-          min-width: 0;
-        }
-
-        .worklog-attachment-name {
-          font-size: 0.9rem;
-          font-weight: 700;
-          color: var(--color-heading);
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-
-        :global(html.dark) .worklog-attachment-name {
-          color: #e5edf8 !important;
-        }
-
-        .worklog-attachment-meta {
-          font-size: 0.78rem;
-          color: var(--color-muted);
-          font-weight: 600;
-        }
-
-        .worklog-attachment-actions {
-          display: inline-flex;
-          align-items: center;
-          gap: 0.4rem;
-          flex-shrink: 0;
-        }
-
-        .worklog-attachment-action {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          width: 30px;
-          height: 30px;
-          border-radius: 0.55rem;
-          border: 1px solid var(--color-border);
-          background: var(--color-surface);
-          color: var(--color-accent);
-          transition: transform 0.12s, background 0.12s, border-color 0.12s;
-        }
-
-        .worklog-attachment-action:hover {
-          background: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface));
-          border-color: var(--color-accent);
-          transform: translateY(-1px);
-        }
-        .hidden-file-input { display: none; }
-        .attachment-list {
-          list-style: none;
-          margin: 0;
-          padding: 0;
-          display: grid;
-          gap: 0.35rem;
-        }
-        .attachment-list li {
-          display: block;
-          margin: 0; padding: 0;
-          border: none; background: transparent;
-        }
-        .attachment-row {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 0.6rem;
-          padding: 0.6rem 0.9rem;
-          border-radius: 0.7rem;
-          background: color-mix(in srgb, var(--color-border) 20%, var(--color-surface));
-          border: 1px solid var(--color-border);
-          width: 100%;
-          box-sizing: border-box;
-        }
-        :global(html.dark) .attachment-row {
-          background: #1b2330 !important;
-          border: 1px solid #ffffff12 !important;
-        }
-        .attachment-main {
-          min-width: 0;
-          overflow: hidden;
-          flex: 1;
-        }
-        .attachment-main a,
-        .attachment-main span {
-          font-weight: 600;
-          color: var(--color-heading);
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-          display: inline-block;
-          font-size: 0.88rem;
-        }
-        .attachment-actions {
-          display: inline-flex;
-          align-items: center;
-          gap: 0.4rem;
-          flex-shrink: 0;
-        }
-        .attachment-action {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          width: 30px;
-          height: 30px;
-          border-radius: 0.5rem;
-          border: 1px solid var(--color-border);
-          background: var(--color-surface);
-          color: var(--color-accent);
-          text-decoration: none;
-          transition: transform 0.12s, background 0.12s, border-color 0.12s;
-        }
-        .attachment-action:hover {
-          background: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface));
-          border-color: var(--color-accent);
-          transform: translateY(-1px);
-        }
-        .remove-item {
-          border: 1px solid var(--color-border);
-          background: var(--color-soft);
-          color: var(--color-text);
-          border-radius: 0.45rem;
-          padding: 0.32rem 0.5rem;
-          font-size: 0.72rem;
-          font-weight: 600;
-          cursor: pointer;
-        }
-        .sup-attach-empty { font-size: 0.8rem; color: var(--color-muted); margin: 0; }
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(10px); }
-          to { opacity: 1; transform: none; }
-        }
-      </style>
       </div>
-      </div>
-    </section>
     {/if}
+
   </div>
 </section>
 
@@ -3041,7 +2769,15 @@ let restoringTaskMap = {};
             </button>
             <button type="button" class="task-view-action" on:click={cancelTaskEditFromView}>Cancel</button>
           {:else}
-            <button type="button" class="task-view-action" on:click={openTaskEditFromView}>Edit Task</button>
+            <button
+              type="button"
+              class="task-view-action"
+              on:click={openTaskEditFromView}
+              disabled={!canModifyTask(viewedTask)}
+              title={!canModifyTask(viewedTask) ? 'Only task creator or supervisor can edit this task' : 'Edit task'}
+            >
+              Edit Task
+            </button>
             <button type="button" class="task-view-close" on:click={closeTaskViewForm}>Close</button>
           {/if}
         </div>
@@ -4769,23 +4505,36 @@ let restoringTaskMap = {};
     height: 0.9rem;
   }
 
+  .task-view-add-form {
+    display: grid;
+    gap: 0.8rem;
+  }
+
   .task-view-add-form .task-view-grid {
-    gap: 0.45rem;
+    gap: 0.65rem;
     align-items: start;
+  }
+
+  .task-view-add-form .task-view-description {
+    gap: 0.45rem;
+  }
+
+  .task-view-add-form .task-view-section {
+    gap: 0.5rem;
   }
 
   .task-view-add-form .task-view-grid label span,
   .task-view-add-form .task-view-description span {
     display: block;
-    margin-bottom: 0.25rem;
+    margin-bottom: 0;
   }
 
   .task-view-add-form .task-view-grid input,
   .task-view-add-form .task-view-grid select,
   .task-view-add-form .task-view-description textarea {
     box-sizing: border-box;
-    min-height: 40px;
-    line-height: 1.25;
+    min-height: 0;
+    line-height: normal;
   }
 
   .task-view-add-form .task-view-description textarea {
@@ -4797,12 +4546,16 @@ let restoringTaskMap = {};
     display: flex;
     flex-direction: column;
     align-items: flex-start;
+    gap: 0.35rem;
   }
 
   .task-view-add-form .task-view-section .task-view-section-head span,
   .task-view-add-form .attachment-editor .attachment-editor-head span {
     display: block;
     margin-bottom: 0.25rem;
+    color: var(--color-muted);
+    font-size: 0.74rem;
+    font-weight: 600;
   }
 
   .task-view-add-form .task-view-section .task-view-section-head button {
@@ -4829,7 +4582,7 @@ let restoringTaskMap = {};
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 0.35rem;
+    gap: 0.45rem;
   }
 
   .task-view-add-form .task-view-section .ghost.btn-compact,
@@ -5578,8 +5331,8 @@ let restoringTaskMap = {};
   }
 
   .overview-panel.task-list-panel {
-    height: 220px;
-    min-height: 220px;
+    height: 190px;
+    min-height: 190px;
     display: flex;
     flex-direction: column;
   }
@@ -5587,9 +5340,19 @@ let restoringTaskMap = {};
   .overview-task-list {
     flex: 1;
     min-height: 0;
+    align-content: start;
+    grid-auto-rows: min-content;
     overflow-y: auto;
     overflow-x: hidden;
     padding-right: 2px;
+  }
+
+  .notes-panel.task-list-panel .recent-activity-list {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+    overflow-x: hidden;
   }
 
   .overview-task-link {
@@ -5970,8 +5733,31 @@ let restoringTaskMap = {};
 
   .worklog-accordion-trigger,
   .task-accordion-trigger {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
     padding: 12px 14px;
     background: transparent;
+  }
+
+  .worklog-title-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .chevron-corner {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: auto;
+    flex-shrink: 0;
+    color: var(--ims-ref-text3);
   }
 
   .worklog-task-title,
@@ -6288,6 +6074,7 @@ let restoringTaskMap = {};
   .activity-shell.projects-page .quick-panel {
     background: transparent !important;
     padding: 0;
+    margin-bottom: 0;
     border-radius: 0;
     border: none !important;
     box-shadow: none !important;
@@ -6631,6 +6418,13 @@ let restoringTaskMap = {};
     padding: 14px;
   }
 
+  .task-loading-card {
+    height: 190px;
+    min-height: 190px;
+    display: flex;
+    flex-direction: column;
+  }
+
   .task-loading-head,
   .task-loading-focus-head {
     display: flex;
@@ -6645,6 +6439,49 @@ let restoringTaskMap = {};
   }
 
   .task-loading-lines {
+    display: grid;
+    gap: 8px;
+    align-content: start;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .task-loading-worklogs {
+    align-items: start;
+  }
+
+  .task-loading-worklog {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .task-loading-worklog-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 6px;
+  }
+
+  .task-loading-worklog-filters {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .task-loading-worklog-list {
+    display: grid;
+    gap: 10px;
+    align-content: start;
+  }
+
+  .task-loading-worklog-item {
+    border-radius: 10px;
+    border: 1px solid var(--color-border);
+    background: color-mix(in srgb, var(--color-border) 28%, var(--color-surface));
+    padding: 12px 14px;
     display: grid;
     gap: 8px;
   }
@@ -6699,6 +6536,18 @@ let restoringTaskMap = {};
 
     .task-loading-grid {
       grid-template-columns: 1fr;
+    }
+
+    .task-loading-worklog-head {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+    }
+
+    .task-loading-worklog-filters {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
     }
 
     .overview-panels,

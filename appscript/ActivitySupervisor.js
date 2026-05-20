@@ -109,6 +109,8 @@ function createSupervisorTasks(payload) {
         due_date: dueDate,
         owner_email: userEmail,
         assigned_by: supervisorId,
+        created_by: supervisorId,
+        updated_by: supervisorId,
         created_at: now,
         dailyChecklist: Array.isArray(payload.dailyChecklist) ? payload.dailyChecklist : (payload.daily_checklist || []),
         // signal to internal handler that supervisor-level row already created

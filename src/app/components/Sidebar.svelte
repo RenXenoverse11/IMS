@@ -35,7 +35,7 @@
     { path: '/supervisor/time-logs', label: 'Time Logs', icon: Clock },
     { path: '/supervisor/projects', label: 'Projects', icon: FolderOpen },
     { path: '/supervisor/requests', label: 'Requests', icon: FileCheck },
-    { path: '/supervisor/activity', label: 'Activity', icon: Activity },
+    { path: '/supervisor/activity', label: 'Activity Log', icon: Activity },
     { path: '/documents', label: 'Documents', icon: FolderOpen },
     { path: '/settings', label: 'Settings', icon: Settings },
   ];

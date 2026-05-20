@@ -31,11 +31,17 @@
     Pending: {
       badgeClass: "status-badge pending",
     },
+    Expired: {
+      badgeClass: "status-badge expired",
+    },
     Approved: {
       badgeClass: "status-badge approved",
     },
     Rejected: {
       badgeClass: "status-badge rejected",
+    },
+    Archived: {
+      badgeClass: "status-badge archived",
     },
   };
 
@@ -86,7 +92,7 @@
   let selectedRequests = new Set();
   let selectAllChecked = false;
   let showBulkActions = false;
-  const COMPLETED_STATUSES = new Set(["approved", "rejected"]);
+  const COMPLETED_STATUSES = new Set(["approved", "rejected", "expired"]);
 
   // Edit mode state
   let editingRequestId = null;
@@ -113,6 +119,50 @@
     return String(status || "").trim().toLowerCase();
   }
 
+  function getCanonicalStatusLabel(status) {
+    const tone = normalizeStatus(status);
+    if (tone === "pending") return "Pending";
+    if (tone === "approved") return "Approved";
+    if (tone === "rejected") return "Rejected";
+    if (tone === "expired") return "Expired";
+    if (tone === "archived") return "Archived";
+    return String(status || "Pending").trim() || "Pending";
+  }
+
+  function normalizeDateOnlyValue(dateValue) {
+    const dateString = String(dateValue || "").trim();
+    if (!dateString) return "";
+    if (dateString.includes("T") || dateString.includes(" ")) {
+      return dateString.split("T")[0].split(" ")[0];
+    }
+    return dateString;
+  }
+
+  function getRequestDateObject(request) {
+    const dateOnly = normalizeDateOnlyValue(
+      request?.date || request?.request_date || request?.applied_date || "",
+    );
+    if (!dateOnly) return null;
+    const parsed = new Date(`${dateOnly}T00:00:00`);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed;
+  }
+
+  function getEffectiveStatus(request) {
+    const rawStatus = String(request?.status || "Pending").trim();
+    const statusTone = normalizeStatus(rawStatus);
+    if (statusTone !== "pending") return getCanonicalStatusLabel(rawStatus);
+
+    const requestDate = getRequestDateObject(request);
+    if (!requestDate) return getCanonicalStatusLabel(rawStatus);
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (requestDate.getTime() < today.getTime()) return "Expired";
+
+    return getCanonicalStatusLabel(rawStatus);
+  }
+
   function getRequestId(request) {
     return String(request?.id || request?.request_id || "").trim();
   }
@@ -126,7 +176,7 @@
   }
 
   function isArchivableFromList(request) {
-    return requestFilter !== "archive" && isCompletedStatus(request?.status);
+    return requestFilter !== "archive" && isCompletedStatus(getEffectiveStatus(request));
   }
 
   function isRecoverableFromArchive(request) {
@@ -598,7 +648,8 @@
         (req) =>
           req.requestType === "Absence" &&
           req.date === form.date &&
-          (req.status === "Pending" || req.status === "Approved") &&
+          (normalizeStatus(getEffectiveStatus(req)) === "pending" ||
+            normalizeStatus(getEffectiveStatus(req)) === "approved") &&
           (req.id || req.request_id) !== editingRequestId,
       );
       if (existingAbsenceOnDate)
@@ -1074,7 +1125,7 @@
 
   $: filteredRequests = requests
     .filter((r) => {
-      const status = String(r.status || "").toLowerCase();
+      const status = normalizeStatus(getEffectiveStatus(r));
       if (requestFilter === "archive") {
         return status === "archived";
       }
@@ -1140,12 +1191,12 @@
 
   $: totalRequests = requests.length;
   $: pendingRequests = requests.filter(
-    (request) => String(request?.status || "").toLowerCase() === "pending",
+    (request) => normalizeStatus(getEffectiveStatus(request)) === "pending",
   ).length;
   $: resolvedRequests = requests.filter((request) => {
-    const status = String(request?.status || "").toLowerCase();
-    // Only count active resolved requests (approved or rejected, but NOT archived)
-    return (status === "approved" || status === "rejected");
+    const status = normalizeStatus(getEffectiveStatus(request));
+    // Count active resolved requests (approved, rejected, expired)
+    return status === "approved" || status === "rejected" || status === "expired";
   }).length;
   $: archivedRequests = requests.filter(
     (request) => String(request?.status || "").toLowerCase() === "archived",
@@ -1171,7 +1222,7 @@
       key: "resolved",
       label: "Resolved",
       value: resolvedRequests,
-      subtitle: "Approved and rejected requests",
+      subtitle: "Approved, rejected, and expired requests",
       icon: ShieldCheck,
       tone: "green",
     },
@@ -1381,16 +1432,16 @@
           {/if}
 
           {#each filteredRequests as request (request.id)}
+            {@const effectiveStatus = getEffectiveStatus(request)}
             {@const statusMeta =
-              STATUS_META[request.status] ?? STATUS_META.Pending}
-            {@const statusTone = String(
-              request.status || "Pending",
-            ).toLowerCase()}
+              STATUS_META[effectiveStatus] ?? STATUS_META.Pending}
+            {@const statusTone = normalizeStatus(effectiveStatus)}
             <div
               id={`request-card-${request.id}`}
               class="request-card"
               class:request-card-focused={highlightedRequestId === request.id}
               class:request-card-pending={statusTone === "pending"}
+              class:request-card-expired={statusTone === "expired"}
               class:request-card-approved={statusTone === "approved"}
               class:request-card-rejected={statusTone === "rejected"}
               class:request-card-selected={selectedRequests.has(getRequestId(request))}
@@ -1454,7 +1505,7 @@
                       </span>
                     {/if}
                   </div>
-                  <span class={statusMeta.badgeClass}>{request.status || "Pending"}</span>
+                  <span class={statusMeta.badgeClass}>{effectiveStatus}</span>
                 </div>
 
                 <div class="req-reason-block">
@@ -1468,7 +1519,7 @@
               </div>
 
               <div class="req-card-footer">
-                {#if isSupervisor && request.status === "Pending" && String(request?.status || "").toLowerCase() !== "archived"}
+                {#if isSupervisor && statusTone === "pending"}
                   <button
                     class="action-btn approve"
                     disabled={approvingRequestId === request.id}
@@ -1487,7 +1538,7 @@
                   >
                     <XCircle size={12} /> Reject
                   </button>
-                {:else if !isSupervisor && request.status === "Pending" && String(request?.status || "").toLowerCase() !== "archived"}
+                {:else if !isSupervisor && statusTone === "pending"}
                   <button
                     class="btn-edit"
                     on:click={() => editRequest(request)}
@@ -2416,6 +2467,9 @@
   .request-card-rejected::before {
     background: var(--red);
   }
+  .request-card-expired::before {
+    background: #94a3b8;
+  }
   .request-card-selected {
     background: rgba(59, 130, 246, 0.08);
     border-color: #3b82f6;
@@ -2689,6 +2743,20 @@
   }
   .status-badge.rejected::before {
     background: var(--red);
+  }
+  .status-badge.expired {
+    background: rgba(148, 163, 184, 0.18);
+    color: #cbd5e1;
+  }
+  .status-badge.expired::before {
+    background: #94a3b8;
+  }
+  .status-badge.archived {
+    background: rgba(168, 85, 247, 0.2);
+    color: #d8b4fe;
+  }
+  .status-badge.archived::before {
+    background: #c084fc;
   }
 
   /* ========== FORM PANEL ========== */
