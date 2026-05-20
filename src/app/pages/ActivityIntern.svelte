@@ -238,6 +238,8 @@ import {
   Search,
   LayoutGrid,
   FileEdit,
+  Eye,
+  RotateCcw,
   BookOpen,
   Loader2,
   Download,
@@ -586,6 +588,8 @@ let isLoadingAssignedTasks = false;
 let assignedTasksError = '';
 
   let archivedTasks = [];
+let archivingTaskMap = {};
+let restoringTaskMap = {};
 
   const statusClassMap = {
     Pending: 'status-pending',
@@ -1732,6 +1736,10 @@ let assignedTasksError = '';
   }
 
   async function archiveTask(targetTitle) {
+    const taskKey = String(targetTitle || '').trim();
+    if (!taskKey || archivingTaskMap[taskKey]) {
+      return false;
+    }
     const taskToArchive = assignedTasks.find((task) => task.title === targetTitle);
 
     if (!taskToArchive) {
@@ -1746,6 +1754,8 @@ let assignedTasksError = '';
       status: 'Archived',
       archivedPreviousStatus: getTaskStatusLabel(taskToArchive),
     };
+
+    archivingTaskMap = { ...archivingTaskMap, [taskKey]: true };
 
     archivedTasks = [archivedTask, ...archivedTasks.filter((task) => task.title !== targetTitle)];
     assignedTasks = assignedTasks.filter((task) => task.title !== targetTitle);
@@ -1776,10 +1786,17 @@ let assignedTasksError = '';
       archivedTasks = previousArchivedTasks;
       alert('Failed to archive task: ' + (error?.message || error));
       return false;
+    } finally {
+      const { [taskKey]: _, ...rest } = archivingTaskMap;
+      archivingTaskMap = rest;
     }
   }
 
   async function restoreArchivedTask(targetTitle) {
+    const taskKey = String(targetTitle || '').trim();
+    if (!taskKey || restoringTaskMap[taskKey]) {
+      return;
+    }
     const taskToRestore = archivedTasks.find((task) => task.title === targetTitle);
 
     if (!taskToRestore) {
@@ -1794,6 +1811,8 @@ let assignedTasksError = '';
       status: getTaskStatusLabel(taskToRestore),
       archivedPreviousStatus: '',
     };
+
+    restoringTaskMap = { ...restoringTaskMap, [taskKey]: true };
 
     assignedTasks = [restoredTask, ...assignedTasks.filter((task) => task.title !== targetTitle)];
     archivedTasks = archivedTasks.filter((task) => task.title !== targetTitle);
@@ -1818,6 +1837,9 @@ let assignedTasksError = '';
       assignedTasks = previousAssignedTasks;
       archivedTasks = previousArchivedTasks;
       alert('Failed to restore task: ' + (error?.message || error));
+    } finally {
+      const { [taskKey]: _, ...rest } = restoringTaskMap;
+      restoringTaskMap = rest;
     }
   }
 
@@ -2538,70 +2560,110 @@ let assignedTasksError = '';
           {/if}
         </div>
       {:else if activeView === 'List'}
-        <div class="task-list" role="table" aria-label="Assigned tasks list">
-          {#if filteredTasks.length === 0}
-            <p class="empty-state">No tasks found for current filter.</p>
-          {:else}
-            {#each filteredTasks as task}
-                <div class="task-accordion-item" class:expanded={expandedListTaskTitle === task.title}>
-                <button
-                  class="task-accordion-trigger"
-                  type="button"
-                  on:click={() => toggleListTask(task.title)}
-                >
-                  <span class="task-trigger-left">
-                    <span class="task-dot"></span>
-                    <span class="task-trigger-title">{task.title}</span>
-                  </span>
-                  <span class="chevron-corner">
-                    <svelte:component
-                      this={ChevronDown}
-                      size={15}
-                      class={expandedListTaskTitle === task.title ? 'chevron-open' : ''}
-                    />
-                  </span>
-                </button>
-
-                {#if expandedListTaskTitle === task.title}
-                  <div class="task-accordion-body-modern">
-                    <div class="task-accordion-meta-modern">
-                      <span class={`status-chip ${statusClassMap[task.status]}`}>{task.status}</span>
-                      <span>Due {task.dueDate}</span>
+        <section class="intern-task-scroll-shell" role="table" aria-label="Assigned tasks list">
+          <div class="intern-task-scroll-head" role="rowgroup" aria-hidden="true">
+            <div class="task-scroll-row task-scroll-header">
+              <div class="task-col task-col-title">Tasks</div>
+              <div class="task-col task-col-due">Due Date</div>
+              <div class="task-col task-col-status">Status</div>
+              <div class="task-col task-col-actions">Actions</div>
+            </div>
+          </div>
+          <div class="intern-task-scroll-body">
+            {#if filteredTasks.length === 0}
+              <p class="empty-state">No tasks found for current filter.</p>
+            {:else}
+              <div class="intern-task-scroll-table" role="rowgroup">
+                {#each filteredTasks as task}
+                  <div class="task-scroll-row" role="row">
+                    <div class="task-col task-col-title" role="cell">
+                      <div class="task-scroll-title" title={task.title}>{task.title}</div>
                     </div>
-                    <div class="task-description-row">
-                      <p class="task-description-modern">{task.description}</p>
-                      {#if task.dateCreated}
-                        <p class="task-meta-modern" style="font-style: italic; color: var(--color-muted); font-size: 0.92em; margin-bottom: 0.2em;">
-                          Date Created: {task.dateCreated}
-                        </p>
-                      {/if}
-                      <button type="button" class="task-view-form-btn" on:click={() => openTaskViewForm(task)}>
-                        View Task
+                    <div class="task-col task-col-due" role="cell">{formatDueDate(task.dueDate)}</div>
+                    <div class="task-col task-col-status" role="cell">
+                      <span class={`status-pill ${statusClassMap[task.status]}`}>{task.status}</span>
+                    </div>
+                    <div class="task-col task-col-actions" role="cell">
+                      <button
+                        class="task-icon-btn"
+                        type="button"
+                        title="View task"
+                        aria-label={`View ${task.title}`}
+                        on:click={() => openTaskViewForm(task)}
+                      >
+                        <Eye size={16} />
+                      </button>
+                      <button
+                        class="task-icon-btn"
+                        class:is-busy={!!archivingTaskMap[String(task.title)]}
+                        type="button"
+                        title={archivingTaskMap[String(task.title)] ? 'Archiving...' : 'Archive task'}
+                        aria-label={archivingTaskMap[String(task.title)] ? `Archiving ${task.title}` : `Archive ${task.title}`}
+                        aria-busy={!!archivingTaskMap[String(task.title)]}
+                        disabled={!!archivingTaskMap[String(task.title)]}
+                        on:click={() => archiveTask(task.title)}
+                      >
+                        {#if archivingTaskMap[String(task.title)]}
+                          <Loader2 size={16} class="spin" />
+                        {:else}
+                          <Archive size={16} />
+                        {/if}
                       </button>
                     </div>
                   </div>
-                {/if}
+                {/each}
               </div>
-            {/each}
-          {/if}
-        </div>
+            {/if}
+          </div>
+        </section>
       {:else}
-        <div class="task-list" role="table" aria-label="Archived tasks list">
-          {#if filteredArchivedTasks.length === 0}
-            <p class="empty-state">No archived tasks yet.</p>
-          {:else}
-            {#each filteredArchivedTasks as task}
-              <div class="task-row archived-row" role="row">
-                <span role="cell" class="task-name">{task.title}</span>
-                <span role="cell" class={`status-pill ${statusClassMap[getTaskStatusLabel(task)]}`}>{getTaskStatusLabel(task)}</span>
-                <button role="cell" type="button" class="attachment-btn" on:click={() => restoreArchivedTask(task.title)}>
-                  Restore
-                </button>
-                <span role="cell" class="task-due">{formatDueDate(task.dueDate)}</span>
+        <section class="intern-task-scroll-shell" role="table" aria-label="Archived tasks list">
+          <div class="intern-task-scroll-head" role="rowgroup" aria-hidden="true">
+            <div class="task-scroll-row task-scroll-header">
+              <div class="task-col task-col-title">Archive</div>
+              <div class="task-col task-col-due">Due Date</div>
+              <div class="task-col task-col-status">Status</div>
+              <div class="task-col task-col-actions">Action</div>
+            </div>
+          </div>
+          <div class="intern-task-scroll-body">
+            {#if filteredArchivedTasks.length === 0}
+              <p class="empty-state">No archived tasks yet.</p>
+            {:else}
+              <div class="intern-task-scroll-table" role="rowgroup">
+                {#each filteredArchivedTasks as task}
+                  <div class="task-scroll-row archived-row" role="row">
+                    <div class="task-col task-col-title" role="cell">
+                      <div class="task-scroll-title" title={task.title}>{task.title}</div>
+                    </div>
+                    <div class="task-col task-col-due" role="cell">{formatDueDate(task.dueDate)}</div>
+                    <div class="task-col task-col-status" role="cell">
+                      <span class={`status-pill ${statusClassMap[getTaskStatusLabel(task)]}`}>{getTaskStatusLabel(task)}</span>
+                    </div>
+                    <div class="task-col task-col-actions" role="cell">
+                      <button
+                        type="button"
+                        class="task-icon-btn task-icon-btn-restore"
+                        class:is-busy={!!restoringTaskMap[String(task.title)]}
+                        title={restoringTaskMap[String(task.title)] ? 'Restoring...' : 'Restore task'}
+                        aria-label={restoringTaskMap[String(task.title)] ? `Restoring ${task.title}` : `Restore ${task.title}`}
+                        aria-busy={!!restoringTaskMap[String(task.title)]}
+                        disabled={!!restoringTaskMap[String(task.title)]}
+                        on:click={() => restoreArchivedTask(task.title)}
+                      >
+                        {#if restoringTaskMap[String(task.title)]}
+                          <Loader2 size={16} class="spin" />
+                        {:else}
+                          <RotateCcw size={16} />
+                        {/if}
+                      </button>
+                    </div>
+                  </div>
+                {/each}
               </div>
-            {/each}
-          {/if}
-        </div>
+            {/if}
+          </div>
+        </section>
       {/if}
     </section>
     {/if}
@@ -4316,6 +4378,222 @@ let assignedTasksError = '';
     gap: 0.45rem;
   }
 
+  .intern-task-scroll-shell {
+    display: grid;
+    border-radius: 1rem;
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+  }
+
+  .intern-task-scroll-head {
+    border-bottom: 1px solid var(--color-border);
+    background: color-mix(in srgb, var(--color-surface) 88%, var(--color-soft));
+  }
+
+  .intern-task-scroll-body {
+    max-height: clamp(22rem, 62vh, 29rem);
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 0.85rem;
+    background: var(--color-soft);
+  }
+
+  .intern-task-scroll-body::-webkit-scrollbar {
+    width: 10px;
+  }
+
+  .intern-task-scroll-body::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .intern-task-scroll-body::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.42);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+  .intern-task-scroll-body::-webkit-scrollbar-thumb:hover {
+    background: rgba(148, 163, 184, 0.58);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+  .intern-task-scroll-table {
+    display: grid;
+    gap: 0.8rem;
+  }
+
+  .task-scroll-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 9rem 8.5rem 8.5rem;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.65rem 0.9rem;
+    font-size: 0.84rem;
+    border-radius: 0.95rem;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
+  }
+
+  .task-scroll-row:hover {
+    border-color: rgba(59, 130, 246, 0.26);
+    box-shadow: 0 12px 28px -26px rgba(15, 23, 42, 0.48);
+  }
+
+  .task-scroll-header,
+  .task-scroll-header:hover {
+    border: 0;
+    border-radius: 0;
+    padding: 1rem 1.2rem;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .task-col {
+    min-width: 0;
+  }
+
+  .task-scroll-header .task-col {
+    color: var(--color-muted);
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+  }
+
+  .task-col-title {
+    text-align: left;
+    justify-self: stretch;
+    display: flex;
+    align-items: center;
+  }
+
+  .task-col-due,
+  .task-col-status,
+  .task-col-actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    text-align: center;
+    justify-self: stretch;
+  }
+
+  .task-col-actions {
+    gap: 0.5rem;
+  }
+
+  .task-scroll-title {
+    color: var(--color-heading);
+    font-size: 0.88rem;
+    font-weight: 700;
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .task-scroll-row:not(.task-scroll-header) .task-col-due {
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  .task-icon-btn {
+    width: 2.7rem;
+    height: 2.7rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.8rem;
+    border: 1px solid var(--color-border);
+    background: color-mix(in srgb, var(--color-surface) 84%, var(--color-soft));
+    color: #38bdf8;
+    cursor: pointer;
+    transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease, opacity 140ms ease;
+  }
+
+  .task-icon-btn:hover {
+    background: color-mix(in srgb, #0f6cbd 10%, var(--color-surface));
+    border-color: rgba(56, 189, 248, 0.2);
+  }
+
+  .task-icon-btn-restore {
+    color: #94a3b8;
+  }
+
+  .task-icon-btn-restore:hover {
+    color: #cbd5e1;
+    background: color-mix(in srgb, #94a3b8 10%, var(--color-surface));
+    border-color: rgba(148, 163, 184, 0.22);
+  }
+
+  .task-icon-btn:disabled,
+  .task-icon-btn.is-busy {
+    opacity: 0.7;
+    cursor: not-allowed;
+  }
+
+  .task-icon-btn :global(svg.spin) {
+    animation: spin 1s linear infinite;
+  }
+
+  :global(html.dark) .intern-task-scroll-shell {
+    border-color: #ffffff0f;
+    background: #161c27;
+  }
+
+  :global(html.dark) .intern-task-scroll-head {
+    border-bottom-color: #ffffff0f;
+    background: #161c27;
+  }
+
+  :global(html.dark) .intern-task-scroll-body {
+    background: #0d1117;
+  }
+
+  :global(html.dark) .task-scroll-row {
+    border-color: #ffffff0f;
+    background: #0d1117;
+  }
+
+  :global(html.dark) .task-scroll-row:hover {
+    border-color: rgba(56, 189, 248, 0.18);
+    background: #121926;
+  }
+
+  :global(html.dark) .task-scroll-header,
+  :global(html.dark) .task-scroll-header:hover {
+    background: transparent;
+  }
+
+  :global(html.dark) .task-scroll-title {
+    color: #f1f5f9;
+  }
+
+  :global(html.dark) .task-icon-btn {
+    border-color: #ffffff10;
+    background: #161c27;
+    color: #38bdf8;
+  }
+
+  :global(html.dark) .task-icon-btn:hover {
+    border-color: rgba(56, 189, 248, 0.22);
+    background: #1b2433;
+  }
+
+  :global(html.dark) .task-icon-btn-restore {
+    color: #94a3b8;
+  }
+
+  :global(html.dark) .task-icon-btn-restore:hover {
+    color: #e2e8f0;
+    border-color: rgba(148, 163, 184, 0.24);
+    background: #1b2433;
+  }
+
   .task-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 8rem 7.5rem 8.75rem;
@@ -4672,6 +4950,10 @@ let assignedTasksError = '';
     font-weight: 600;
     cursor: pointer;
     white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
   }
 
   .attachment-text {
@@ -4935,6 +5217,18 @@ let assignedTasksError = '';
       padding-right: 0.8rem;
     }
 
+    .task-scroll-row {
+      grid-template-columns: minmax(0, 1fr) 7.25rem 6.75rem 6.75rem;
+      gap: 0.75rem;
+      padding: 0.75rem 0.8rem;
+    }
+
+    .task-icon-btn {
+      width: 2.6rem;
+      height: 2.6rem;
+      border-radius: 0.8rem;
+    }
+
     .overview-panels {
       grid-template-columns: 1fr;
     }
@@ -4945,6 +5239,35 @@ let assignedTasksError = '';
 
     .attachment-btn {
       margin-left: 0;
+    }
+  }
+
+  @media (max-width: 560px) {
+    .intern-task-scroll-head {
+      display: none;
+    }
+
+    .intern-task-scroll-body {
+      max-height: none;
+      padding: 0.7rem;
+    }
+
+    .task-scroll-row {
+      grid-template-columns: 1fr;
+      justify-items: stretch;
+      gap: 0.65rem;
+    }
+
+    .task-col-due,
+    .task-col-status,
+    .task-col-actions {
+      justify-self: flex-start;
+      text-align: left;
+    }
+
+    .task-col-actions {
+      display: flex;
+      gap: 0.5rem;
     }
   }
 
