@@ -834,6 +834,7 @@ function getActivityTasks(payload) {
 		var supTaskById = {};
 		// Build map: normalised title -> array of sup_taskid for tasks assigned to this intern
 		var supTaskTitleToIds = {};
+		var supTaskKeyToCreator = {};
 		for (var st = 0; st < supTaskRows.length; st++) {
 			var supRow = supTaskRows[st];
 			var supTaskId = String(supRow.sup_taskid || '').trim();
@@ -846,9 +847,15 @@ function getActivityTasks(payload) {
 			}
 			if (!isAssigned) continue;
 			var titleKey = String(supRow.task || '').trim().toLowerCase();
+			var creatorId = String(supRow.created_by || '').trim();
+			var dueKey = formatDateYMD_(supRow.due_date || '');
 			if (!titleKey) continue;
 			if (!supTaskTitleToIds[titleKey]) supTaskTitleToIds[titleKey] = [];
 			supTaskTitleToIds[titleKey].push(String(supRow.sup_taskid || '').trim());
+			if (creatorId && dueKey) {
+				var supKey = titleKey + '::' + dueKey + '::' + creatorId;
+				supTaskKeyToCreator[supKey] = creatorId;
+			}
 		}
 
 		// Read supervisor_attch and build map: sup_taskid -> attachments[]
@@ -877,6 +884,14 @@ function getActivityTasks(payload) {
 			var t = tasks[ti];
 			var titleKey = String(t.task_name || '').trim().toLowerCase();
 			if (!titleKey) continue;
+			var taskDueKey = formatDateYMD_(t.due_date || '');
+			var taskAssignedBy = String(t.assigned_by || '').trim();
+			if (taskAssignedBy && taskDueKey) {
+				var taskKey = titleKey + '::' + taskDueKey + '::' + taskAssignedBy;
+				if (supTaskKeyToCreator[taskKey]) {
+					t.created_by = supTaskKeyToCreator[taskKey];
+				}
+			}
 			var matchedSupIds = supTaskTitleToIds[titleKey] || [];
 			// Fallback: if no exact-title matches, try fuzzy match against supervisor task titles
 			if (!matchedSupIds.length && titleKey && Array.isArray(supTaskRows)) {
@@ -984,11 +999,62 @@ function updateActivityTask(payload) {
 	if (idIdx === -1) {
 		return { ok: false, error: 'Sheet missing id column.' };
 	}
+	var requesterId = String(payload.updated_by || '').trim();
+	if (!requesterId) {
+		return { ok: false, error: 'updated_by is required.' };
+	}
 	var nextChecklist = Array.isArray(payload.checklist) ? payload.checklist : payload.dailyChecklist;
 	var nextAttachments = Array.isArray(payload.attachments) ? payload.attachments : null;
 	for (var i = 1; i < data.length; i++) {
 		if (String(data[i][idIdx]).trim() === id) {
 			var existingTask = mapRowValuesToObject_(headers, data[i]);
+			var requesterRecord = null;
+			try { requesterRecord = findUserRecordByUserId_(requesterId); } catch (e) { requesterRecord = null; }
+			var requesterEmail = String(requesterRecord && requesterRecord.user && requesterRecord.user.email || '').trim().toLowerCase();
+			var isSupervisor = Boolean(requesterRecord && requesterRecord.user && isSupervisorUser_(requesterRecord.user));
+			var effectiveCreatorId = String(existingTask.created_by || '').trim();
+			var effectiveCreatorEmail = effectiveCreatorId.toLowerCase();
+			var ownerUserId = String(payload.user_id || existingTask.user_id || '').trim();
+			if (!isSupervisor) {
+				// Try to infer supervisor-owned tasks to prevent intern edits.
+				try {
+					var supSheet = getOrCreateSheetWithHeaders_('supervisor_task', SUPERVISOR_TASK_HEADERS_);
+					var supRows = readSheetObjects_(supSheet) || [];
+					var taskTitle = String(existingTask.task_name || existingTask.title || '').trim().toLowerCase();
+					var taskDueKey = formatDateYMD_(existingTask.due_date || '');
+					var taskAssignedBy = String(existingTask.assigned_by || '').trim();
+					for (var sr = 0; sr < supRows.length; sr++) {
+						var supRow = supRows[sr] || {};
+						var supTitle = String(supRow.task || '').trim().toLowerCase();
+						if (!supTitle || supTitle !== taskTitle) continue;
+						var supDueKey = formatDateYMD_(supRow.due_date || '');
+						if (taskDueKey && supDueKey && taskDueKey !== supDueKey) continue;
+						var supCreator = String(supRow.created_by || '').trim();
+						if (taskAssignedBy && supCreator && taskAssignedBy !== supCreator) continue;
+						var supAssigned = [];
+						try { supAssigned = JSON.parse(String(supRow.assigned_to || '[]')) || []; } catch (e) { supAssigned = []; }
+						var isAssigned = false;
+						for (var sai = 0; sai < supAssigned.length; sai++) {
+							if (String(supAssigned[sai] || '').trim() === ownerUserId) { isAssigned = true; break; }
+						}
+						if (!isAssigned) continue;
+						if (supCreator) {
+							effectiveCreatorId = supCreator;
+							effectiveCreatorEmail = supCreator.toLowerCase();
+						}
+						break;
+					}
+				} catch (e) {
+					// ignore supervisor inference errors
+				}
+				var canEdit = false;
+				if (effectiveCreatorId && (effectiveCreatorId === requesterId || (requesterEmail && effectiveCreatorEmail === requesterEmail))) {
+					canEdit = true;
+				}
+				if (!canEdit) {
+					return { ok: false, error: 'You can only modify tasks you created unless you are a supervisor.' };
+				}
+			}
 			var nextTask = {
 				id: String(existingTask.id || id).trim(),
 				user_id: String(payload.user_id || existingTask.user_id || '').trim(),

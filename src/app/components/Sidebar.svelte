@@ -24,7 +24,7 @@
     { path: '/time-log', label: 'Time Log', icon: Clock },
     { path: '/projects', label: 'Projects', icon: FolderOpen },
     { path: '/requests', label: 'Requests', icon: FileCheck },
-    { path: '/activity', label: 'Activity Log', icon: FileText },
+    { path: '/activity', label: 'Activity Log', icon: Activity },
     { path: '/documents', label: 'Documents', icon: FileText },
     { path: '/settings', label: 'Settings', icon: Settings },
   ];

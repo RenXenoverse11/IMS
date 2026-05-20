@@ -593,7 +593,7 @@ let restoringTaskMap = {};
 
   function getTaskActionKey(taskOrTitle) {
     if (taskOrTitle && typeof taskOrTitle === 'object') {
-      return String(taskOrTitle.id || taskOrTitle.title || '').trim();
+      return String(taskOrTitle.id || taskOrTitle.task_id || taskOrTitle.title || '').trim();
     }
 
     return String(taskOrTitle || '').trim();
@@ -628,10 +628,10 @@ let restoringTaskMap = {};
   let searchQuery = '';
   let statusFilter = 'All Status';
   let activeView = 'Overview';
-  let selectedOverviewTaskTitle = '';
-  let expandedListTaskTitle = '';
+  let selectedOverviewTaskId = '';
+  let expandedListTaskId = '';
   let isViewTaskModalOpen = false;
-  let viewedTaskTitle = '';
+  let viewedTaskId = '';
   let isEditingViewedTask = false;
   let isSavingViewedTask = false;
   let taskViewEditForm = {
@@ -1094,12 +1094,14 @@ let restoringTaskMap = {};
   function canModifyTask(task) {
     const currentUser = getCurrentUser();
     const currentUserId = String(currentUser?.user_id || '').trim();
-    if (!task || !currentUserId) return false;
+    const currentUserEmail = String(currentUser?.email || '').trim().toLowerCase();
+    if (!task || (!currentUserId && !currentUserEmail)) return false;
     if (isSupervisorUser(currentUser)) return true;
 
     const creatorUserId = String(task?.createdBy || task?.created_by || '').trim();
     if (!creatorUserId) return false;
-    return creatorUserId === currentUserId;
+    const creatorLower = creatorUserId.toLowerCase();
+    return creatorUserId === currentUserId || (!!currentUserEmail && creatorLower === currentUserEmail);
   }
 
   function getTaskStatusLabel(task) {
@@ -1140,13 +1142,13 @@ let restoringTaskMap = {};
       archivedTasks = loadedTasks.filter((task) => isArchivedActivityTask(task));
 
       if (
-        selectedOverviewTaskTitle &&
-        !assignedTasks.some((task) => task.title === selectedOverviewTaskTitle)
+        selectedOverviewTaskId &&
+        !assignedTasks.some((task) => getTaskActionKey(task) === selectedOverviewTaskId)
       ) {
-        selectedOverviewTaskTitle = '';
+        selectedOverviewTaskId = '';
       }
 
-      if (viewedTaskTitle && !assignedTasks.some((task) => task.title === viewedTaskTitle)) {
+      if (viewedTaskId && !assignedTasks.some((task) => getTaskActionKey(task) === viewedTaskId)) {
         closeTaskViewForm();
       }
     } catch (error) {
@@ -1275,7 +1277,7 @@ let restoringTaskMap = {};
       }
       
       await fetchAssignedTasks();
-      selectedOverviewTaskTitle = savedTask.title;
+      selectedOverviewTaskId = getTaskActionKey(savedTask);
       activeView = 'Overview';
       isAddTaskOpen = false;
       resetAddTaskForm();
@@ -1359,12 +1361,12 @@ let restoringTaskMap = {};
     activeView = 'List';
   }
 
-  function toggleListTask(taskTitle) {
-    expandedListTaskTitle = expandedListTaskTitle === taskTitle ? '' : taskTitle;
+  function toggleListTask(taskId) {
+    expandedListTaskId = expandedListTaskId === taskId ? '' : taskId;
   }
 
   function openTaskViewForm(task) {
-    viewedTaskTitle = task.title;
+    viewedTaskId = getTaskActionKey(task);
     taskViewEditForm = {
       title: task.title,
       status: task.status,
@@ -1378,7 +1380,7 @@ let restoringTaskMap = {};
 
   function closeTaskViewForm() {
     isViewTaskModalOpen = false;
-    viewedTaskTitle = '';
+    viewedTaskId = '';
     isEditingViewedTask = false;
     isSavingViewedTask = false;
     taskViewEditForm = {
@@ -1577,19 +1579,20 @@ let restoringTaskMap = {};
     };
   }
 
-  function applyTaskUpdateToUi(originalTitle, nextTask) {
-    assignedTasks = assignedTasks.map((task) => (task.title === originalTitle ? nextTask : task));
+  function applyTaskUpdateToUi(originalId, nextTask) {
+    const nextKey = getTaskActionKey(nextTask);
+    assignedTasks = assignedTasks.map((task) => (getTaskActionKey(task) === originalId ? nextTask : task));
 
-    if (selectedOverviewTaskTitle === originalTitle) {
-      selectedOverviewTaskTitle = nextTask.title;
+    if (selectedOverviewTaskId === originalId) {
+      selectedOverviewTaskId = nextKey;
     }
 
-    if (expandedListTaskTitle === originalTitle) {
-      expandedListTaskTitle = nextTask.title;
+    if (expandedListTaskId === originalId) {
+      expandedListTaskId = nextKey;
     }
 
-    if (viewedTaskTitle === originalTitle) {
-      viewedTaskTitle = nextTask.title;
+    if (viewedTaskId === originalId) {
+      viewedTaskId = nextKey;
     }
   }
 
@@ -1602,7 +1605,7 @@ let restoringTaskMap = {};
       return;
     }
 
-    const originalTitle = viewedTask.title;
+    const originalId = getTaskActionKey(viewedTask);
     const payload = buildTaskUpdatePayload(viewedTask, taskViewEditForm);
     isSavingViewedTask = true;
 
@@ -1645,7 +1648,7 @@ let restoringTaskMap = {};
         }
       }
 
-      applyTaskUpdateToUi(originalTitle, nextTask);
+      applyTaskUpdateToUi(originalId, nextTask);
       isEditingViewedTask = false;
 
       // Refresh tasks to get updated attachment list from backend
@@ -1667,12 +1670,12 @@ let restoringTaskMap = {};
       return;
     }
 
-    const targetTitle = viewedTask.title;
+    const targetId = getTaskActionKey(viewedTask);
     closeTaskViewForm();
-    await archiveTask(targetTitle);
+    await archiveTask(targetId);
 
-    if (expandedListTaskTitle === targetTitle) {
-      expandedListTaskTitle = '';
+    if (expandedListTaskId === targetId) {
+      expandedListTaskId = '';
     }
   }
 
@@ -1681,7 +1684,7 @@ let restoringTaskMap = {};
   }
 
   function selectOverviewTask(task) {
-    selectedOverviewTaskTitle = task.title;
+    selectedOverviewTaskId = getTaskActionKey(task);
     trackerMenuOpen = false;
     isEditingTrackerTask = false;
   }
@@ -1729,7 +1732,7 @@ let restoringTaskMap = {};
       return;
     }
 
-    const originalTitle = selectedOverviewTask.title;
+    const originalId = getTaskActionKey(selectedOverviewTask);
     const payload = buildTaskUpdatePayload(selectedOverviewTask, trackerEditForm);
 
     try {
@@ -1739,8 +1742,8 @@ let restoringTaskMap = {};
       }
 
       const nextTask = mapCreatedTaskToUi(result.task, payload);
-      applyTaskUpdateToUi(originalTitle, nextTask);
-      selectedOverviewTaskTitle = nextTask.title;
+      applyTaskUpdateToUi(originalId, nextTask);
+      selectedOverviewTaskId = getTaskActionKey(nextTask);
       isEditingTrackerTask = false;
 
       // Upload any newly added attachments (those with _file property)
@@ -1783,8 +1786,8 @@ let restoringTaskMap = {};
     }
   }
 
-  async function archiveTask(targetTitle) {
-    const taskToArchive = assignedTasks.find((task) => task.title === targetTitle);
+  async function archiveTask(targetId) {
+    const taskToArchive = assignedTasks.find((task) => getTaskActionKey(task) === targetId);
 
     if (!taskToArchive) {
       return false;
@@ -1829,8 +1832,8 @@ let restoringTaskMap = {};
         ...archivedTasks.filter((task) => getTaskActionKey(task) !== taskKey),
       ];
 
-      if (selectedOverviewTaskTitle === targetTitle) {
-        selectedOverviewTaskTitle = '';
+      if (selectedOverviewTaskId === targetId) {
+        selectedOverviewTaskId = '';
       }
       return true;
     } catch (error) {
@@ -1842,8 +1845,8 @@ let restoringTaskMap = {};
     }
   }
 
-  async function restoreArchivedTask(targetTitle) {
-    const taskToRestore = archivedTasks.find((task) => task.title === targetTitle);
+  async function restoreArchivedTask(targetId) {
+    const taskToRestore = archivedTasks.find((task) => getTaskActionKey(task) === targetId);
 
     if (!taskToRestore) {
       return;
@@ -1915,10 +1918,10 @@ let restoringTaskMap = {};
       return;
     }
 
-    const targetTitle = selectedOverviewTask.title;
+    const targetId = getTaskActionKey(selectedOverviewTask);
 
     if (action === 'archive') {
-      await archiveTask(targetTitle);
+      await archiveTask(targetId);
     }
 
     trackerMenuOpen = false;
@@ -2057,12 +2060,12 @@ let restoringTaskMap = {};
     })
     .slice(0, 4);
   $: selectedOverviewTask =
-    assignedTasks.find((task) => task.title === selectedOverviewTaskTitle) ||
+    assignedTasks.find((task) => getTaskActionKey(task) === selectedOverviewTaskId) ||
     todayTasks[0] ||
     overdueTasks[0] ||
     dueSoonTasks[0] ||
     null;
-  $: viewedTask = assignedTasks.find((task) => task.title === viewedTaskTitle) || null;
+  $: viewedTask = assignedTasks.find((task) => getTaskActionKey(task) === viewedTaskId) || null;
 
 </script>
 
@@ -2495,7 +2498,7 @@ let restoringTaskMap = {};
                         aria-label={!canModifyTask(task) ? `Archive unavailable for ${task.title}` : (archivingTaskMap[getTaskActionKey(task)] ? `Archiving ${task.title}` : `Archive ${task.title}`)}
                         aria-busy={!!archivingTaskMap[getTaskActionKey(task)]}
                         disabled={!canModifyTask(task) || !!archivingTaskMap[getTaskActionKey(task)]}
-                        on:click={() => archiveTask(task.title)}
+                        on:click={() => archiveTask(getTaskActionKey(task))}
                       >
                         {#if archivingTaskMap[getTaskActionKey(task)]}
                           <Loader2 size={16} class="spin" />
@@ -2543,7 +2546,7 @@ let restoringTaskMap = {};
                         aria-label={!canModifyTask(task) ? `Restore unavailable for ${task.title}` : (restoringTaskMap[getTaskActionKey(task)] ? `Restoring ${task.title}` : `Restore ${task.title}`)}
                         aria-busy={!!restoringTaskMap[getTaskActionKey(task)]}
                         disabled={!canModifyTask(task) || !!restoringTaskMap[getTaskActionKey(task)]}
-                        on:click={() => restoreArchivedTask(task.title)}
+                        on:click={() => restoreArchivedTask(getTaskActionKey(task))}
                       >
                         {#if restoringTaskMap[getTaskActionKey(task)]}
                           <Loader2 size={16} class="spin" />
