@@ -1,7 +1,7 @@
 <script>
   // @ts-nocheck
   import { onDestroy, onMount } from 'svelte';
-  import { Users, Clock3, CheckCircle, FileText, Download, ExternalLink, Eye, Archive } from 'lucide-svelte';
+  import { Users, Clock3, CheckCircle, FileText, Download, ExternalLink, Eye, Archive, RotateCcw } from 'lucide-svelte';
 
   export let currentUser = null;
 
@@ -1516,13 +1516,22 @@ function toggleEditAssigneeDropdown() {
                 </div>
                 <div style="display:flex; gap:0.4rem; align-items:center;">
                   <button
-                    class="ghost btn-compact restore-task-btn"
+                    class="restore-task-btn"
+                    class:is-busy={!!restoringTaskMap[String(a.id)]}
                     type="button"
                     on:click={() => restoreTask(a.id)}
                     disabled={!!restoringTaskMap[String(a.id)]}
                     aria-busy={!!restoringTaskMap[String(a.id)]}
+                    aria-label={restoringTaskMap[String(a.id)] ? 'Restoring task' : 'Restore task'}
+                    title={restoringTaskMap[String(a.id)] ? 'Restoring...' : 'Restore'}
                   >
-                    {restoringTaskMap[String(a.id)] ? 'Restoring...' : 'Restore'}
+                    {#if restoringTaskMap[String(a.id)]}
+                      <span class="archive-spinner" aria-hidden="true"></span>
+                      <span>Restoring...</span>
+                    {:else}
+                      <RotateCcw size={14} />
+                      <span>Restore</span>
+                    {/if}
                   </button>
                 </div>
               </li>
@@ -2727,7 +2736,42 @@ function toggleEditAssigneeDropdown() {
   .view-controls .btn { margin-right:0.4rem; border-radius:0.55rem; padding:0.32rem 0.6rem; background:transparent; border:1px solid var(--border); font-size:0.92rem }
   .view-controls .btn.active { background: var(--soft); color: var(--ink); border-color: var(--border) }
   .btn-compact { padding:0.28rem 0.6rem; font-size:0.9rem; border-radius:0.55rem; }
-  .restore-task-btn:disabled { cursor: not-allowed; opacity: 0.68; }
+  .restore-task-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    min-width: 7.25rem;
+    padding: 0.42rem 0.9rem;
+    border-radius: 999px;
+    border: 1px solid rgba(56, 189, 248, 0.22);
+    background: color-mix(in srgb, #38bdf8 10%, var(--surface));
+    color: #38bdf8;
+    font-size: 0.88rem;
+    font-weight: 700;
+    transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, opacity 0.18s ease;
+  }
+
+  .restore-task-btn :global(svg) {
+    flex: 0 0 auto;
+  }
+
+  .restore-task-btn:hover {
+    background: color-mix(in srgb, #38bdf8 16%, var(--surface));
+    border-color: rgba(56, 189, 248, 0.34);
+    color: #0ea5e9;
+  }
+
+  .restore-task-btn:focus-visible {
+    outline: 2px solid rgba(56, 189, 248, 0.24);
+    outline-offset: 2px;
+  }
+
+  .restore-task-btn.is-busy,
+  .restore-task-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.72;
+  }
   .quick-actions { display:flex; gap:0.45rem; align-items:center }
   .search-input { padding:0.34rem 0.6rem; border-radius:999px; border:1px solid var(--border); background:var(--soft); min-width:200px; font-size:0.95rem }
   .quick-actions select { padding:0.34rem 0.6rem; border-radius:0.55rem; font-size:0.95rem }
