@@ -1151,10 +1151,15 @@ function getSupervisorInfoMap_(userIds) {
 		var row = values[i] || [];
 		var uid = String(row[userIdIdx] || '').trim();
 		if (!uid || userIds.indexOf(uid) === -1) continue;
+		var email = emailIdx !== -1 ? String(row[emailIdx] || '').trim() : '';
+		var fullName = fullNameIdx !== -1 ? String(row[fullNameIdx] || '').trim() : '';
+		if (!fullName && email && typeof inferDisplayNameFromEmail_ === 'function') {
+			fullName = String(inferDisplayNameFromEmail_(email) || '').trim();
+		}
 		infoMap[uid] = {
 			user_id: uid,
-			full_name: fullNameIdx !== -1 ? String(row[fullNameIdx] || '').trim() : '',
-			email: emailIdx !== -1 ? String(row[emailIdx] || '').trim() : ''
+			full_name: fullName,
+			email: email
 		};
 	}
 
@@ -1179,11 +1184,17 @@ function getStudentSupervisors(payload) {
 
 	var ids = Object.keys(supervisorIds);
 	var infoMap = getSupervisorInfoMap_(ids);
-	var supervisors = ids.map(function(id) {
+	var supervisors = ids.filter(function(id) {
+		return Boolean(infoMap[id]);
+	}).map(function(id) {
 		var info = infoMap[id] || { user_id: id, full_name: '', email: '' };
+		var fallbackName = '';
+		if (!String(info.full_name || '').trim() && String(info.email || '').trim() && typeof inferDisplayNameFromEmail_ === 'function') {
+			fallbackName = String(inferDisplayNameFromEmail_(info.email) || '').trim();
+		}
 		return {
 			user_id: String(info.user_id || id).trim(),
-			full_name: String(info.full_name || '').trim(),
+			full_name: String(info.full_name || fallbackName || '').trim(),
 			email: String(info.email || '').trim()
 		};
 	}).sort(function(a, b) {

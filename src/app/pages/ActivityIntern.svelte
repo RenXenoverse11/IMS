@@ -2164,8 +2164,9 @@ let restoringTaskMap = {};
                 {#if isLoadingAssignedSupervisors}
                   <option value="">Loading supervisors...</option>
                 {:else if assignedSupervisors.length === 0}
-                  <option value="">No supervisor assigned</option>
+                  <option value="">N/A</option>
                 {:else}
+                  <option value="">N/A</option>
                   {#each assignedSupervisors as supervisor}
                     <option value={supervisor.user_id}>
                       {getSupervisorOptionLabel(supervisor)}
@@ -2335,7 +2336,7 @@ let restoringTaskMap = {};
       {#if activeView === 'Overview'}
         <div class="overview-shell">
           <div class="overview-panels">
-            <section class="overview-panel" style="background: var(--color-surface);">
+            <section class="overview-panel task-list-panel" style="background: var(--color-surface);">
               <h4 style="display: flex; align-items: center; gap: 0.5rem;">
                 <LayoutGrid size={18} style="color: #0f6cbd; background: color-mix(in srgb, #0f6cbd 10%, var(--color-surface)); border-radius: 0.4rem; padding: 0.18rem;" />
                 Today's Task
@@ -2343,7 +2344,7 @@ let restoringTaskMap = {};
               {#if todayTasks.length === 0}
                 <p class="overview-empty-copy">No tasks with today's deadline.</p>
               {:else}
-                <ul>
+                <ul class="overview-task-list">
                   {#each todayTasks as task}
                     <li>
                       <button
@@ -2361,7 +2362,7 @@ let restoringTaskMap = {};
               {/if}
             </section>
 
-            <section class="overview-panel">
+            <section class="overview-panel task-list-panel">
               <h4 style="display: flex; align-items: center; gap: 0.5rem;">
                 <Clock size={18} style="color: #22c55e; background: color-mix(in srgb, #22c55e 10%, var(--color-surface)); border-radius: 0.4rem; padding: 0.18rem;" />
                 Due Soon
@@ -2369,7 +2370,7 @@ let restoringTaskMap = {};
               {#if dueSoonTasks.length === 0}
                 <p class="overview-empty-copy">No upcoming due dates.</p>
               {:else}
-                <ul>
+                <ul class="overview-task-list">
                   {#each dueSoonTasks as task}
                     <li>
                       <button
@@ -3271,8 +3272,9 @@ let restoringTaskMap = {};
               {#if isLoadingAssignedSupervisors}
                 <option value="">Loading supervisors...</option>
               {:else if assignedSupervisors.length === 0}
-                <option value="">No supervisor assigned</option>
+                <option value="">N/A</option>
               {:else}
+                <option value="">N/A</option>
                 {#each assignedSupervisors as supervisor}
                   <option value={supervisor.user_id}>
                     {getSupervisorOptionLabel(supervisor)}
@@ -5644,6 +5646,21 @@ let restoringTaskMap = {};
   .overview-panel ul {
     margin-top: 12px;
     gap: 5px;
+  }
+
+  .overview-panel.task-list-panel {
+    height: 220px;
+    min-height: 220px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .overview-task-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 2px;
   }
 
   .overview-task-link {

@@ -1621,14 +1621,22 @@
           ></textarea>
         </div>
 
-        {#if formError}
-  <div 
-    class="alert-error" 
-    class:alert-warning={formError.includes("day off") || formError.includes("work hours") || formError.includes("at least 30 minutes")}
-  >
-    {formError}
-  </div>
-{/if}
+        {#if
+          formError &&
+          !(
+            form.requestType === "Absence" &&
+            isSelectedDayOff &&
+            form.date &&
+            (formError.includes("day off") || formError.includes("working day"))
+          )
+        }
+          <div
+            class="alert-error"
+            class:alert-warning={formError.includes("day off") || formError.includes("working day") || formError.includes("work hours") || formError.includes("at least 30 minutes")}
+          >
+            {formError}
+          </div>
+        {/if}
 
         <!-- Submit -->
         <div class="form-footer">

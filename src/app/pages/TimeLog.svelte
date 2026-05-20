@@ -1215,7 +1215,7 @@
         {/if}
         {#if isLoggedIn}
           <div class="tl-status-pill tl-status-success">
-            <span class="tl-status-dot"></span> Logged in â€” proceed to Log Out
+            <span class="tl-status-dot"></span> Logged in - proceed to Log Out
           </div>
         {/if}
       </div>
@@ -1265,7 +1265,7 @@
 
         {#if !isLoggedIn}
           <div class="tl-status-pill tl-status-amber">
-            <span class="tl-status-dot"></span> Not logged in â€” use Time In first
+            <span class="tl-status-dot"></span> Not logged in - use Time In first
           </div>
         {/if}
       </div>
@@ -1327,9 +1327,9 @@
                 <td class="tl-td-primary">{formatTableDate(entry.date)}</td>
                 <td><span class="tl-tag tl-tag-blue">TIME ENTRY</span></td>
                 <td class="tl-mono">{entry.timeIn}</td>
-                <td class="tl-mono">{entry.timeOut || 'â€”'}</td>
+                <td class="tl-mono">{entry.timeOut || '-'}</td>
                 <td class="tl-mono tl-hours-val">{formatHours(entry.hours)}h</td>
-                <td class="tl-mono tl-created-val">{entry.createdAt || 'â€”'}</td>
+                <td class="tl-mono tl-created-val">{entry.createdAt || '-'}</td>
                 <td>
                   <span class="tl-tag tl-tag-green">
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
@@ -1427,7 +1427,7 @@
           <div class="tl-modal-preview">
             <div class="tl-preview-row"><span class="tl-preview-label">Date</span><span class="tl-preview-val">{formatTableDate(deleteConfirmEntry.date)}</span></div>
             <div class="tl-preview-row"><span class="tl-preview-label">Time In</span><span class="tl-preview-val">{deleteConfirmEntry.timeIn}</span></div>
-            <div class="tl-preview-row"><span class="tl-preview-label">Time Out</span><span class="tl-preview-val">{deleteConfirmEntry.timeOut || 'â€”'}</span></div>
+            <div class="tl-preview-row"><span class="tl-preview-label">Time Out</span><span class="tl-preview-val">{deleteConfirmEntry.timeOut || '-'}</span></div>
             <div class="tl-preview-row"><span class="tl-preview-label">Hours</span><span class="tl-preview-val tl-preview-bold">{formatHours(deleteConfirmEntry.hours)}h</span></div>
           </div>
           <p class="tl-modal-warning">This action cannot be undone.</p>
