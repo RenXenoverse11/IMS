@@ -2119,7 +2119,7 @@ let restoringTaskMap = {};
         aria-modal="true"
         aria-label="Add task form"
       >
-        <form on:submit|preventDefault={addNewTask}>
+        <form class="task-view-add-form" on:submit|preventDefault={addNewTask}>
           <div class="task-view-modal-head">
             <h4>Add Task</h4>
             <div class="task-view-head-actions">
@@ -2138,29 +2138,28 @@ let restoringTaskMap = {};
           {/if}
 
           <div class="task-view-grid">
-                        <!-- Date Created field removed -->
-            <label>
-              <span>Task Title</span>
-              <input type="text" bind:value={addTaskForm.title} placeholder="Enter task title" required />
+            <label class="title-field">
+              <span>Task</span>
+              <input id="task-title" type="text" bind:value={addTaskForm.title} required />
             </label>
 
-            <label>
+            <label class="status-field">
               <span>Status</span>
-              <select bind:value={addTaskForm.status}>
+              <select id="task-status" bind:value={addTaskForm.status}>
                 {#each editStatusOptions as option}
                   <option value={option}>{option}</option>
                 {/each}
               </select>
             </label>
 
-            <label>
+            <label class="due-field">
               <span>Due Date</span>
-              <input type="date" bind:value={addTaskForm.dueDate} required />
+              <input id="task-due" type="date" bind:value={addTaskForm.dueDate} required />
             </label>
 
-            <label>
-              <span>Assigned by</span>
-              <select bind:value={addTaskForm.owner} disabled={isLoadingAssignedSupervisors || assignedSupervisors.length === 0}>
+            <label class="assigned-field">
+              <span>Assigned By</span>
+              <select id="task-owner" bind:value={addTaskForm.owner} disabled={isLoadingAssignedSupervisors || assignedSupervisors.length === 0}>
                 {#if isLoadingAssignedSupervisors}
                   <option value="">Loading supervisors...</option>
                 {:else if assignedSupervisors.length === 0}
@@ -2179,21 +2178,20 @@ let restoringTaskMap = {};
 
           <label class="task-view-description">
             <span>Description</span>
-            <textarea rows="3" bind:value={addTaskForm.description} placeholder="Task details"></textarea>
+            <textarea id="task-desc" rows="4" bind:value={addTaskForm.description}></textarea>
           </label>
 
           <div class="task-view-section">
-            <span>Checklist</span>
-            <div class="tracker-checklist-editor">
-                <div class="tracker-checklist-editor-head">
-                <button type="button" class="attachment-upload-btn" on:click={addNewTaskChecklistItem}>+ Add item</button>
+            <div class="task-view-section-head">
+              <span>Checklist</span>
+              <div class="task-view-section-actions">
+                <button type="button" class="ghost btn-compact" on:click={addNewTaskChecklistItem}>+ Add item</button>
               </div>
-
-              {#if addTaskForm.dailyChecklist.length === 0}
-                <p class="overview-empty-copy">No checklist items.</p>
-              {:else}
+            </div>
+            {#if addTaskForm.dailyChecklist.length > 0}
+              <ul style="list-style:none; padding:0; margin:0.5rem 0 0 0;">
                 {#each addTaskForm.dailyChecklist as item, index}
-                  <div class="tracker-checklist-editor-row">
+                  <li style="display:flex; gap:0.5rem; align-items:center; padding:0.25rem 0;">
                     <input
                       type="checkbox"
                       checked={item.done}
@@ -2203,21 +2201,20 @@ let restoringTaskMap = {};
                       type="text"
                       value={item.label}
                       on:input={(event) => updateNewTaskChecklistItem(index, 'label', event.currentTarget.value)}
-                      placeholder="Checklist item"
+                      placeholder="Item label"
+                      style="flex:1;"
                     />
-                    <button type="button" class="remove-item" on:click={() => removeNewTaskChecklistItem(index)}>
-                      Remove
-                    </button>
-                  </div>
+                    <button type="button" class="remove-item" on:click={() => removeNewTaskChecklistItem(index)}>Remove</button>
+                  </li>
                 {/each}
-              {/if}
-            </div>
+              </ul>
+            {/if}
           </div>
 
           <div class="task-view-section">
-            <span>Attachments</span>
             <div class="attachment-editor">
               <div class="attachment-editor-head">
+                <span>Attachments</span>
                 <label class="attachment-upload-btn" for="add-task-file-upload">Upload files</label>
                 <input
                   id="add-task-file-upload"
@@ -2229,43 +2226,16 @@ let restoringTaskMap = {};
                 />
               </div>
 
-              {#if addTaskForm.attachments.length === 0}
-                <p class="overview-empty-copy">No attachments.</p>
-              {:else}
+              {#if addTaskForm.attachments.length > 0}
                 <ul class="attachment-list">
                   {#each addTaskForm.attachments as attachment, index}
                     <li>
                       <div class="attachment-row">
                         <div class="attachment-main">
-                          {#if attachment && (attachment.link || attachment._objectUrl)}
-                            {#if attachment.link}
-                              <a href={attachment.link} target="_blank" rel="noopener noreferrer">{attachment.file_name || attachment.name || attachment}</a>
-                            {:else}
-                              <a href={attachment._objectUrl} target="_blank" rel="noopener noreferrer">{attachment.file_name || attachment.name || attachment}</a>
-                            {/if}
-                          {:else}
-                            <span>{(attachment && (attachment.file_name || attachment.name)) || attachment}</span>
-                          {/if}
+                          <span>{(attachment && (attachment.file_name || attachment.name)) || attachment}</span>
                         </div>
                         <div class="attachment-actions">
-                          {#if attachment && attachment.link}
-                            <a class="attachment-action" href={attachment.link} target="_blank" rel="noopener noreferrer" aria-label="View attachment" title="View">
-                              <ExternalLink size={14} />
-                            </a>
-                            <a class="attachment-action" href={getDriveDownloadUrl(attachment.link)} target="_blank" rel="noopener noreferrer" aria-label="Download attachment" title="Download">
-                              <Download size={14} />
-                            </a>
-                          {:else if attachment && attachment._objectUrl}
-                            <a class="attachment-action" href={attachment._objectUrl} target="_blank" rel="noopener noreferrer" aria-label="Open attachment" title="Open">
-                              <ExternalLink size={14} />
-                            </a>
-                            <a class="attachment-action" href={attachment._objectUrl} download={attachment.file_name || attachment.name} aria-label="Download attachment" title="Download">
-                              <Download size={14} />
-                            </a>
-                          {/if}
-                          <button type="button" class="remove-item" on:click={() => removeAddTaskAttachment(index)}>
-                            Remove
-                          </button>
+                          <button type="button" class="remove-item" on:click={() => removeAddTaskAttachment(index)}>Remove</button>
                         </div>
                       </div>
                     </li>
@@ -2318,22 +2288,16 @@ let restoringTaskMap = {};
             </div>
           </article>
         </div>
-        <div class="task-loading-focus">
-          <div class="task-loading-focus-head">
-            <div class="act-skeleton shimmer" style="width: 140px; height: 16px;"></div>
-            <div class="act-skeleton shimmer" style="width: 84px; height: 22px; border-radius: 999px;"></div>
-          </div>
-          <div class="task-loading-lines">
-            <div class="act-skeleton shimmer" style="width: 100%; height: 12px;"></div>
-            <div class="act-skeleton shimmer" style="width: 92%; height: 12px;"></div>
-            <div class="act-skeleton shimmer" style="width: 80%; height: 12px;"></div>
-            <div class="act-skeleton shimmer" style="width: 64%; height: 12px;"></div>
-          </div>
-        </div>
       </section>
     {:else}
-    <section class="panel tasks-panel">
       {#if activeView === 'Overview'}
+        <section class="panel tasks-panel">
+          <div class="panel-header section-main-card-head">
+            <div class="section-main-card-copy">
+              <h3 class="section-main-card-title">Task Tracking</h3>
+            </div>
+          </div>
+          <div class="tasks-panel-body">
         <div class="overview-shell">
           <div class="overview-panels">
             <section class="overview-panel task-list-panel" style="background: var(--color-surface);">
@@ -2349,9 +2313,8 @@ let restoringTaskMap = {};
                     <li>
                       <button
                         type="button"
-                        class:active={selectedOverviewTask?.title === task.title}
                         class="overview-task-link"
-                        on:click={() => selectOverviewTask(task)}
+                        on:click={() => openTaskViewForm(task)}
                       >
                         <span>{task.title}</span>
                         <small>{formatDueDate(task.dueDate)}</small>
@@ -2375,9 +2338,8 @@ let restoringTaskMap = {};
                     <li>
                       <button
                         type="button"
-                        class:active={selectedOverviewTask?.title === task.title}
                         class="overview-task-link"
-                        on:click={() => selectOverviewTask(task)}
+                        on:click={() => openTaskViewForm(task)}
                       >
                         <span>{task.title}</span>
                         <small>{formatDueDate(task.dueDate)}</small>
@@ -2411,159 +2373,9 @@ let restoringTaskMap = {};
               </div>
             </section>
           </div>
-
-          {#if selectedOverviewTask}
-            <section class="overview-tracker tracker-card">
-              <div class="tracker-card-head" style="display: flex; align-items: center; gap: 0.5rem;">
-                <div class="tracker-card-heading" style="display: flex; align-items: center; gap: 0.5rem;">
-                  <LayoutGrid size={18} style="color: #0f6cbd; background: color-mix(in srgb, #0f6cbd 10%, var(--color-surface)); border-radius: 0.4rem; padding: 0.18rem;" />
-                  <h4 style="margin: 0;">Task Focus</h4>
-                </div>
-                <div class="tracker-head-actions">
-                  <span class={`status-pill ${statusClassMap[selectedOverviewTask.status]}`}>
-                    {selectedOverviewTask.status}
-                  </span>
-                  <button
-                    type="button"
-                    class="tracker-menu-trigger"
-                    aria-label="Tracker task actions"
-                    aria-expanded={trackerMenuOpen}
-                    on:click={toggleTrackerMenu}
-                  >
-                    <MoreHorizontal size={14} />
-                  </button>
-
-                  {#if trackerMenuOpen}
-                    <div class="tracker-menu">
-                      <button type="button" on:click={() => handleTrackerAction('view')}>
-                        View Task
-                      </button>
-                    </div>
-                  {/if}
-                </div>
-              </div>
-
-              {#if isEditingTrackerTask}
-                <div class="tracker-form">
-                  <label>
-                    <span>Task Title</span>
-                    <input type="text" bind:value={trackerEditForm.title} />
-                  </label>
-
-                  <div class="tracker-form-grid">
-                    <label>
-                      <span>Status</span>
-                      <select bind:value={trackerEditForm.status}>
-                        {#each editStatusOptions as option}
-                          <option value={option}>{option}</option>
-                        {/each}
-                      </select>
-                    </label>
-
-                    <label>
-                      <span>Due Date</span>
-                      <input type="date" bind:value={trackerEditForm.dueDate} />
-                    </label>
-                  </div>
-
-                  <label>
-                    <span>Description</span>
-                    <textarea rows="3" bind:value={trackerEditForm.description}></textarea>
-                  </label>
-
-                  <div class="tracker-checklist-editor">
-                    <div class="tracker-checklist-editor-head">
-                      <span>Checklist</span>
-                      <button type="button" class="attachment-upload-btn" on:click={addChecklistItem}>+ Add item</button>
-                    </div>
-
-                    {#each trackerEditForm.dailyChecklist as item, index}
-                      <div class="tracker-checklist-editor-row">
-                        <input
-                          type="checkbox"
-                          checked={item.done}
-                          on:change={() => updateChecklistItem(index, 'done', !item.done)}
-                        />
-                        <input
-                          type="text"
-                          value={item.label}
-                          on:input={(event) => updateChecklistItem(index, 'label', event.currentTarget.value)}
-                          placeholder="Checklist item"
-                        />
-                        <button type="button" class="remove-item" on:click={() => removeChecklistItem(index)}>
-                          Remove
-                        </button>
-                      </div>
-                    {/each}
-                  </div>
-
-                  <div class="attachment-editor">
-                    <div class="attachment-editor-head">
-                      <span>Attachments</span>
-                      <label class="attachment-upload-btn" for="edit-task-file-upload">Upload files</label>
-                      <input
-                        id="edit-task-file-upload"
-                        class="hidden-file-input"
-                        type="file"
-                        multiple
-                        on:change={handleEditTaskAttachmentUpload}
-                        bind:this={trackerFileInput}
-                      />
-                    </div>
-
-                    {#if trackerEditForm.attachments.length === 0}
-                      <p class="overview-empty-copy">No attachments yet.</p>
-                    {:else}
-                      <ul class="attachment-list">
-                        {#each trackerEditForm.attachments as att, index}
-                          <li>
-                            <div class="attachment-row">
-                              <div class="attachment-main">
-                                {#if att && att.link}
-                                  <a href={att.link} target="_blank" rel="noopener noreferrer">{att.file_name || att.name || att}</a>
-                                {:else}
-                                  <span>{(att && (att.file_name || att.name)) || att}</span>
-                                {/if}
-                              </div>
-                              <div class="attachment-actions">
-                                {#if att && att.link}
-                                  <a class="attachment-action" href={att.link} target="_blank" rel="noopener noreferrer" aria-label="View attachment" title="View">
-                                    <ExternalLink size={14} />
-                                  </a>
-                                  <a class="attachment-action" href={getDriveDownloadUrl(att.link)} target="_blank" rel="noopener noreferrer" aria-label="Download attachment" title="Download">
-                                    <Download size={14} />
-                                  </a>
-                                {/if}
-                                <button type="button" class="remove-item" on:click={() => removeEditTaskAttachment(index)}>
-                                  Remove
-                                </button>
-                              </div>
-                            </div>
-                          </li>
-                        {/each}
-                      </ul>
-                    {/if}
-                  </div>
-
-                  <div class="tracker-form-actions">
-                    <button type="button" class="secondary" on:click={cancelTrackerEdit}>Cancel</button>
-                    <button type="button" class="primary" on:click={saveTrackerEdit}>Save</button>
-                  </div>
-                </div>
-              {:else}
-                <div class="tracker-summary">
-                  <p class="tracker-title">{selectedOverviewTask.title}</p>
-                  <p class="tracker-description" style="color: var(--color-text); margin-bottom: 0.25em; line-height: 1.4;">{selectedOverviewTask.description}</p>
-                  <p class="tracker-meta due-attachment-meta">
-                    <span class="due-label">Due {selectedOverviewTask.dueDate}</span>
-                    <span aria-hidden="true">•</span>
-                    <span class="attachment-label">{formatAttachmentMeta(selectedOverviewTask.attachments)}</span>
-                  </p>
-                </div>
-              {/if}
-            </section>
-          {/if}
         </div>
+          </div>
+        </section>
       {:else if activeView === 'List'}
         <section class="intern-task-scroll-shell" role="table" aria-label="Assigned tasks list">
           <div class="intern-task-scroll-head" role="rowgroup" aria-hidden="true">
@@ -2670,14 +2482,18 @@ let restoringTaskMap = {};
           </div>
         </section>
       {/if}
-    </section>
     {/if}
 
     {#if activeView === 'Overview'}
-    <!-- Daily Work Logs Card -->
-    <section class="daily-logs-panel">
+    <section class="panel daily-logs-panel">
+      <div class="panel-header section-main-card-head">
+        <div class="section-main-card-copy">
+          <h3 class="section-main-card-title">Daily Work Logs</h3>
+          <p class="section-main-card-description">Log your daily activities at the end of each day.</p>
+        </div>
+      </div>
+      <div class="daily-logs-panel-body">
       <div class="daily-logs-content">
-        <!-- Add Work Log Card -->
         <div class="worklog-card worklog-form-card">
           <h4 class="worklog-card-head">
             <span class="wl-icon"><FileEdit size={13} /></span>
@@ -3193,6 +3009,7 @@ let restoringTaskMap = {};
         }
       </style>
       </div>
+      </div>
     </section>
     {/if}
   </div>
@@ -3225,8 +3042,8 @@ let restoringTaskMap = {};
             <button type="button" class="task-view-action" on:click={cancelTaskEditFromView}>Cancel</button>
           {:else}
             <button type="button" class="task-view-action" on:click={openTaskEditFromView}>Edit Task</button>
+            <button type="button" class="task-view-close" on:click={closeTaskViewForm}>Close</button>
           {/if}
-          <button type="button" class="task-view-close" on:click={closeTaskViewForm}>Close</button>
         </div>
       </div>
 
@@ -3913,6 +3730,37 @@ let restoringTaskMap = {};
   :global(html.dark) .tasks-panel {
     background: #0d1117 !important;
     border-color: #ffffff0f !important;
+  }
+
+  .section-main-card-head {
+    align-items: flex-start;
+    gap: 1rem;
+  }
+
+  .section-main-card-copy {
+    display: grid;
+    gap: 0.25rem;
+    min-width: 0;
+  }
+
+  .section-main-card-title {
+    margin: 0;
+    color: var(--color-heading);
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  .section-main-card-description {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 0.82rem;
+    line-height: 1.45;
+  }
+
+  .tasks-panel-body,
+  .daily-logs-panel-body {
+    padding: 14px;
   }
 
   .overview-shell {
@@ -4921,6 +4769,87 @@ let restoringTaskMap = {};
     height: 0.9rem;
   }
 
+  .task-view-add-form .task-view-grid {
+    gap: 0.45rem;
+    align-items: start;
+  }
+
+  .task-view-add-form .task-view-grid label span,
+  .task-view-add-form .task-view-description span {
+    display: block;
+    margin-bottom: 0.25rem;
+  }
+
+  .task-view-add-form .task-view-grid input,
+  .task-view-add-form .task-view-grid select,
+  .task-view-add-form .task-view-description textarea {
+    box-sizing: border-box;
+    min-height: 40px;
+    line-height: 1.25;
+  }
+
+  .task-view-add-form .task-view-description textarea {
+    min-height: 96px;
+    font-family: inherit;
+  }
+
+  .task-view-add-form .task-view-section .task-view-section-head {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .task-view-add-form .task-view-section .task-view-section-head span,
+  .task-view-add-form .attachment-editor .attachment-editor-head span {
+    display: block;
+    margin-bottom: 0.25rem;
+  }
+
+  .task-view-add-form .task-view-section .task-view-section-head button {
+    align-self: flex-start;
+    margin-top: 0.25rem;
+  }
+
+  .task-view-add-form .task-view-section .task-view-section-actions {
+    width: 100%;
+    display: flex;
+    justify-content: flex-start;
+  }
+
+  .task-view-add-form .task-view-section .task-view-section-actions button {
+    margin: 0;
+  }
+
+  .task-view-add-form .attachment-editor {
+    display: grid;
+    gap: 0.35rem;
+  }
+
+  .task-view-add-form .attachment-editor-head {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.35rem;
+  }
+
+  .task-view-add-form .task-view-section .ghost.btn-compact,
+  .task-view-add-form .attachment-upload-btn {
+    border-style: dashed;
+    border-width: 1px;
+    border-color: rgba(148, 163, 184, 0.18);
+    background: transparent;
+    color: var(--color-muted);
+    padding: 0.42rem 0.7rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    border-radius: 0.6rem;
+  }
+
+  .task-view-add-form .task-view-section .ghost.btn-compact:hover,
+  .task-view-add-form .attachment-upload-btn:hover {
+    background: rgba(255, 255, 255, 0.02);
+  }
+
   .archived-row {
     background: var(--color-surface);
   }
@@ -5819,8 +5748,8 @@ let restoringTaskMap = {};
     display: grid;
     grid-template-columns: 340px minmax(0, 1fr);
     gap: 14px;
-    padding: 16px;
-    background: var(--ims-ref-bg);
+    padding: 0;
+    background: transparent;
   }
 
   .worklog-card {
@@ -6471,16 +6400,17 @@ let restoringTaskMap = {};
   }
 
   .activity-shell.projects-page .tasks-panel {
-    background: transparent;
-    border: none;
-    box-shadow: none;
-    overflow: visible;
+    background: var(--ims-ref-surface);
+    border: 1px solid var(--ims-ref-border);
+    box-shadow: var(--ims-ref-shadow-sm);
+    overflow: hidden;
   }
 
+  :global(html.dark) .activity-shell.projects-page .tasks-panel,
   :global(body.dark) .activity-shell.projects-page .tasks-panel {
-    background: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
+    background: var(--ims-ref-surface) !important;
+    border: 1px solid var(--ims-ref-border) !important;
+    box-shadow: var(--ims-ref-shadow-sm) !important;
   }
 
   .activity-shell.projects-page .panel {
@@ -6499,21 +6429,20 @@ let restoringTaskMap = {};
   }
 
   .activity-shell.projects-page .daily-logs-panel {
-    background: transparent;
-    border: none;
-    box-shadow: none;
-    overflow: visible;
+    background: var(--ims-ref-surface);
+    border: 1px solid var(--ims-ref-border);
+    box-shadow: var(--ims-ref-shadow-sm);
+    overflow: hidden;
   }
 
   .activity-shell.projects-page .daily-logs-panel > .panel-header {
-    padding: 0 0 0.2rem;
-    border: none;
-    background: transparent;
+    padding: 0.95rem 1rem 0.9rem;
   }
 
+  :global(html.dark) .activity-shell.projects-page .daily-logs-panel > .panel-header,
   :global(body.dark) .activity-shell.projects-page .daily-logs-panel > .panel-header {
-    background: transparent !important;
-    border: none !important;
+    background: var(--ims-ref-surface) !important;
+    border-bottom: 1px solid var(--ims-ref-border) !important;
   }
 
   .activity-shell.projects-page .daily-logs-content {
@@ -6522,6 +6451,7 @@ let restoringTaskMap = {};
     padding: 0;
   }
 
+  :global(html.dark) .activity-shell.projects-page .daily-logs-content,
   :global(body.dark) .activity-shell.projects-page .daily-logs-content {
     background: transparent !important;
   }
@@ -6531,6 +6461,7 @@ let restoringTaskMap = {};
     padding: 0;
   }
 
+  :global(html.dark) .activity-shell.projects-page .overview-shell,
   :global(body.dark) .activity-shell.projects-page .overview-shell {
     background: transparent !important;
   }
@@ -6870,3 +6801,4 @@ let restoringTaskMap = {};
     }
   }
 </style>
+
