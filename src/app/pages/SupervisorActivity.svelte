@@ -1556,7 +1556,7 @@ function toggleEditAssigneeDropdown() {
             {#each archivedSupervisorTasks as a}
               <li style="display:flex; justify-content:space-between; align-items:center; padding:0.6rem; border-radius:0.6rem; background:var(--surface); border:1px solid var(--border);">
                 <div style="min-width:0">
-                  <div style="font-weight:700">{a.title}</div>
+                  <div class="archive-task-title">{a.title}</div>
                   <div class="muted" style="font-size:0.9rem">{formatDateToMMDDYYYY(a.due_date) || ''} — {a.status || ''}</div>
                 </div>
                 <div style="display:flex; gap:0.4rem; align-items:center;">
@@ -1572,10 +1572,8 @@ function toggleEditAssigneeDropdown() {
                   >
                     {#if restoringTaskMap[String(a.id)]}
                       <span class="archive-spinner" aria-hidden="true"></span>
-                      <span>Restoring...</span>
                     {:else}
                       <RotateCcw size={14} />
-                      <span>Restore</span>
                     {/if}
                   </button>
                 </div>
@@ -2810,30 +2808,31 @@ function toggleEditAssigneeDropdown() {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 0.45rem;
-    min-width: 7.25rem;
-    padding: 0.42rem 0.9rem;
-    border-radius: 999px;
-    border: 1px solid rgba(56, 189, 248, 0.22);
-    background: color-mix(in srgb, #38bdf8 10%, var(--surface));
-    color: #38bdf8;
-    font-size: 0.88rem;
-    font-weight: 700;
-    transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, opacity 0.18s ease;
+    width: 2.5rem;
+    height: 2rem;
+    padding: 0;
+    border-radius: 0.7rem;
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    background: linear-gradient(180deg, rgba(15, 23, 42, 0.9) 0%, rgba(15, 23, 42, 0.78) 100%);
+    color: #9ca3af;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, opacity 0.18s ease, transform 0.18s ease;
   }
 
   .restore-task-btn :global(svg) {
     flex: 0 0 auto;
+    color: currentColor;
   }
 
   .restore-task-btn:hover {
-    background: color-mix(in srgb, #38bdf8 16%, var(--surface));
-    border-color: rgba(56, 189, 248, 0.34);
-    color: #0ea5e9;
+    background: linear-gradient(180deg, rgba(30, 41, 59, 0.96) 0%, rgba(15, 23, 42, 0.86) 100%);
+    border-color: rgba(148, 163, 184, 0.22);
+    color: #d1d5db;
+    transform: translateY(-1px);
   }
 
   .restore-task-btn:focus-visible {
-    outline: 2px solid rgba(56, 189, 248, 0.24);
+    outline: 2px solid rgba(148, 163, 184, 0.22);
     outline-offset: 2px;
   }
 
@@ -2841,6 +2840,14 @@ function toggleEditAssigneeDropdown() {
   .restore-task-btn:disabled {
     cursor: not-allowed;
     opacity: 0.72;
+    transform: none;
+  }
+
+  .restore-task-btn .archive-spinner {
+    width: 0.82rem;
+    height: 0.82rem;
+    border-color: rgba(156, 163, 175, 0.22);
+    border-top-color: #d1d5db;
   }
   .quick-actions { display:flex; gap:0.45rem; align-items:center }
   .search-input { padding:0.34rem 0.6rem; border-radius:999px; border:1px solid var(--border); background:var(--soft); min-width:200px; font-size:0.95rem }
@@ -3506,10 +3513,13 @@ function toggleEditAssigneeDropdown() {
 
   .log-user strong,
   .task-name,
+  .archive-task-title,
   .title-text,
   .panel .row-value {
     color: #0f172a;
   }
+
+  .archive-task-title { font-weight: 700; }
 
   .empty,
   .muted,
@@ -3563,6 +3573,7 @@ function toggleEditAssigneeDropdown() {
   :global(.dark) .panel-head h3,
   :global(.dark) .log-user strong,
   :global(.dark) .task-name,
+  :global(.dark) .archive-task-title,
   :global(.dark) .title-text {
     color: #f1f5f9;
   }
