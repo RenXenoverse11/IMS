@@ -1,7 +1,7 @@
 <script>
   // @ts-nocheck
   import { onDestroy, onMount } from 'svelte';
-  import { Users, Clock3, CheckCircle, FileText, Download, ExternalLink, Eye, Archive, RotateCcw } from 'lucide-svelte';
+  import { Users, Clock3, CheckCircle, FileText, Download, ExternalLink, Eye, Archive, RotateCcw, Loader2 } from 'lucide-svelte';
 
   export let currentUser = null;
 
@@ -1265,8 +1265,13 @@ function toggleEditAssigneeDropdown() {
         <div class="task-view-modal-head">
           <h4>Add Task</h4>
           <div class="task-view-head-actions">
-            <button type="button" class="task-view-action primary" on:click={submitNewTask} disabled={isCreatingTask} aria-busy={isCreatingTask}>{isCreatingTask ? 'Saving...' : 'Submit'}</button>
-            <button type="button" class="task-view-close" on:click={() => { showAddTask = false; }} disabled={isCreatingTask}>Cancel</button>
+            <button type="button" class="task-view-action" on:click={() => { showAddTask = false; }} disabled={isCreatingTask}>Cancel</button>
+            <button type="button" class="task-view-action primary" style="display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;" on:click={submitNewTask} disabled={isCreatingTask} aria-busy={isCreatingTask}>
+              {#if isCreatingTask}
+                <span class="spinning-icon"><Loader2 size={16} /></span>
+              {/if}
+              <span>{isCreatingTask ? 'Saving...' : 'Save Task'}</span>
+            </button>
           </div>
         </div>
 
@@ -1857,8 +1862,13 @@ function toggleEditAssigneeDropdown() {
             <div class="task-view-modal-head">
               <h4>Edit Task</h4>
               <div class="task-view-head-actions">
-                <button type="button" class="task-view-action primary" on:click={saveEditedTask} disabled={isSavingEdit} aria-busy={isSavingEdit}>{isSavingEdit ? 'Saving...' : 'Save'}</button>
-                <button type="button" class="task-view-close" on:click={() => { showEditTask = false; }} disabled={isSavingEdit}>Cancel</button>
+                <button type="button" class="task-view-action" style="display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;" on:click={saveEditedTask} disabled={isSavingEdit} aria-busy={isSavingEdit}>
+                  {#if isSavingEdit}
+                    <span class="spinning-icon"><Loader2 size={16} /></span>
+                  {/if}
+                  <span>{isSavingEdit ? 'Saving...' : 'Save'}</span>
+                </button>
+                <button type="button" class="task-view-action" on:click={() => { showEditTask = false; }} disabled={isSavingEdit}>Cancel</button>
               </div>
             </div>
 
@@ -2987,6 +2997,18 @@ function toggleEditAssigneeDropdown() {
     cursor: not-allowed;
     opacity: 0.68;
     box-shadow: none;
+  }
+
+  .spinning-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
   }
 
   .task-view-grid {
