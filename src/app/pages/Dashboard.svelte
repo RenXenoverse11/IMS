@@ -256,11 +256,11 @@
   $: avgDailyHours = 8; // You can make this dynamic if needed
   $: totalWorkingDays = Math.ceil(Math.max(0, totalOjtHours) / avgDailyHours);
   $: remainingWorkingDays = Math.ceil(Math.max(0, hoursRemaining) / avgDailyHours);
-  $: estimatedEndDateDisplay = profile?.estimated_end_date
-    ? formatDateLong(profile.estimated_end_date)
-    : (formStartDate && hoursRemaining > 0)
-      ? getEstimatedCompletionDate(hoursRemaining, avgDailyHours, internSchedule.days_off)
-      : 'Not available yet';
+  $: estimatedEndDateDisplay = (formStartDate && hoursRemaining > 0)
+    ? getEstimatedCompletionDate(hoursRemaining, avgDailyHours, internSchedule.days_off)
+    : (profile?.estimated_end_date
+      ? formatDateLong(profile.estimated_end_date)
+      : 'Not available yet');
   $: startDateDisplay = formStartDate ? formatDateLong(formStartDate) : 'Not set yet';
   $: progressPercent = totalOjtHours > 0 ? Math.min(100, Math.round((hoursCompleted / totalOjtHours) * 100)) : 0;
   $: progressFooterRemaining = `${Number(hoursRemaining || 0).toFixed(1)}h remaining`;
@@ -285,6 +285,21 @@
     if (!raw) return '';
     const isoDate = raw.slice(0, 10);
     return /^\d{4}-\d{2}-\d{2}$/.test(isoDate) ? formatDateLong(isoDate) : raw;
+  }
+
+  function normalizeDashboardTask(task) {
+    const status = String(task?.status || 'Pending').trim() || 'Pending';
+    const title = String(task?.task_name || task?.title || task?.name || 'Task').trim() || 'Task';
+    const dueDate = normalizeDateOnly(task?.due_date || task?.dueDate || '');
+    const archivedPreviousStatus = String(task?.archived_previous_status || task?.archivedPreviousStatus || '').trim();
+    return {
+      ...task,
+      title,
+      due_date: dueDate,
+      status,
+      archived_previous_status: archivedPreviousStatus,
+      priority: String(task?.priority || 'medium').trim() || 'medium',
+    };
   }
 
   async function loadDashboard() {
@@ -347,7 +362,22 @@
       }
 
       localStorage.removeItem('ojt_completed_hours');
-      tasks = data.tasks;
+      tasks = (Array.isArray(data.tasks) ? data.tasks : [])
+        .map((task) => normalizeDashboardTask(task))
+        .filter((task) => {
+          const archivedPrevious = String(task.archived_previous_status || '').trim().toLowerCase();
+          const status = String(task.status || '').trim().toLowerCase();
+          return archivedPrevious !== 'archived' && status !== 'archived';
+        })
+        .sort((a, b) => {
+          const aDue = a?.due_date ? parseIsoDateOnly(a.due_date)?.getTime() || Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
+          const bDue = b?.due_date ? parseIsoDateOnly(b.due_date)?.getTime() || Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
+          if (aDue !== bDue) return aDue - bDue;
+          const aCreated = String(a?.created_at || '');
+          const bCreated = String(b?.created_at || '');
+          return bCreated.localeCompare(aCreated);
+        })
+        .slice(0, 10);
       pendingRequests = data.pending_requests || [];
 
       const timeLogActivities = [];
@@ -377,7 +407,7 @@
         }
       }
 
-      const allActivities = [...timeLogActivities, ...(Array.isArray(data.activity_logs) ? data.activity_logs : [])];
+      const allActivities = [...timeLogActivities];
       allActivities.sort((a, b) => {
         const dateA = String(a?.created_at || '').trim();
         const dateB = String(b?.created_at || '').trim();
@@ -616,7 +646,7 @@
       <div class="dash-bottom-grid">
         <div class="dash-panel">
           <div class="dash-panel-header">
-            <span class="dash-panel-title">Recent Activity</span>
+            <span class="dash-panel-title">Recent Logs</span>
           </div>
           <div class="dash-panel-body">
             {#if Array.isArray(activityLogs) && activityLogs.length}
@@ -634,8 +664,8 @@
                 <div class="dash-empty-icon">
                   <ClipboardList size={20} />
                 </div>
-                <div class="dash-empty-text">No recent activity yet.</div>
-                <div class="dash-empty-sub">Your logged actions and updates will appear here.</div>
+                <div class="dash-empty-text">No recent logs yet.</div>
+                <div class="dash-empty-sub">Your log in and log out records will appear here.</div>
               </div>
             {/if}
           </div>
@@ -643,7 +673,7 @@
 
         <div class="dash-panel">
           <div class="dash-panel-header">
-            <span class="dash-panel-title">Upcoming Tasks</span>
+            <span class="dash-panel-title">Assigned Tasks</span>
           </div>
           <div class="dash-panel-body">
             {#if Array.isArray(tasks) && tasks.length}
@@ -655,8 +685,8 @@
                       {task.due_date ? `Due: ${formatDateLong(String(task.due_date).slice(0, 10))}` : 'No due date'}
                     </div>
                   </div>
-                  <span class="dash-priority-badge dash-priority-{String(task.priority || 'medium').toLowerCase()}">
-                    {String(task.priority || 'Medium')}
+                  <span class="dash-priority-badge dash-priority-{String(task.status || 'Pending').toLowerCase().replace(/\s+/g, '-')}">
+                    {String(task.status || 'Pending')}
                   </span>
                 </div>
               {/each}
@@ -665,8 +695,8 @@
                 <div class="dash-empty-icon">
                   <ClipboardList size={20} />
                 </div>
-                <div class="dash-empty-text">No upcoming tasks yet.</div>
-                <div class="dash-empty-sub">Tasks assigned to you will appear here.</div>
+                <div class="dash-empty-text">No assigned tasks yet.</div>
+                <div class="dash-empty-sub">Tasks assigned to you in Activity Log will appear here.</div>
               </div>
             {/if}
           </div>
@@ -1289,6 +1319,30 @@
     border: 1px solid #86efac;
   }
 
+  .dash-priority-pending {
+    background: #fff7d6;
+    color: #92400e;
+    border: 1px solid #fde68a;
+  }
+
+  .dash-priority-in-progress {
+    background: #dbeafe;
+    color: #1d4ed8;
+    border: 1px solid #93c5fd;
+  }
+
+  .dash-priority-completed {
+    background: #dcfce7;
+    color: #166534;
+    border: 1px solid #86efac;
+  }
+
+  .dash-priority-overdue {
+    background: #ffe4e6;
+    color: #be123c;
+    border: 1px solid #fecdd3;
+  }
+
   :global(.dark) .dash-priority-high {
     background: rgba(251, 113, 133, 0.18);
     color: #fda4af;
@@ -1305,6 +1359,30 @@
     background: rgba(34, 197, 94, 0.18);
     color: #86efac;
     border-color: rgba(34, 197, 94, 0.4);
+  }
+
+  :global(.dark) .dash-priority-pending {
+    background: rgba(250, 204, 21, 0.18);
+    color: #fde047;
+    border-color: rgba(250, 204, 21, 0.4);
+  }
+
+  :global(.dark) .dash-priority-in-progress {
+    background: rgba(59, 130, 246, 0.2);
+    color: #93c5fd;
+    border-color: rgba(59, 130, 246, 0.4);
+  }
+
+  :global(.dark) .dash-priority-completed {
+    background: rgba(34, 197, 94, 0.18);
+    color: #86efac;
+    border-color: rgba(34, 197, 94, 0.4);
+  }
+
+  :global(.dark) .dash-priority-overdue {
+    background: rgba(251, 113, 133, 0.18);
+    color: #fda4af;
+    border-color: rgba(251, 113, 133, 0.4);
   }
 
   .dash-empty-state {

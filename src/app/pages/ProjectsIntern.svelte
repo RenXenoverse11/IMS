@@ -4333,7 +4333,8 @@
     --ov-fixed-list-height: calc((2.45rem * 3) + (0.55rem * 2));
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 12px;
+    gap: 16px;
+    margin-top: 6px;
     align-items: stretch;
   }
   @media (max-width: 680px) {
@@ -4672,8 +4673,8 @@
   .ov-snippets-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 0.8rem;
-    padding: 0 1rem 1rem;
+    gap: 1rem;
+    padding: 0.2rem 1rem 1.1rem;
   }
 
   @media (max-width: 1100px) {
@@ -4686,8 +4687,8 @@
   .ov-snippet-card {
     display: flex;
     flex-direction: column;
-    gap: 0.6rem;
-    padding: 1rem 1rem;
+    gap: 0.75rem;
+    padding: 1.05rem 0.95rem 0.9rem;
     border: 1px solid var(--color-border);
     border-radius: 0.75rem;
     background: var(--color-soft);
@@ -4702,14 +4703,14 @@
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 0.4rem;
+    gap: 0.55rem;
     flex-wrap: wrap;
   }
 
   .ov-snippet-top-right {
     display: flex;
     align-items: center;
-    gap: 0.35rem;
+    gap: 0.45rem;
     flex-shrink: 0;
   }
 
@@ -4729,7 +4730,7 @@
   .ov-snippet-progress {
     display: flex;
     align-items: center;
-    gap: 0.55rem;
+    gap: 0.65rem;
   }
   .ov-snippet-progress .progress-bar-outer { flex: 1; }
 
@@ -4760,14 +4761,14 @@
 
   .ov-snippet-actions {
     display: flex;
-    gap: 0.4rem;
-    margin-top: 0.1rem;
+    gap: 0.5rem;
+    margin-top: 0.2rem;
   }
   .ov-snippet-actions .sub-action-btn {
     flex: 1;
     justify-content: center;
-    font-size: 0.78rem;
-    padding: 0.3rem 0.6rem;
+    font-size: 0.79rem;
+    padding: 0.36rem 0.62rem;
   }
 
   /* ?? Your Projects Pagination ?? */

@@ -455,7 +455,10 @@ function handleGetStudentDashboard_(payload) {
   var totalCompletedHours = getTotalCompletedHoursByUserId_(userId);
 
   var activityResult = handleListActivityLogsByUser_({ user_id: userId, limit: payload.limit || 10 });
-  var tasksResult = handleListTasksByUser_({ user_id: userId, limit: payload.limit || 10 });
+  // Keep dashboard tasks in sync with Activity pages (activity_logs-backed tasks).
+  var tasksResult = (typeof getActivityTasks === 'function')
+    ? getActivityTasks({ user_id: userId })
+    : handleListTasksByUser_({ user_id: userId, limit: payload.limit || 10 });
 
   // Get pending requests (Absence and Overtime) for "All" mode calculations
   var requestsResult = handleListRequestsByUser_({ user_id: userId });
