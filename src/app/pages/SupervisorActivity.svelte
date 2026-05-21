@@ -2929,7 +2929,7 @@ function toggleEditAssigneeDropdown() {
     background: rgba(10, 20, 38, 0.45);
     display: grid;
     place-items: center;
-    z-index: 40;
+    z-index: 1000;
     padding: 1rem;
   }
 
@@ -2955,13 +2955,14 @@ function toggleEditAssigneeDropdown() {
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    background: #1f2937;
-    border-color: #374151;
+    background: var(--surface);
+    border-color: var(--border);
   }
 
   .task-view-modal.task-add-modal .task-view-modal-head {
     padding: 18px 22px 12px;
-    background: #1f2937;
+    background: transparent;
+    border-bottom: 0;
   }
 
   .task-view-modal.task-add-modal .task-view-modal-head h4 {
@@ -2970,18 +2971,18 @@ function toggleEditAssigneeDropdown() {
   }
 
   .task-add-modal-content {
-    padding: 0 22px 16px;
+    padding: 12px 22px 16px;
     overflow-y: auto;
     flex: 1;
     display: grid;
     gap: 0.8rem;
-    background: #1f2937;
+    background: var(--surface);
   }
 
   .task-add-modal-footer {
     padding: 12px 22px 16px;
-    border-top: 1px solid #374151;
-    background: #1f2937;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
     display: flex;
     justify-content: flex-end;
     gap: 8px;
@@ -3203,22 +3204,22 @@ function toggleEditAssigneeDropdown() {
   .task-view-modal.task-add-modal .task-view-grid input,
   .task-view-modal.task-add-modal .task-view-grid select,
   .task-view-modal.task-add-modal .task-view-description textarea {
-    background: #111827;
-    border-color: #374151;
-    color: #f1f5f9;
+    background: var(--soft);
+    border-color: var(--border);
+    color: var(--ink);
   }
 
   .task-view-modal.task-add-modal .task-view-grid label span,
   .task-view-modal.task-add-modal .task-view-description span,
   .task-view-modal.task-add-modal .task-view-section .task-view-section-head span,
   .task-view-modal.task-add-modal .task-view-modal-head h4 {
-    color: #e5edf8;
+    color: var(--modal-heading);
   }
 
   .task-view-modal.task-add-modal .task-view-action {
-    background: #1f2937;
-    border-color: #374151;
-    color: #e2e8f0;
+    background: var(--soft);
+    border-color: var(--border);
+    color: var(--ink);
   }
 
   .task-view-modal.task-add-modal .task-view-action.primary {
@@ -3272,9 +3273,9 @@ function toggleEditAssigneeDropdown() {
   .task-view-modal .attachment-upload-btn {
     border-style: dashed;
     border-width: 1px;
-    border-color: rgba(148,163,184,0.18);
-    background: transparent;
-    color: var(--muted);
+    border-color: var(--border);
+    background: var(--soft);
+    color: var(--ink);
     padding: 0.42rem 0.7rem;
     font-size: 0.95rem;
     font-weight: 600;
@@ -3283,7 +3284,52 @@ function toggleEditAssigneeDropdown() {
 
   .task-view-section .ghost.btn-compact:hover,
   .task-view-modal .attachment-upload-btn:hover {
-    background: rgba(255,255,255,0.02);
+    background: var(--surface2, var(--soft));
+    border-color: var(--border-strong, var(--border));
+    color: var(--ink);
+  }
+
+  :global(html.dark) .task-view-modal.task-add-modal,
+  :global(body.dark) .task-view-modal.task-add-modal {
+    background: #1f2937;
+    border-color: #374151;
+  }
+
+  :global(html.dark) .task-view-modal.task-add-modal .task-view-modal-head,
+  :global(html.dark) .task-view-modal.task-add-modal .task-add-modal-content,
+  :global(html.dark) .task-view-modal.task-add-modal .task-add-modal-footer,
+  :global(body.dark) .task-view-modal.task-add-modal .task-view-modal-head,
+  :global(body.dark) .task-view-modal.task-add-modal .task-add-modal-content,
+  :global(body.dark) .task-view-modal.task-add-modal .task-add-modal-footer {
+    background: #1f2937;
+    border-top-color: #374151;
+  }
+
+  :global(html.dark) .task-view-modal.task-add-modal .task-view-modal-head,
+  :global(body.dark) .task-view-modal.task-add-modal .task-view-modal-head {
+    border-bottom: 0;
+  }
+
+  :global(html.dark) .task-view-modal.task-add-modal .task-view-grid input,
+  :global(html.dark) .task-view-modal.task-add-modal .task-view-grid select,
+  :global(html.dark) .task-view-modal.task-add-modal .task-view-description textarea,
+  :global(body.dark) .task-view-modal.task-add-modal .task-view-grid input,
+  :global(body.dark) .task-view-modal.task-add-modal .task-view-grid select,
+  :global(body.dark) .task-view-modal.task-add-modal .task-view-description textarea {
+    background: #111827;
+    border-color: #374151;
+    color: #f1f5f9;
+  }
+
+  :global(html.dark) .task-view-modal.task-add-modal .task-view-grid label span,
+  :global(html.dark) .task-view-modal.task-add-modal .task-view-description span,
+  :global(html.dark) .task-view-modal.task-add-modal .task-view-section .task-view-section-head span,
+  :global(html.dark) .task-view-modal.task-add-modal .task-view-modal-head h4,
+  :global(body.dark) .task-view-modal.task-add-modal .task-view-grid label span,
+  :global(body.dark) .task-view-modal.task-add-modal .task-view-description span,
+  :global(body.dark) .task-view-modal.task-add-modal .task-view-section .task-view-section-head span,
+  :global(body.dark) .task-view-modal.task-add-modal .task-view-modal-head h4 {
+    color: #e5edf8;
   }
 
   .task-view-section li input[type='text'] {
