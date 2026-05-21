@@ -704,10 +704,10 @@
   }
 
   .theme-section {
-    background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
-    border: 1px solid rgba(255,255,255,0.06);
+    background: #ffffff;
+    border: 1px solid #d8e2ef;
     border-radius: 16px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
   }
 
   .settings-panel {
@@ -819,10 +819,10 @@
   }
 
   :global(.dark) .theme-section {
-    background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
-    border: 1px solid rgba(255,255,255,0.06);
+    background: #161c27;
+    border: 1px solid #ffffff12;
     border-radius: 16px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+    box-shadow: 0 1px 3px #00000040;
   }
 
   :global(.dark) .theme-input {
