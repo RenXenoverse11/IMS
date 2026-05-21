@@ -5375,6 +5375,50 @@
     border-color: #d8e2ef;
   }
 
+  :global(html:not(.dark)) .documents-container .stat-card {
+    background: #ffffff !important;
+    border-color: #d8e2ef !important;
+  }
+
+  :global(body.dark) .stat-card,
+  :global(body.dark) .folder-card,
+  :global(body.dark) .docs-panel,
+  :global(body.dark) .modal,
+  :global(html.dark) .stat-card,
+  :global(html.dark) .folder-card,
+  :global(html.dark) .docs-panel,
+  :global(html.dark) .modal {
+    background: #161c27;
+    border-color: #ffffff12;
+  }
+
+  :global(body.dark) .documents-container .stat-card,
+  :global(html.dark) .documents-container .stat-card {
+    background: #161c27 !important;
+    border-color: #ffffff12 !important;
+    box-shadow: 0 1px 3px #00000040 !important;
+  }
+
+  :global(body.dark) .stat-card:hover,
+  :global(html.dark) .stat-card:hover {
+    background: #1e2736;
+  }
+
+  :global(body.dark) .documents-container .stat-card:hover,
+  :global(html.dark) .documents-container .stat-card:hover {
+    background: #1e2736 !important;
+  }
+
+  /* Force the top Documents stat cards to use the exact same surface token as sidebar in both modes */
+  .documents-container .stats-row .stat-card {
+    background: var(--s) !important;
+    border-color: color-mix(in srgb, var(--b) 85%, transparent) !important;
+  }
+
+  .documents-container .stats-row .stat-card:hover {
+    background: var(--s) !important;
+  }
+
   :global(html:not(.dark)) .stat-value,
   :global(html:not(.dark)) .stat-label,
   :global(html:not(.dark)) .stat-sub,
