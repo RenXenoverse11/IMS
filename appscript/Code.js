@@ -1922,6 +1922,49 @@ function handleListSupervisorAssignedStudents_(payload) {
   }
 
   var completedHoursLookup = getCompletedHoursLookupByUserIds_(studentIds);
+  var lastActivityLookup = {};
+  try {
+    var activityRows = readSheetObjects_(getActiveSessionsSheet_());
+    var targetLookup = {};
+    for (var tu = 0; tu < studentIds.length; tu++) {
+      targetLookup[studentIds[tu]] = true;
+    }
+
+    for (var ar = 0; ar < activityRows.length; ar++) {
+      var activityRow = activityRows[ar] || {};
+      var activityUserId = String(serializeCellValue_(activityRow.user_id) || '').trim();
+      if (!activityUserId || !targetLookup[activityUserId]) {
+        continue;
+      }
+
+      var candidateRaw = String(
+        serializeCellValue_(activityRow.created_at) ||
+        serializeCellValue_(activityRow.time_out) ||
+        serializeCellValue_(activityRow.time_in) ||
+        serializeCellValue_(activityRow.log_date) ||
+        ''
+      ).trim();
+      if (!candidateRaw) continue;
+
+      var candidateTs = new Date(candidateRaw).getTime();
+      if (Number.isNaN(candidateTs)) {
+        var candidateDateOnly = String(formatDateYMD_(activityRow.log_date) || '').trim();
+        candidateTs = candidateDateOnly ? new Date(candidateDateOnly + 'T00:00:00').getTime() : NaN;
+      }
+      if (Number.isNaN(candidateTs)) continue;
+
+      var existing = lastActivityLookup[activityUserId];
+      var existingTs = existing ? Number(existing.ts || 0) : 0;
+      if (!existing || candidateTs > existingTs) {
+        lastActivityLookup[activityUserId] = {
+          ts: candidateTs,
+          value: candidateRaw
+        };
+      }
+    }
+  } catch (e) {
+    // Non-fatal: keep last activity empty when session history is unavailable.
+  }
   var students = [];
 
   // Load intern schedules for all student IDs
@@ -1980,6 +2023,7 @@ function handleListSupervisorAssignedStudents_(payload) {
       completed_hours: completedHours,
       remaining_hours: Math.max(0, requiredHours - completedHours),
       estimated_end_date: String((profile && profile.estimated_end_date) || ''),
+      last_activity: String((lastActivityLookup[assignmentStudentId] && lastActivityLookup[assignmentStudentId].value) || ''),
       assignment_id: String(assignment.assignment_id || ''),
       shift_start: scheduleData.shift_start || '',
       shift_end: scheduleData.shift_end || '',

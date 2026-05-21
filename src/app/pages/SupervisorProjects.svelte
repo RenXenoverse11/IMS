@@ -3123,7 +3123,7 @@
   .ov-date-past { color: #dc2626; }
   .ov-date-near { color: #d97706; }
 
-  .ov-snippets-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.8rem; }
+  .ov-snippets-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.8rem; }
   .ov-snippet-card {
     display: flex;
     flex-direction: column;
@@ -3469,6 +3469,7 @@
     .stat-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .quick-head { flex-direction: column; align-items: stretch; gap: 0.65rem; }
     .quick-actions { margin-left: 0; width: 100%; flex-wrap: wrap; justify-content: flex-start; }
+    .ov-snippets-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
 
   @media (max-width: 768px) {

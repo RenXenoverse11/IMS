@@ -53,6 +53,19 @@
     return Number(row?.pendingCount || 0);
   }
 
+  function getOverdueTaskCount(studentUserId) {
+    const row = tasksSummaryByStudent[String(studentUserId || '').trim()] || null;
+    return Number(row?.overdueCount || 0);
+  }
+
+  function getTaskSummaryLabel(studentUserId) {
+    const pending = getPendingTaskCount(studentUserId);
+    const overdue = getOverdueTaskCount(studentUserId);
+    if (pending <= 0 && overdue <= 0) return 'No pending tasks';
+    if (overdue > 0) return `${pending} pending • ${overdue} overdue`;
+    return `${pending} pending`;
+  }
+
   function hasClockInToday(studentUserId) {
     const row = todayTimelogByStudent[String(studentUserId || '').trim()] || null;
     return Boolean(String(row?.time_in || '').trim());
@@ -108,10 +121,43 @@
   }
 
   function requestMatchesToday(req) {
-    const reqDate = String(req?.request_date || req?.date || '').trim();
-    if (!reqDate) return false;
-    const dateOnly = reqDate.includes('T') ? reqDate.split('T')[0] : reqDate.split(' ')[0];
-    return dateOnly === today;
+    const reqDateRaw = String(req?.request_date || req?.date || '').trim();
+    if (!reqDateRaw) return false;
+
+    const toIsoDate = (value) => {
+      const text = String(value || '').trim();
+      if (!text) return '';
+
+      // Already date-only ISO
+      if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+
+      // ISO datetime
+      const isoMatch = text.match(/^(\d{4}-\d{2}-\d{2})[T\s]/);
+      if (isoMatch) return isoMatch[1];
+
+      // dd/mm/yyyy or mm/dd/yyyy (best-effort for dashboard display matching)
+      const slashMatch = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (slashMatch) {
+        const a = Number(slashMatch[1]);
+        const b = Number(slashMatch[2]);
+        const y = Number(slashMatch[3]);
+        // If first token cannot be month, treat as dd/mm/yyyy.
+        const month = a > 12 ? b : a;
+        const day = a > 12 ? a : b;
+        return `${y}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      }
+
+      // "Apr 30, 2026" and other parseable values
+      const parsed = new Date(text);
+      if (!Number.isNaN(parsed.getTime())) {
+        return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
+      }
+
+      return '';
+    };
+
+    const dateOnly = toIsoDate(reqDateRaw);
+    return !!dateOnly && dateOnly === today;
   }
 
   function getStudentRequestsToday(studentUserId) {
@@ -122,12 +168,24 @@
 
   function isApprovedAbsenceToday(studentUserId) {
     const todays = getStudentRequestsToday(studentUserId);
-    return todays.some((req) => String(req?.request_type || '').toLowerCase() === 'absence' && String(req?.status || '').toLowerCase() === 'approved');
+    return todays.some((req) => {
+      const type = String(req?.request_type || req?.requestType || '').toLowerCase().trim();
+      const status = String(req?.status || '').toLowerCase().trim();
+      const archivedPrevious = String(req?.archived_previous_status || req?.archivedPreviousStatus || '').toLowerCase().trim();
+      const approved = status === 'approved' || (status === 'archived' && archivedPrevious === 'approved');
+      return type === 'absence' && approved;
+    });
   }
 
   function hasApprovedOvertimeToday(studentUserId) {
     const todays = getStudentRequestsToday(studentUserId);
-    return todays.some((req) => String(req?.request_type || '').toLowerCase() === 'overtime' && String(req?.status || '').toLowerCase() === 'approved');
+    return todays.some((req) => {
+      const type = String(req?.request_type || req?.requestType || '').toLowerCase().trim();
+      const status = String(req?.status || '').toLowerCase().trim();
+      const archivedPrevious = String(req?.archived_previous_status || req?.archivedPreviousStatus || '').toLowerCase().trim();
+      const approved = status === 'approved' || (status === 'archived' && archivedPrevious === 'approved');
+      return type === 'overtime' && approved;
+    });
   }
 
   function extractTimeFromDateString(dateString) {
@@ -337,7 +395,7 @@
         .filter(Boolean);
 
       const defaultTaskSummary = Object.fromEntries(
-        studentUserIds.map((studentUserId) => [studentUserId, { pendingCount: 0, total: 0 }])
+        studentUserIds.map((studentUserId) => [studentUserId, { pendingCount: 0, overdueCount: 0, total: 0 }])
       );
 
       try {
@@ -366,7 +424,7 @@
           const taskEntries = await Promise.all(
             assignedStudents.map(async (student) => {
               const studentUserId = String(student?.user_id || '').trim();
-              if (!studentUserId) return [studentUserId, { pendingCount: 0, total: 0 }];
+              if (!studentUserId) return [studentUserId, { pendingCount: 0, overdueCount: 0, total: 0 }];
 
               try {
                 const tasks = await listTasksByUser(studentUserId, { limit: 200 });
@@ -376,9 +434,10 @@
                   const status = String(task?.status || '').toLowerCase().trim();
                   return status !== 'completed' && status !== '';
                 }).length;
-                return [studentUserId, { pendingCount, total: list.length }];
+                const overdueCount = list.filter((task) => String(task?.status || '').toLowerCase().trim() === 'overdue').length;
+                return [studentUserId, { pendingCount, overdueCount, total: list.length }];
               } catch {
-                return [studentUserId, { pendingCount: 0, total: 0 }];
+                return [studentUserId, { pendingCount: 0, overdueCount: 0, total: 0 }];
               }
             })
           );
@@ -390,7 +449,11 @@
           tasksSummaryByStudent = Object.fromEntries(
             studentUserIds.map((studentUserId) => {
               const row = taskMap[studentUserId] || {};
-              return [studentUserId, { pendingCount: Number(row?.pendingCount || 0), total: Number(row?.total || 0) }];
+              return [studentUserId, {
+                pendingCount: Number(row?.pendingCount || 0),
+                overdueCount: Number(row?.overdueCount || 0),
+                total: Number(row?.total || 0),
+              }];
             })
           );
         }
@@ -420,7 +483,7 @@
           Promise.all(
             assignedStudents.map(async (student) => {
               const studentUserId = String(student?.user_id || '').trim();
-              if (!studentUserId) return [studentUserId, { pendingCount: 0, total: 0 }];
+              if (!studentUserId) return [studentUserId, { pendingCount: 0, overdueCount: 0, total: 0 }];
 
               try {
                 const tasks = await listTasksByUser(studentUserId, { limit: 200 });
@@ -430,9 +493,10 @@
                   const status = String(task?.status || '').toLowerCase().trim();
                   return status !== 'completed' && status !== '';
                 }).length;
-                return [studentUserId, { pendingCount, total: list.length }];
+                const overdueCount = list.filter((task) => String(task?.status || '').toLowerCase().trim() === 'overdue').length;
+                return [studentUserId, { pendingCount, overdueCount, total: list.length }];
               } catch {
-                return [studentUserId, { pendingCount: 0, total: 0 }];
+                return [studentUserId, { pendingCount: 0, overdueCount: 0, total: 0 }];
               }
             })
           ),
@@ -610,7 +674,7 @@
               {@const attendance = getAttendanceStatus(intern)}
               {@const clock = getClockStatus(intern?.user_id, intern)}
               {@const schedule = getScheduleDisplay(intern)}
-              {@const pendingTasks = getPendingTaskCount(intern?.user_id)}
+              {@const taskSummaryLabel = getTaskSummaryLabel(intern?.user_id)}
               {@const cardTone = remainingDays !== null && remainingDays <= 0 ? 'danger' : (attendance.tone || 'muted')}
               {@const pillTone = cardTone}
 
@@ -637,7 +701,7 @@
                   <div class="intern-row">
                     <span class="row-icon"><FileText size={14} /></span>
                     <span class="row-label">Tasks</span>
-                    <span class="row-value">{pendingTasks} pending</span>
+                    <span class="row-value">{taskSummaryLabel}</span>
                   </div>
                   <div class="intern-row">
                     <span class="row-icon"><CheckCircle size={14} /></span>

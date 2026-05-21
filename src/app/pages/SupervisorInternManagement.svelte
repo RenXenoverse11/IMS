@@ -248,6 +248,60 @@
     return 'info';
   }
 
+  function parseDateFlexible(value) {
+    const raw = String(value ?? '').trim();
+    if (!raw) return null;
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+      const [y, m, d] = raw.split('-').map(Number);
+      const dt = new Date(y, m - 1, d);
+      return Number.isNaN(dt.getTime()) ? null : dt;
+    }
+
+    const direct = new Date(raw);
+    if (!Number.isNaN(direct.getTime())) {
+      return new Date(direct.getFullYear(), direct.getMonth(), direct.getDate());
+    }
+
+    const dateOnly = raw.includes('T') ? raw.split('T')[0] : raw.split(' ')[0];
+    const fallback = new Date(`${dateOnly}T00:00:00`);
+    if (!Number.isNaN(fallback.getTime())) {
+      return new Date(fallback.getFullYear(), fallback.getMonth(), fallback.getDate());
+    }
+
+    return null;
+  }
+
+  function getCurrentStatusLabel(student, remainingHours, projectedEndDate, daysLeft) {
+    const remaining = Math.max(0, toNumber(remainingHours));
+    if (remaining <= 0) return 'Completed';
+
+    const attendanceHints = [
+      student?.attendance_status,
+      student?.intern_status,
+      student?.status,
+      student?.current_status,
+    ]
+      .map((value) => String(value || '').toLowerCase().trim())
+      .filter(Boolean)
+      .join(' ');
+    if (attendanceHints.includes('approved absence') || attendanceHints.includes('on leave')) {
+      return 'On Leave Today';
+    }
+
+    const today = toDateOnly(new Date());
+    const endDate = toDateOnly(projectedEndDate);
+    if (today && endDate && endDate < today) {
+      return 'Overdue';
+    }
+
+    if (daysLeft <= 3 && remaining > HOURS_PER_WORKING_DAY * 2) {
+      return 'Needs Attention';
+    }
+
+    return 'On Track';
+  }
+
   function syncSelectedFromFetched(students, assigned) {
     // No longer needed - removed
   }
@@ -565,6 +619,21 @@
   </section>
 {:else}
   <div class="content">
+    {#if loading}
+      <div class="card loading-shell">
+        <div class="card-header loading-header">
+          <div>
+            <div class="sk-line shimmer" style="height: 16px; width: 180px; border-radius: 8px;"></div>
+            <div class="sk-line shimmer" style="height: 11px; width: 240px; border-radius: 7px; margin-top: 10px;"></div>
+          </div>
+          <div class="btn-group loading-actions">
+            <div class="sk-pill shimmer" style="width: 96px; height: 42px;"></div>
+            <div class="sk-pill shimmer" style="width: 124px; height: 42px;"></div>
+          </div>
+        </div>
+      </div>
+    {/if}
+
     <div class="stats-grid">
       {#if loading}
         {#each [1, 2, 3, 4] as _}
@@ -672,6 +741,16 @@
                   <div class="sk-line shimmer" style="height: 10px; width: 46%; border-radius: 7px;"></div>
                   <div class="sk-line shimmer" style="height: 10px; width: 32%; border-radius: 7px;"></div>
                 </div>
+                <div class="detail-grid skeleton-detail-grid">
+                  <div class="detail-row skeleton-detail-row">
+                    <div class="sk-line shimmer" style="height: 10px; width: 72px; border-radius: 7px;"></div>
+                    <div class="sk-line shimmer" style="height: 18px; width: 92px; border-radius: 999px; margin-left: auto;"></div>
+                  </div>
+                  <div class="detail-row skeleton-detail-row">
+                    <div class="sk-line shimmer" style="height: 10px; width: 88px; border-radius: 7px;"></div>
+                    <div class="sk-line shimmer" style="height: 18px; width: 84px; border-radius: 999px; margin-left: auto;"></div>
+                  </div>
+                </div>
               </div>
             </article>
           {/each}
@@ -700,10 +779,7 @@
             {@const projectedEndDate = getProjectedEndDateFromProgress(required, completed, getStudentDaysOff(student))}
             {@const ojtEndDateDisplay = formatDateObject(projectedEndDate)}
             {@const estimatedCompletionRaw = firstNonEmptyText(student?.estimated_end_date, student?.estimated_completion_date, student?.estimated_completion, student?.projected_completion_date, student?.expected_completion_date)}
-            {@const estimatedCompletionDisplay = estimatedCompletionRaw ? normalizeDate(estimatedCompletionRaw) : 'Not available'}
-            {@const statusText = firstNonEmptyText(student?.status, student?.intern_status, student?.ojt_status, student?.attendance_status, student?.current_status) || 'Not available'}
-            {@const lastActivityRaw = firstNonEmptyText(student?.last_activity, student?.last_time_log, student?.last_timelog, student?.latest_timelog, student?.last_log_date, student?.last_log_at, student?.updated_at)}
-            {@const lastActivityDisplay = lastActivityRaw ? formatMaybeDateTime(lastActivityRaw, 'No recent activity') : 'No recent activity'}
+            {@const statusText = getCurrentStatusLabel(student, remaining, projectedEndDate, daysLeft)}
             <article class="assigned-card">
               <div class="card-header-row">
                 <div class="assigned-info">
@@ -774,16 +850,8 @@
                       <span class="detail-value">{ojtEndDateDisplay || '—'}</span>
                     </div>
                     <div class="detail-row">
-                      <span class="detail-key">Estimated Completion</span>
-                      <span class="detail-value">{estimatedCompletionDisplay || '—'}</span>
-                    </div>
-                    <div class="detail-row">
                       <span class="detail-key">Current Status</span>
                       <span class="detail-value detail-status">{statusText || 'Not available'}</span>
-                    </div>
-                    <div class="detail-row">
-                      <span class="detail-key">Last Activity</span>
-                      <span class="detail-value">{lastActivityDisplay || 'No recent activity'}</span>
                     </div>
                   </div>
                 </div>
@@ -1134,6 +1202,19 @@
     gap: 20px;
   }
 
+  .loading-shell {
+    min-height: auto;
+  }
+
+  .loading-header {
+    align-items: center;
+  }
+
+  .loading-actions {
+    min-width: 240px;
+    justify-content: flex-end;
+  }
+
   .warning-alert {
     border-radius: 0.75rem;
     border: 1px solid;
@@ -1275,24 +1356,29 @@
   }
 
   .alert {
-    padding: 0.75rem 1rem;
+    width: 100%;
+    min-height: 48px;
+    display: flex;
+    align-items: center;
+    padding: 0.7rem 1rem;
     border-radius: 10px;
     border: 1px solid;
     font-size: 0.875rem;
     font-weight: 500;
     margin: 0;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
   }
 
   .alert-error {
-    background: #fef2f2;
-    border-color: #fed7d7;
-    color: #991b1b;
+    background: #fff5f5;
+    border-color: #fda4a4;
+    color: #b91c1c;
   }
 
   .alert-success {
-    background: #ecfdf5;
-    border-color: #a7f3d0;
-    color: #065f46;
+    background: #f0fdf4;
+    border-color: #86efac;
+    color: #166534;
   }
 
   .card-body-shell {
@@ -2095,6 +2181,18 @@
     border-color: rgba(148, 163, 184, 0.14);
   }
 
+  .skeleton-detail-grid {
+    display: grid;
+    gap: 8px;
+    margin-top: 2px;
+  }
+
+  .skeleton-detail-row {
+    padding: 0;
+    min-height: 20px;
+    align-items: center;
+  }
+
   .sk-line,
   .sk-pill {
     display: inline-block;
@@ -2295,6 +2393,18 @@
     background: #fef3c7;
     border-color: #fcd34d;
     color: #92400e;
+  }
+
+  :global(.dark) .alert-error {
+    background: rgba(127, 29, 29, 0.18);
+    border-color: rgba(248, 113, 113, 0.7);
+    color: #fecaca;
+  }
+
+  :global(.dark) .alert-success {
+    background: rgba(20, 83, 45, 0.22);
+    border-color: rgba(74, 222, 128, 0.72);
+    color: #bbf7d0;
   }
 
   :global(.dark) .stat-label {

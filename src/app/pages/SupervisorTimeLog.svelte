@@ -1,6 +1,6 @@
 <script>
   import { onDestroy, onMount, tick } from 'svelte';
-  import { Clock3, ListFilter, RefreshCw, Trash2, UserCircle2, Users, Loader2 } from 'lucide-svelte';
+  import { Clock3, RefreshCw, Trash2, UserCircle2, Users, Loader2 } from 'lucide-svelte';
   import {
     callApiAction,
     deleteSupervisorTimeLog,
@@ -163,6 +163,18 @@
       month: 'short',
       day: 'numeric',
       year: 'numeric',
+    }).format(parsed);
+  }
+
+  function formatWeekday(value) {
+    const text = toDateOnly(value);
+    const parsed = new Date(`${text}T00:00:00`);
+    if (Number.isNaN(parsed.getTime())) {
+      return '';
+    }
+
+    return new Intl.DateTimeFormat('en-US', {
+      weekday: 'short',
     }).format(parsed);
   }
 
@@ -414,35 +426,6 @@
     }
   }
 
-  async function handleDelete(logId) {
-    const supervisorId = String(currentUser?.user_id || '').trim();
-    const studentId = String(selectedStudentId || '').trim();
-    const timelogId = String(logId || '').trim();
-
-    if (!supervisorId || !studentId || !timelogId) {
-      return;
-    }
-
-    const confirmed = window.confirm('Delete this student time log entry?');
-    if (!confirmed) {
-      return;
-    }
-
-    deletingId = timelogId;
-    errorMessage = '';
-    successMessage = '';
-
-    try {
-      await deleteSupervisorTimeLog(supervisorId, studentId, timelogId);
-      logs = logs.filter((row) => String(row.timelog_id) !== timelogId);
-      successMessage = 'Intern time log deleted successfully.';
-    } catch (err) {
-      errorMessage = err?.message || 'Unable to delete selected time log.';
-    } finally {
-      deletingId = '';
-    }
-  }
-
   async function exportAttendanceSheetPdf() {
     if (isExportingAttendance) return;
     if (!attendanceEntriesForExport.length) {
@@ -490,6 +473,35 @@
       }
     } finally {
       isExportingAttendance = false;
+    }
+  }
+
+  async function handleDelete(logId) {
+    const supervisorId = String(currentUser?.user_id || '').trim();
+    const studentId = String(selectedStudentId || '').trim();
+    const timelogId = String(logId || '').trim();
+
+    if (!supervisorId || !studentId || !timelogId) {
+      return;
+    }
+
+    const confirmed = window.confirm('Delete this student time log entry?');
+    if (!confirmed) {
+      return;
+    }
+
+    deletingId = timelogId;
+    errorMessage = '';
+    successMessage = '';
+
+    try {
+      await deleteSupervisorTimeLog(supervisorId, studentId, timelogId);
+      logs = logs.filter((row) => String(row.timelog_id) !== timelogId);
+      successMessage = 'Intern time log deleted successfully.';
+    } catch (err) {
+      errorMessage = err?.message || 'Unable to delete selected time log.';
+    } finally {
+      deletingId = '';
     }
   }
 
@@ -543,12 +555,7 @@
   </section>
 {:else}
   <section class="stl-shell">
-    {#if loadingActiveSessions && assignedStudents.length > 0}
-      <section class="stl-card stl-card-success stl-skeleton-panel">
-        <div class="sk-line shimmer" style="height: 14px; width: 180px; border-radius: 8px;"></div>
-        <div class="sk-line shimmer" style="height: 11px; width: 240px; border-radius: 7px; margin-top: 8px;"></div>
-      </section>
-    {:else if activeSessions.length > 0}
+    {#if activeSessions.length > 0}
       <section class="stl-card stl-card-success">
         <div class="section-head">
           <div class="section-icon icon-green"><Clock3 size={18} /></div>
@@ -582,29 +589,28 @@
     {/if}
 
     {#if loadingStudents}
-      <div class="stats-grid">
-        {#each [1, 2, 3, 4] as _}
-          <article class="stl-card stat-card skeleton-stat-card">
-            <div class="sk-pill shimmer"></div>
-            <div class="sk-line shimmer" style="height: 22px; width: 55%; border-radius: 8px; margin-top: 18px;"></div>
-            <div class="sk-line shimmer" style="height: 11px; width: 42%; border-radius: 7px; margin-top: 10px;"></div>
+      <div class="stats-grid" aria-hidden="true">
+        {#each Array(4) as _}
+          <article class="stl-card stat-card stat-card-skeleton">
+            <div class="stat-icon sk-block sk-shimmer"></div>
+            <div class="stat-copy">
+              <div class="sk-line sk-shimmer stat-label-sk"></div>
+              <div class="sk-line sk-shimmer stat-value-sk"></div>
+              <div class="sk-line sk-shimmer stat-sub-sk"></div>
+            </div>
           </article>
         {/each}
       </div>
 
       <div class="control-head">
         <div class="control-actions">
-          <label class="selector-wrap">
-            <ListFilter size={15} class="selector-icon" />
-            <select bind:value={selectedStudentId} class="stl-input" on:change={loadLogs}>
-              <option value="">Loading intern accounts...</option>
-            </select>
-          </label>
+          <div class="selector-wrap selector-wrap-skeleton" aria-hidden="true">
+            <div class="sk-line sk-shimmer selector-sk"></div>
+          </div>
 
-          <button type="button" class="btn-secondary" on:click={loadAssignedStudents} disabled={loadingStudents || loadingLogs}>
-            <RefreshCw size={15} />
-            Refresh
-          </button>
+          <div class="btn-secondary btn-secondary-skeleton" aria-hidden="true">
+            <div class="sk-line sk-shimmer button-sk"></div>
+          </div>
         </div>
       </div>
 
@@ -614,33 +620,31 @@
             <h3 class="section-title">Time Log Entries</h3>
             <p class="section-sub">Loading entries...</p>
           </div>
-          <div class="stl-table-tools stl-table-tools-skeleton">
-            <div class="sk-line shimmer" style="height: 11px; width: 120px; border-radius: 7px;"></div>
-            <div class="sk-pill shimmer" style="width: 148px; height: 34px;"></div>
-            <div class="sk-pill shimmer" style="width: 170px; height: 34px;"></div>
+          <div class="stl-table-tools">
+            <div class="loading-chip loading-chip-skeleton" aria-hidden="true">
+              <div class="sk-line sk-shimmer chip-sk"></div>
+            </div>
           </div>
         </div>
         <div class="table-wrap">
-          <table class="stl-table" style="min-width: 700px;">
+          <table class="stl-table table-skeleton" style="min-width: 700px;" aria-hidden="true">
             <thead>
               <tr>
                 <th>Date</th>
                 <th>Time In</th>
                 <th>Time Out</th>
                 <th>Hours</th>
-                <th>Notes</th>
-                <th class="text-right">Action</th>
+                <th class="action-col">Action</th>
               </tr>
             </thead>
             <tbody>
-              {#each [1, 2, 3, 4, 5, 6, 7, 8] as __}
+              {#each Array(6) as _}
                 <tr>
-                  <td><div class="sk-line shimmer" style="height: 11px; width: 90px; border-radius: 7px;"></div></td>
-                  <td><div class="sk-line shimmer" style="height: 11px; width: 64px; border-radius: 7px;"></div></td>
-                  <td><div class="sk-line shimmer" style="height: 11px; width: 64px; border-radius: 7px;"></div></td>
-                  <td><div class="sk-line shimmer" style="height: 11px; width: 40px; border-radius: 7px;"></div></td>
-                  <td><div class="sk-line shimmer" style="height: 11px; width: 70px; border-radius: 7px;"></div></td>
-                  <td class="text-right"><div class="sk-pill shimmer" style="width: 58px;"></div></td>
+                  <td><div class="sk-line sk-shimmer cell-date-sk"></div></td>
+                  <td><div class="sk-line sk-shimmer cell-time-sk"></div></td>
+                  <td><div class="sk-line sk-shimmer cell-time-sk"></div></td>
+                  <td><div class="sk-line sk-shimmer cell-hours-sk"></div></td>
+                  <td class="action-col"><div class="sk-pill sk-shimmer action-pill-sk"></div></td>
                 </tr>
               {/each}
             </tbody>
@@ -695,7 +699,6 @@
       <div class="control-head">
         <div class="control-actions">
           <label class="selector-wrap">
-            <ListFilter size={15} class="selector-icon" />
             <select bind:value={selectedStudentId} class="stl-input" on:change={loadLogs}>
               {#if loadingStudents}
                 <option value="">Loading intern accounts...</option>
@@ -720,7 +723,7 @@
         <div class="stl-table-header">
           <div>
             <h3 class="section-title">Time Log Entries</h3>
-            <p class="section-sub">You can delete invalid entries from your assigned interns.</p>
+            <p class="section-sub">Review completed entries from your assigned interns.</p>
           </div>
           <div class="stl-table-tools">
             <span class="stl-entry-count">{attendanceEntriesForExport.length} completed {attendanceEntriesForExport.length === 1 ? 'entry' : 'entries'}</span>
@@ -741,26 +744,24 @@
 
         {#if loadingLogs}
           <div class="table-wrap">
-            <table class="stl-table" style="min-width: 700px;">
+            <table class="stl-table table-skeleton" style="min-width: 700px;" aria-hidden="true">
               <thead>
                 <tr>
                   <th>Date</th>
                   <th>Time In</th>
                   <th>Time Out</th>
                   <th>Hours</th>
-                  <th>Notes</th>
-                  <th class="text-right">Action</th>
+                  <th class="action-col">Action</th>
                 </tr>
               </thead>
               <tbody>
-                {#each [1, 2, 3, 4, 5, 6, 7, 8] as __}
+                {#each Array(6) as _}
                   <tr>
-                    <td><div class="sk-line shimmer" style="height: 11px; width: 90px; border-radius: 7px;"></div></td>
-                    <td><div class="sk-line shimmer" style="height: 11px; width: 64px; border-radius: 7px;"></div></td>
-                    <td><div class="sk-line shimmer" style="height: 11px; width: 64px; border-radius: 7px;"></div></td>
-                    <td><div class="sk-line shimmer" style="height: 11px; width: 40px; border-radius: 7px;"></div></td>
-                    <td><div class="sk-line shimmer" style="height: 11px; width: 70px; border-radius: 7px;"></div></td>
-                    <td class="text-right"><div class="sk-pill shimmer" style="width: 58px;"></div></td>
+                    <td><div class="sk-line sk-shimmer cell-date-sk"></div></td>
+                    <td><div class="sk-line sk-shimmer cell-time-sk"></div></td>
+                    <td><div class="sk-line sk-shimmer cell-time-sk"></div></td>
+                    <td><div class="sk-line sk-shimmer cell-hours-sk"></div></td>
+                    <td class="action-col"><div class="sk-pill sk-shimmer action-pill-sk"></div></td>
                   </tr>
                 {/each}
               </tbody>
@@ -781,19 +782,37 @@
                   <th>Time In</th>
                   <th>Time Out</th>
                   <th>Hours</th>
-                  <th>Notes</th>
-                  <th class="text-right">Action</th>
+                  <th class="action-col">Action</th>
                 </tr>
               </thead>
               <tbody>
                 {#each logs as row (row.timelog_id)}
                   <tr>
-                    <td>{formatDate(row.log_date)}</td>
-                    <td>{toTimeText(row.time_in)}</td>
-                    <td>{toTimeText(row.time_out)}</td>
-                    <td class="font-semibold">{formatHours(row.hours_rendered)}h</td>
-                    <td>{row.notes || '-'}</td>
-                    <td class="text-right">
+                    <td data-label="Date">
+                      <div class="log-date-cell">
+                        <span class="log-date-day">{formatWeekday(row.log_date)}</span>
+                        <div class="log-date-copy">
+                          <span class="log-date-main">{formatDate(row.log_date)}</span>
+                          <span class="log-date-sub">Attendance record</span>
+                        </div>
+                      </div>
+                    </td>
+                    <td data-label="Time In">
+                      <div class="time-cell">
+                        <span class="time-main">{toTimeText(row.time_in)}</span>
+                        <span class="time-sub">Clock in</span>
+                      </div>
+                    </td>
+                    <td data-label="Time Out">
+                      <div class="time-cell">
+                        <span class="time-main">{toTimeText(row.time_out)}</span>
+                        <span class="time-sub">Clock out</span>
+                      </div>
+                    </td>
+                    <td data-label="Hours">
+                      <span class="hours-badge">{formatHours(row.hours_rendered)}h</span>
+                    </td>
+                    <td class="action-col" data-label="Action">
                       <button
                         type="button"
                         class="btn-delete"
@@ -983,15 +1002,6 @@
     min-height: 42px;
   }
 
-  .selector-icon {
-    position: absolute;
-    left: 11px;
-    top: 50%;
-    transform: translateY(-50%);
-    color: #64748b;
-    pointer-events: none;
-  }
-
   .stl-input {
     width: 100%;
     height: 42px;
@@ -1000,7 +1010,7 @@
     background: #f8fafc;
     color: #0f172a;
     border-radius: 10px;
-    padding: 10px 12px 10px 34px;
+    padding: 10px 12px;
     font-size: 13px;
     outline: none;
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
@@ -1151,13 +1161,6 @@
     padding-top: 7px;
   }
 
-  .skeleton-stat-card {
-    align-items: stretch;
-    flex-direction: column;
-    gap: 8px;
-    min-height: 132px;
-  }
-
   .progress-track {
     height: 8px;
     border-radius: 999px;
@@ -1205,10 +1208,6 @@
     gap: 10px;
     flex-wrap: wrap;
     justify-content: flex-end;
-  }
-
-  .stl-table-tools-skeleton {
-    align-items: center;
   }
 
   .stl-entry-count {
@@ -1275,16 +1274,30 @@
     margin-top: 12px;
     max-height: 520px;
     overflow: auto;
-    border-radius: 10px;
-    border: 1px solid #e2e8f0;
-    background: #f8fafc;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
+    border-radius: 16px;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    background:
+      linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(241, 245, 249, 0.88));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+    scrollbar-width: thin;
+    scrollbar-color: rgba(59, 130, 246, 0.55) rgba(15, 23, 42, 0.18);
   }
 
   .table-wrap::-webkit-scrollbar {
-    width: 0;
-    height: 0;
+    width: 10px;
+    height: 10px;
+  }
+
+  .table-wrap::-webkit-scrollbar-track {
+    background: rgba(148, 163, 184, 0.14);
+    border-radius: 999px;
+  }
+
+  .table-wrap::-webkit-scrollbar-thumb {
+    background: rgba(59, 130, 246, 0.55);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
   }
 
   .stl-table {
@@ -1295,32 +1308,116 @@
   }
 
   .stl-table thead th {
-    background: #eff6ff;
+    background: rgba(226, 232, 240, 0.7);
     color: #0f172a;
-    font-weight: 600;
-    padding: 12px 16px;
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 14px 18px;
     text-align: left;
-    border-bottom: 1px solid #dbeafe;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.2);
     position: sticky;
     top: 0;
     z-index: 1;
+    backdrop-filter: blur(14px);
   }
 
   .stl-table td {
-    padding: 12px 16px;
-    border-top: 1px solid #e2e8f0;
+    padding: 16px 18px;
+    border-top: 1px solid rgba(148, 163, 184, 0.14);
+    vertical-align: middle;
   }
 
   .stl-table tbody tr:hover {
-    background: #f1f5f9;
+    background: rgba(255, 255, 255, 0.46);
   }
 
   .text-right {
     text-align: right;
   }
 
+  .stl-table th.action-col,
+  .stl-table td.action-col {
+    width: 172px;
+    min-width: 172px;
+    max-width: 172px;
+    text-align: center;
+    white-space: nowrap;
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+
   .font-semibold {
     font-weight: 700;
+  }
+
+  .log-date-cell,
+  .time-cell {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .log-date-cell {
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .log-date-day {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    height: 28px;
+    padding: 0 10px;
+    border-radius: 999px;
+    background: rgba(37, 99, 235, 0.08);
+    border: 1px solid rgba(37, 99, 235, 0.16);
+    color: #1d4ed8;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .log-date-copy {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .log-date-main,
+  .time-main {
+    color: #0f172a;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+
+  .log-date-sub,
+  .time-sub {
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .hours-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 56px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: rgba(59, 130, 246, 0.12);
+    border: 1px solid rgba(59, 130, 246, 0.18);
+    color: #1d4ed8;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.01em;
   }
 
   .btn-delete {
@@ -1328,6 +1425,7 @@
     align-items: center;
     justify-content: center;
     gap: 6px;
+    min-width: 98px;
     border: 1px solid rgba(239, 68, 68, 0.24);
     background: rgba(239, 68, 68, 0.08);
     color: #b91c1c;
@@ -1337,6 +1435,7 @@
     font-weight: 700;
     cursor: pointer;
     transition: all 0.2s ease;
+    margin: 0 auto;
   }
 
   .btn-delete:hover:not(:disabled) {
@@ -1348,6 +1447,136 @@
   .btn-delete:disabled {
     opacity: 0.65;
     cursor: not-allowed;
+  }
+
+  .sk-shimmer {
+    position: relative;
+    overflow: hidden;
+    background: #e2e8f0;
+  }
+
+  .sk-shimmer::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.62), transparent);
+    animation: shimmer 1.35s ease-in-out infinite;
+  }
+
+  .sk-line,
+  .sk-block,
+  .sk-pill {
+    display: block;
+    flex-shrink: 0;
+    border-radius: 999px;
+  }
+
+  .sk-block {
+    border-radius: 10px;
+  }
+
+  .stat-card-skeleton {
+    align-items: center;
+  }
+
+  .stat-label-sk {
+    width: 92px;
+    height: 11px;
+  }
+
+  .stat-value-sk {
+    width: 124px;
+    height: 26px;
+  }
+
+  .stat-sub-sk {
+    width: 140px;
+    height: 12px;
+  }
+
+  .selector-wrap-skeleton {
+    pointer-events: none;
+  }
+
+  .selector-sk {
+    width: calc(100% - 24px);
+    height: 14px;
+    margin-inline: 12px;
+  }
+
+  .btn-secondary-skeleton {
+    pointer-events: none;
+    min-width: 102px;
+  }
+
+  .button-sk {
+    width: 56px;
+    height: 14px;
+  }
+
+  .loading-chip-skeleton {
+    min-width: 102px;
+    justify-content: center;
+  }
+
+  .chip-sk {
+    width: 74px;
+    height: 12px;
+  }
+
+  .table-skeleton tbody tr:hover {
+    background: transparent;
+  }
+
+  .cell-date-sk {
+    width: 152px;
+    height: 13px;
+  }
+
+  .cell-time-sk {
+    width: 86px;
+    height: 13px;
+  }
+
+  .cell-hours-sk {
+    width: 56px;
+    height: 34px;
+    border-radius: 999px;
+  }
+
+  .action-pill-sk {
+    width: 98px;
+    height: 34px;
+    margin: 0 auto;
+    border-radius: 10px;
+  }
+
+  .loading-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    border: 1px solid #cbd5e1;
+    background: #f8fafc;
+    color: #0f172a;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .loading-empty {
+    min-height: 140px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    border: 1px dashed #cbd5e1;
+    border-radius: 12px;
+    background: #f8fafc;
+    color: #475569;
+    font-size: 14px;
+    font-weight: 600;
   }
 
   .empty-state {
@@ -1488,33 +1717,6 @@
   .stl-attendance-table th:nth-child(6),
   .stl-attendance-table td:nth-child(6) { width: 18%; }
 
-  .sk-line,
-  .sk-pill {
-    display: inline-block;
-    background: rgba(148, 163, 184, 0.12);
-    border: 1px solid rgba(148, 163, 184, 0.16);
-  }
-
-  .sk-pill {
-    width: 68px;
-    height: 24px;
-    border-radius: 999px;
-  }
-
-  .shimmer {
-    position: relative;
-    overflow: hidden;
-  }
-
-  .shimmer::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    transform: translateX(-100%);
-    background: linear-gradient(90deg, rgba(148, 163, 184, 0), rgba(148, 163, 184, 0.2), rgba(148, 163, 184, 0));
-    animation: stl-shimmer 1.45s ease-in-out infinite;
-  }
-
   .spinning-icon {
     display: inline-flex;
     align-items: center;
@@ -1522,13 +1724,13 @@
     animation: spin 1s linear infinite;
   }
 
+  @keyframes shimmer {
+    100% { transform: translateX(100%); }
+  }
+
   @keyframes spin {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
-  }
-
-  @keyframes stl-shimmer {
-    100% { transform: translateX(100%); }
   }
 
   :global(.dark) .warning-alert {
@@ -1579,6 +1781,14 @@
     background: rgba(16, 185, 129, 0.08);
   }
 
+  :global(.dark) .sk-shimmer {
+    background: rgba(71, 85, 105, 0.5);
+  }
+
+  :global(.dark) .sk-shimmer::after {
+    background: linear-gradient(90deg, transparent, rgba(148, 163, 184, 0.2), transparent);
+  }
+
   :global(.dark) .stl-input,
   :global(.dark) .btn-secondary {
     background: #182234;
@@ -1603,10 +1813,6 @@
     border-color: rgba(96, 165, 250, 0.5);
   }
 
-  :global(.dark) .selector-icon {
-    color: #94a3b8;
-  }
-
   :global(.dark) .btn-secondary:hover:not(:disabled) {
     background: #22314a;
     border-color: rgba(96, 165, 250, 0.5);
@@ -1614,7 +1820,9 @@
 
   :global(.dark) .table-wrap {
     border-color: rgba(255, 255, 255, 0.1);
-    background: #1a2332;
+    background:
+      linear-gradient(180deg, rgba(24, 34, 52, 0.98), rgba(20, 28, 42, 0.96));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
   }
 
   :global(.dark) .stl-table {
@@ -1622,7 +1830,7 @@
   }
 
   :global(.dark) .stl-table thead th {
-    background: #1d2a40;
+    background: rgba(29, 42, 64, 0.88);
     color: #e2e8f0;
     border-bottom-color: rgba(148, 163, 184, 0.2);
   }
@@ -1635,6 +1843,28 @@
     background: rgba(59, 130, 246, 0.08);
   }
 
+  :global(.dark) .log-date-day {
+    background: rgba(59, 130, 246, 0.14);
+    border-color: rgba(96, 165, 250, 0.22);
+    color: #93c5fd;
+  }
+
+  :global(.dark) .hours-badge {
+    background: rgba(59, 130, 246, 0.16);
+    border-color: rgba(96, 165, 250, 0.2);
+    color: #dbeafe;
+  }
+
+  :global(.dark) .log-date-main,
+  :global(.dark) .time-main {
+    color: #f8fafc;
+  }
+
+  :global(.dark) .log-date-sub,
+  :global(.dark) .time-sub {
+    color: #8da2c0;
+  }
+
   :global(.dark) .empty-state {
     border-color: rgba(148, 163, 184, 0.28);
     background: rgba(15, 23, 42, 0.35);
@@ -1644,12 +1874,6 @@
     background: rgba(15, 23, 42, 0.6);
     border-color: rgba(148, 163, 184, 0.25);
     color: #94a3b8;
-  }
-
-  :global(.dark) .sk-line,
-  :global(.dark) .sk-pill {
-    background: rgba(148, 163, 184, 0.1);
-    border-color: rgba(148, 163, 184, 0.12);
   }
 
   @media (max-width: 1200px) {
@@ -1689,6 +1913,16 @@
       padding-right: 14px;
     }
 
+    .table-wrap {
+      margin-top: 10px;
+      max-height: 460px;
+      overflow: auto;
+      background: linear-gradient(180deg, rgba(24, 34, 52, 0.98), rgba(20, 28, 42, 0.96));
+      border: 1px solid rgba(148, 163, 184, 0.14);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+      scrollbar-width: auto;
+    }
+
     .control-actions {
       flex-direction: column;
       align-items: stretch;
@@ -1697,6 +1931,83 @@
     .stl-table-header {
       padding-left: 14px;
       padding-right: 14px;
+    }
+
+    .stl-table {
+      min-width: 620px !important;
+    }
+
+    .stl-table thead {
+      display: table-header-group;
+    }
+
+    .stl-table tbody {
+      display: table-row-group;
+    }
+
+    .stl-table tr {
+      display: table-row;
+    }
+
+    .stl-table td,
+    .stl-table th {
+      display: table-cell;
+      box-sizing: border-box;
+    }
+
+    .stl-table td::before {
+      content: none;
+    }
+
+    .log-date-cell {
+      grid-template-columns: auto 1fr;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .log-date-day {
+      min-width: 42px;
+      padding: 0 8px;
+      font-size: 10px;
+    }
+
+    .time-cell,
+    .log-date-copy {
+      gap: 3px;
+    }
+
+    .log-date-main,
+    .time-main {
+      font-size: 13px;
+    }
+
+    .log-date-sub,
+    .time-sub {
+      font-size: 10px;
+    }
+
+    .stl-table thead th,
+    .stl-table td {
+      padding: 14px 16px;
+    }
+
+    .stl-table thead th {
+      font-size: 11px;
+    }
+
+    .stl-table th.action-col,
+    .stl-table td.action-col {
+      width: 148px;
+      min-width: 148px;
+      max-width: 148px;
+      padding-left: 12px;
+      padding-right: 12px;
+    }
+
+    .btn-delete {
+      min-width: 92px;
+      padding: 8px 8px;
+      font-size: 11px;
     }
 
     .stl-entry-count {
@@ -1712,13 +2023,13 @@
     .stl-export-btn {
       width: 100%;
     }
+
+    .table-wrap::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .shimmer::after {
-      animation: none;
-      transform: none;
-      opacity: 0;
-    }
   }
 </style>
