@@ -1,6 +1,7 @@
 <script>
   import { onDestroy, onMount } from 'svelte';
   import {
+    callApiAction,
     getCurrentUser,
     subscribeToCurrentUser,
     getStudentDashboard,
@@ -32,6 +33,11 @@
   let activityLogs = [];
   let tasks = [];
   let pendingRequests = [];
+  let internSchedule = {
+    shift_start: '09:00',
+    shift_end: '17:00',
+    days_off: [0, 6],
+  };
 
   let formStartDate = '';
   let formTotalOjtHours = 0;
@@ -189,24 +195,30 @@
     return `${y}-${m}-${d}`;
   }
 
-  function isWeekend(dt) {
-    const day = dt.getDay();
-    return day === 0 || day === 6;
+  function normalizeDaysOff(value) {
+    if (Array.isArray(value) && value.length) return value;
+    return [0, 6];
   }
 
-  function addWorkingDays(startDate, workingDays) {
+  function isDayOff(dt, daysOff) {
+    const day = dt.getDay();
+    const daysOffSet = new Set(normalizeDaysOff(daysOff));
+    return daysOffSet.has(day);
+  }
+
+  function addWorkingDays(startDate, workingDays, daysOff = [0, 6]) {
     const start = startDate instanceof Date ? new Date(startDate) : parseIsoDateOnly(startDate);
     if (!start || Number.isNaN(start.getTime())) return null;
 
     let remaining = Math.max(0, Math.trunc(Number(workingDays || 0)));
     const cursor = new Date(start);
-    while (isWeekend(cursor)) {
+    while (isDayOff(cursor, daysOff)) {
       cursor.setDate(cursor.getDate() + 1);
     }
 
     while (remaining > 0) {
       cursor.setDate(cursor.getDate() + 1);
-      if (!isWeekend(cursor)) {
+      if (!isDayOff(cursor, daysOff)) {
         remaining -= 1;
       }
     }
@@ -244,9 +256,11 @@
   $: avgDailyHours = 8; // You can make this dynamic if needed
   $: totalWorkingDays = Math.ceil(Math.max(0, totalOjtHours) / avgDailyHours);
   $: remainingWorkingDays = Math.ceil(Math.max(0, hoursRemaining) / avgDailyHours);
-  $: estimatedEndDateDisplay = (formStartDate && hoursRemaining > 0)
-    ? getEstimatedCompletionDate(hoursRemaining, avgDailyHours)
-    : 'Not available yet';
+  $: estimatedEndDateDisplay = profile?.estimated_end_date
+    ? formatDateLong(profile.estimated_end_date)
+    : (formStartDate && hoursRemaining > 0)
+      ? getEstimatedCompletionDate(hoursRemaining, avgDailyHours, internSchedule.days_off)
+      : 'Not available yet';
   $: startDateDisplay = formStartDate ? formatDateLong(formStartDate) : 'Not set yet';
   $: progressPercent = totalOjtHours > 0 ? Math.min(100, Math.round((hoursCompleted / totalOjtHours) * 100)) : 0;
   $: progressFooterRemaining = `${Number(hoursRemaining || 0).toFixed(1)}h remaining`;
@@ -291,6 +305,31 @@
     loading = true;
     try {
       const data = await getStudentDashboard(currentUser.user_id, { limit: 10 });
+      try {
+        const scheduleResult = await callApiAction('get_intern_schedule', {
+          intern_user_id: currentUser.user_id,
+        });
+        if (scheduleResult && scheduleResult.ok && scheduleResult.schedule) {
+          const schedule = scheduleResult.schedule;
+          let parsedDaysOff = schedule.days_off;
+          if (typeof parsedDaysOff === 'string') {
+            try {
+              parsedDaysOff = JSON.parse(parsedDaysOff);
+            } catch {
+              parsedDaysOff = [0, 6];
+            }
+          }
+
+          internSchedule = {
+            shift_start: String(schedule.shift_start || '09:00'),
+            shift_end: String(schedule.shift_end || '17:00'),
+            days_off: normalizeDaysOff(parsedDaysOff),
+          };
+        }
+      } catch (scheduleErr) {
+        console.error('Failed to load intern schedule:', scheduleErr);
+      }
+
       profile = data.profile;
       timeLogs = data.time_logs;
       const serverCompletedHours = Number(data.total_completed_hours || 0);
@@ -570,7 +609,7 @@
         <div class="dash-card">
           <div class="dash-section-label">Estimated End Date</div>
           <div class="dash-end-value">{estimatedEndDateDisplay}</div>
-          <div class="dash-end-meta">Start: {startDateDisplay} · Weekdays only (Mon-Fri)</div>
+          <div class="dash-end-meta">Start: {startDateDisplay} · Working days only</div>
         </div>
       </div>
 

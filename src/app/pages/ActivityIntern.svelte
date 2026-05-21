@@ -5808,6 +5808,57 @@ let restoringTaskMap = {};
     margin-top: 6px;
   }
 
+  .worklog-attachments {
+    margin-top: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .worklog-attachment-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 9px 10px;
+  }
+
+  .worklog-attachment-main {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .worklog-attachment-name {
+    display: block;
+    font-size: 13px;
+    line-height: 1.35;
+    word-break: break-word;
+  }
+
+  .worklog-attachment-meta {
+    display: block;
+    margin-top: 2px;
+    font-size: 12px;
+    color: var(--ims-ref-text3);
+  }
+
+  .worklog-attachment-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: 8px;
+    flex-shrink: 0;
+  }
+
+  .worklog-attachment-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+  }
+
   .task-list {
     padding: 12px;
     gap: 8px;

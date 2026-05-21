@@ -178,14 +178,28 @@
     return new Date(candidate.getFullYear(), candidate.getMonth(), candidate.getDate());
   }
 
-  function addWorkingDaysFrom(baseDateInput, workingDaysToAdd) {
+  function normalizeDaysOff(value) {
+    if (Array.isArray(value) && value.length) return value;
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value);
+        if (Array.isArray(parsed) && parsed.length) return parsed;
+      } catch {
+        return [0, 6];
+      }
+    }
+    return [0, 6];
+  }
+
+  function addWorkingDaysFrom(baseDateInput, workingDaysToAdd, daysOff = [0, 6]) {
     const baseDate = toDateOnly(baseDateInput);
     if (!baseDate) return null;
 
     let cursor = new Date(baseDate);
     const total = Math.max(0, Math.floor(Number(workingDaysToAdd) || 0));
+    const daysOffSet = new Set(normalizeDaysOff(daysOff));
 
-    while (cursor.getDay() === 0 || cursor.getDay() === 6) {
+    while (daysOffSet.has(cursor.getDay())) {
       cursor.setDate(cursor.getDate() + 1);
     }
 
@@ -193,7 +207,7 @@
     while (remaining > 0) {
       cursor.setDate(cursor.getDate() + 1);
       const day = cursor.getDay();
-      if (day !== 0 && day !== 6) {
+      if (!daysOffSet.has(day)) {
         remaining -= 1;
       }
     }
@@ -201,10 +215,14 @@
     return cursor;
   }
 
-  function getProjectedEndDateFromProgress(requiredHours, completedHours) {
+  function getProjectedEndDateFromProgress(requiredHours, completedHours, daysOff) {
     const daysLeft = calculateDaysRemaining(requiredHours, completedHours);
-    const projected = addWorkingDaysFrom(new Date(), Math.max(0, daysLeft - 1));
+    const projected = addWorkingDaysFrom(new Date(), Math.max(0, daysLeft), daysOff);
     return projected;
+  }
+
+  function getStudentDaysOff(student) {
+    return normalizeDaysOff(student?.days_off);
   }
 
   function formatDateObject(dateValue) {
@@ -679,9 +697,9 @@
             {@const daysLeft = calculateDaysRemaining(required, completed)}
             {@const daysStatus = getDaysStatus(daysLeft)}
             {@const internMetaLabel = buildInternMetaLabel(student)}
-            {@const projectedEndDate = getProjectedEndDateFromProgress(required, completed)}
+            {@const projectedEndDate = getProjectedEndDateFromProgress(required, completed, getStudentDaysOff(student))}
             {@const ojtEndDateDisplay = formatDateObject(projectedEndDate)}
-            {@const estimatedCompletionRaw = firstNonEmptyText(student?.estimated_completion_date, student?.estimated_completion, student?.projected_completion_date, student?.expected_completion_date)}
+            {@const estimatedCompletionRaw = firstNonEmptyText(student?.estimated_end_date, student?.estimated_completion_date, student?.estimated_completion, student?.projected_completion_date, student?.expected_completion_date)}
             {@const estimatedCompletionDisplay = estimatedCompletionRaw ? normalizeDate(estimatedCompletionRaw) : 'Not available'}
             {@const statusText = firstNonEmptyText(student?.status, student?.intern_status, student?.ojt_status, student?.attendance_status, student?.current_status) || 'Not available'}
             {@const lastActivityRaw = firstNonEmptyText(student?.last_activity, student?.last_time_log, student?.last_timelog, student?.latest_timelog, student?.last_log_date, student?.last_log_at, student?.updated_at)}

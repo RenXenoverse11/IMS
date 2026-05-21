@@ -175,13 +175,27 @@
     }
   }
 
-  function addWorkingDays(startDate, days) {
+  function normalizeDaysOff(value) {
+    if (Array.isArray(value) && value.length) return value;
+    return [0, 6];
+  }
+
+  function timeToMinutes(value) {
+    const normalized = normalizeTimeValue(value, '');
+    if (!normalized) return null;
+    const [hours, minutes] = normalized.split(':').map(Number);
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+    return hours * 60 + minutes;
+  }
+
+  function addWorkingDays(startDate, days, daysOff = [0, 6]) {
     const result = new Date(startDate);
+    const daysOffSet = new Set(normalizeDaysOff(daysOff));
     let added = 0;
     while (added < days) {
       result.setDate(result.getDate() + 1);
       const day = result.getDay();
-      if (day !== 0 && day !== 6) added += 1;
+      if (!daysOffSet.has(day)) added += 1;
     }
     return result;
   }
@@ -414,6 +428,55 @@
     }
   }
 
+  async function hasApprovedOvertimeRequestForDateAndTime_(userId, targetDate, timeValue) {
+    const normalizedUserId = String(userId || '').trim();
+    const rawTargetDate = String(targetDate || '').trim();
+    if (!normalizedUserId || !rawTargetDate) return false;
+    const normalizedDate = normalizeDateOnly(rawTargetDate);
+    const timeMinutes = timeToMinutes(timeValue);
+    if (timeMinutes === null) return false;
+
+    try {
+      const response = await authApi.callApiAction('list_requests_by_user', { user_id: normalizedUserId });
+      const requests = Array.isArray(response?.requests) ? response.requests : [];
+      return requests.some((request) => {
+        const requestType = String(request?.requestType || request?.request_type || '').trim().toLowerCase();
+        const requestStatus = String(request?.status || '').trim().toLowerCase();
+        const rawRequestDate = String(request?.date || request?.request_date || '').trim();
+        const startTime = String(request?.start_time || request?.startTime || '').trim();
+        const endTime = String(request?.end_time || request?.endTime || '').trim();
+        if (requestType !== 'overtime' || requestStatus !== 'approved') return false;
+        if (!rawRequestDate) return false;
+        const requestDate = normalizeDateOnly(rawRequestDate);
+        if (requestDate !== normalizedDate) return false;
+        const startMinutes = timeToMinutes(startTime);
+        const endMinutes = timeToMinutes(endTime);
+        if (startMinutes === null || endMinutes === null) return false;
+        return timeMinutes >= startMinutes && timeMinutes <= endMinutes;
+      });
+    } catch (err) {
+      console.error('Error checking approved overtime requests:', err);
+      return false;
+    }
+  }
+
+  function isDayOffForDate_(dateValue, daysOff) {
+    const normalized = normalizeDateOnly(dateValue);
+    if (!normalized) return false;
+    const dateObj = new Date(`${normalized}T00:00:00`);
+    if (Number.isNaN(dateObj.getTime())) return false;
+    const daysOffSet = new Set(normalizeDaysOff(daysOff));
+    return daysOffSet.has(dateObj.getDay());
+  }
+
+  function isTimeWithinSchedule_(timeValue, shiftStart, shiftEnd) {
+    const timeMinutes = timeToMinutes(timeValue);
+    const startMinutes = timeToMinutes(shiftStart);
+    const endMinutes = timeToMinutes(shiftEnd);
+    if (timeMinutes === null || startMinutes === null || endMinutes === null) return false;
+    return timeMinutes >= startMinutes && timeMinutes <= endMinutes;
+  }
+
   function syncRequiredHoursFromAccount() {
     const user = authApi.getCurrentUser();
     const studentHours = Number(user?.ojt?.total_ojt_hours || 0);
@@ -449,6 +512,22 @@
         isLoggedIn = false;
         isLoggingIn = false;
         return;
+      }
+
+      const isDayOff = isDayOffForDate_(date, internSchedule.days_off);
+      const isWithinSchedule = isTimeWithinSchedule_(finalTimeIn, internSchedule.shift_start, internSchedule.shift_end);
+      if (isDayOff || !isWithinSchedule) {
+        const hasApprovedOvertime = await hasApprovedOvertimeRequestForDateAndTime_(user.user_id, date, finalTimeIn);
+        if (!hasApprovedOvertime) {
+          if (isDayOff) {
+            logSyncError = `Login is not allowed on ${formatLongDate(date)} because it is your day off. Submit an approved OT request to log in.`;
+          } else {
+            logSyncError = `Login time must be within your schedule (${internSchedule.shift_start} - ${internSchedule.shift_end}). Submit an approved OT request to log in outside your schedule.`;
+          }
+          isLoggedIn = false;
+          isLoggingIn = false;
+          return;
+        }
       }
 
       const response = await authApi.callApiAction('start_session', {
@@ -965,14 +1044,14 @@
   
   $: estimatedDate = (() => {
     const start = parseIsoDateOnly(ojtStartDate) || new Date();
-    return addWorkingDays(start, Math.max(0, projectedWorkingDays - 1));
+    return addWorkingDays(start, Math.max(0, projectedWorkingDays - 1), internSchedule.days_off);
   })();
   
   $: statCards = [
     { label: 'Total Hours Required', value: `${formatHours(requiredHours || 0)}h`, sub: 'Per internship agreement', icon: Target, tone: 'primary' },
     { label: 'Hours Completed', value: `${formatHours(completedHours || 0)}h`, sub: `${formatHours(remainingHours || 0)}h remaining`, icon: CheckCircle2, tone: 'success' },
     { label: 'Avg. Daily Hours', value: `${AVERAGE_DAILY_HOURS}h`, sub: 'Based on schedule', icon: Clock, tone: 'info' },
-    { label: 'Est. Completion', value: getEstimatedCompletionDate(remainingHours, AVERAGE_DAILY_HOURS), sub: new Date().getFullYear(), icon: Calendar, tone: 'forecast' },
+    { label: 'Est. Completion', value: getEstimatedCompletionDate(remainingHours, AVERAGE_DAILY_HOURS, internSchedule.days_off), sub: new Date().getFullYear(), icon: Calendar, tone: 'forecast' },
   ];
 </script>
 

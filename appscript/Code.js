@@ -1151,6 +1151,13 @@ function handleCreateTimeLog_(payload) {
     };
   }
 
+  if (entryType === 'login') {
+    var scheduleError = validateTimeLogSchedule_(userId, logDate, timeIn);
+    if (scheduleError) {
+      return { ok: false, error: scheduleError };
+    }
+  }
+
   var sheet = getTimeLogsSheet_();
   var headers = getHeaders_(sheet);
   var values = getSheetValues_(sheet);
@@ -1363,6 +1370,11 @@ function handleStartSession_(payload) {
         ok: false,
         error: 'Login is not allowed on ' + logDate + ' because your absence request for this date is approved.'
       };
+    }
+
+    var scheduleError = validateTimeLogSchedule_(userId, logDate, timeIn);
+    if (scheduleError) {
+      return { ok: false, error: scheduleError };
     }
 
     // Check if user already has active session for this date
@@ -2548,8 +2560,43 @@ function handleGetSupervisorDashboardOverview_(payload) {
   };
 }
 
+function normalizeDaysOff_(daysOffInput, fallbackDays) {
+  var fallback = Array.isArray(fallbackDays) ? fallbackDays.slice() : [0, 6];
+  var raw = daysOffInput;
+
+  if (typeof raw === 'string') {
+    try {
+      raw = JSON.parse(raw);
+    } catch (e) {
+      raw = [];
+    }
+  }
+
+  if (!Array.isArray(raw)) {
+    raw = [];
+  }
+
+  var seen = {};
+  var result = [];
+  for (var i = 0; i < raw.length; i++) {
+    var day = Number(raw[i]);
+    if (!Number.isInteger(day) || day < 0 || day > 6 || seen[day]) {
+      continue;
+    }
+    seen[day] = true;
+    result.push(day);
+  }
+
+  if (!result.length) {
+    return fallback;
+  }
+
+  result.sort(function(a, b) { return a - b; });
+  return result;
+}
+
 // Helper function to extend a date by business days
-function extendDateByBusinessDays_(startDateStr, businessDays) {
+function extendDateByBusinessDays_(startDateStr, businessDays, daysOff) {
   if (!startDateStr || businessDays <= 0) {
     return startDateStr;
   }
@@ -2568,9 +2615,10 @@ function extendDateByBusinessDays_(startDateStr, businessDays) {
   }
   
   var remaining = Math.max(0, Math.floor(Number(businessDays)));
+  var daysOffArray = normalizeDaysOff_(daysOff, [0, 6]);
   
-  // Move to the next business day if we start on a weekend
-  while (cursor.getDay() === 0 || cursor.getDay() === 6) {
+  // Move to the next working day if we start on a day off
+  while (daysOffArray.indexOf(cursor.getDay()) !== -1) {
     cursor.setDate(cursor.getDate() + 1);
   }
   
@@ -2578,7 +2626,7 @@ function extendDateByBusinessDays_(startDateStr, businessDays) {
   while (remaining > 0) {
     cursor.setDate(cursor.getDate() + 1);
     var dayOfWeek = cursor.getDay();
-    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+    if (daysOffArray.indexOf(dayOfWeek) === -1) {
       remaining--;
     }
   }
@@ -2589,6 +2637,29 @@ function extendDateByBusinessDays_(startDateStr, businessDays) {
   var resultDay = String(cursor.getDate()).padStart(2, '0');
   
   return resultYear + '-' + resultMonth + '-' + resultDay;
+}
+
+function normalizeEstimatedEndDateToWorkingDay_(userId, estimatedEndDate) {
+  var normalizedUserId = String(userId || '').trim();
+  var normalizedDate = formatDateValue_(estimatedEndDate);
+  if (!normalizedDate) {
+    return String(estimatedEndDate || '').trim();
+  }
+
+  var daysOff = [0, 6];
+  if (normalizedUserId) {
+    try {
+      var scheduleResult = handleGetInternSchedule_({ intern_user_id: normalizedUserId });
+      if (scheduleResult && scheduleResult.ok && scheduleResult.schedule) {
+        daysOff = scheduleResult.schedule.days_off;
+      }
+    } catch (err) {
+      Logger.log('normalizeEstimatedEndDateToWorkingDay_ schedule lookup failed: ' + (err && err.message ? err.message : String(err)));
+    }
+  }
+
+  // If date lands on a configured day off, move forward to the next working day.
+  return extendDateByBusinessDays_(normalizedDate, 0, daysOff);
 }
 
 function handleUpdateRequestStatus_(payload) {
@@ -2719,11 +2790,11 @@ function handleUpdateRequestStatus_(payload) {
         var profileHeaders = getHeaders_(profileSheet);
         var profileUserIdColIndex = findColumnIndex_(profileHeaders, 'user_id');
         var profileEstimatedEndDateColIndex = findColumnIndex_(profileHeaders, 'estimated_end_date');
-        
+
         if (profileUserIdColIndex > 0 && profileEstimatedEndDateColIndex > 0) {
           var currentEstimatedEndDate = '';
           var profileRowIndex = -1;
-          
+
           // Find the student's profile
           for (var p = 1; p < profileRows.length; p++) {
             if (String(profileRows[p][profileUserIdColIndex - 1] || '').trim() === studentUserId) {
@@ -2732,10 +2803,14 @@ function handleUpdateRequestStatus_(payload) {
               break;
             }
           }
-          
-          // If profile found, extend the end date by 1 business day (the absence day)
+
+          // If profile found, extend the end date by 1 working day (the absence day)
           if (profileRowIndex > -1 && currentEstimatedEndDate) {
-            var newEstimatedEndDate = extendDateByBusinessDays_(currentEstimatedEndDate, 1);
+            var scheduleResult = handleGetInternSchedule_({ intern_user_id: studentUserId });
+            var daysOff = scheduleResult && scheduleResult.ok && scheduleResult.schedule
+              ? scheduleResult.schedule.days_off
+              : [0, 6];
+            var newEstimatedEndDate = extendDateByBusinessDays_(currentEstimatedEndDate, 1, daysOff);
             profileSheet.getRange(profileRowIndex + 1, profileEstimatedEndDateColIndex).setValue(newEstimatedEndDate);
           }
         }
@@ -2756,7 +2831,7 @@ function handleUpdateRequestStatus_(payload) {
       notifMessage += ' Remarks: ' + rejectionRemarks;
     }
     if (effectiveStatusLower === 'approved' && requestType.toLowerCase() === 'absence') {
-      notifMessage += ' Your internship end date has been automatically extended by 1 day.';
+      notifMessage += ' Your internship end date has been automatically extended by 1 working day.';
     }
     createNotification_(
       studentUserId,
@@ -2947,6 +3022,8 @@ function handleUpdateStudentOjtProfile_(payload) {
   if (!estimatedEndDate) {
     return { ok: false, error: 'estimated_end_date is required.' };
   }
+
+  estimatedEndDate = normalizeEstimatedEndDateToWorkingDay_(userId, estimatedEndDate);
 
   try {
     var sheet = getStudentOjtProfileSheet_();
@@ -3260,7 +3337,7 @@ function buildStudentRequestStatusEmailText_(requestDetails, deepLinkUrl) {
   }
 
   if (requestDetails.absenceExtended) {
-    lines.push('Note: Your internship end date has been automatically extended by 1 day.');
+    lines.push('Note: Your internship end date has been automatically extended by 1 working day.');
   }
 
   if (deepLinkUrl) {
@@ -3284,7 +3361,7 @@ function buildStudentRequestStatusEmailHtml_(requestDetails, deepLinkUrl) {
   }
 
   if (requestDetails.absenceExtended) {
-    noteBlock = '<p style="margin:14px 0 0;padding:10px 12px;background:#eff6ff;color:#1e40af;border-radius:8px;font-size:13px;">Your internship end date has been automatically extended by 1 day.</p>';
+    noteBlock = '<p style="margin:14px 0 0;padding:10px 12px;background:#eff6ff;color:#1e40af;border-radius:8px;font-size:13px;">Your internship end date has been automatically extended by 1 working day.</p>';
   }
 
   var actionBlock = deepLinkUrl
@@ -3386,6 +3463,119 @@ function timeToMinutes_(timeStr) {
   var hours = Number(parts[0] || 0);
   var minutes = Number(parts[1] || 0);
   return hours * 60 + minutes;
+}
+
+function normalizeTimeToMinutes_(value) {
+  var normalized = normalizeTimeForCompare_(value);
+  if (!normalized) return null;
+  var parts = String(normalized || '').split(':');
+  if (parts.length < 2) return null;
+  var hours = Number(parts[0] || 0);
+  var minutes = Number(parts[1] || 0);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  return hours * 60 + minutes;
+}
+
+function isDayOffForDate_(dateValue, daysOff) {
+  var normalizedDate = formatDateValue_(dateValue);
+  if (!normalizedDate) return false;
+  var dateObj = new Date(normalizedDate + 'T00:00:00');
+  if (isNaN(dateObj.getTime())) return false;
+  var dayOfWeek = dateObj.getDay();
+  var daysOffArray = normalizeDaysOff_(daysOff, [0, 6]);
+  return daysOffArray.indexOf(dayOfWeek) !== -1;
+}
+
+function isTimeWithinSchedule_(timeValue, shiftStart, shiftEnd) {
+  var timeMinutes = normalizeTimeToMinutes_(timeValue);
+  var startMinutes = normalizeTimeToMinutes_(shiftStart);
+  var endMinutes = normalizeTimeToMinutes_(shiftEnd);
+  if (timeMinutes === null || startMinutes === null || endMinutes === null) {
+    return false;
+  }
+  return timeMinutes >= startMinutes && timeMinutes <= endMinutes;
+}
+
+function hasApprovedOvertimeRequestForDateAndTime_(userId, targetDate, timeValue) {
+  var normalizedUserId = String(userId || '').trim();
+  var normalizedDate = formatDateValue_(targetDate);
+  if (!normalizedUserId || !normalizedDate) {
+    return false;
+  }
+
+  var timeMinutes = normalizeTimeToMinutes_(timeValue);
+  if (timeMinutes === null) {
+    return false;
+  }
+
+  var sheet = getRequestsSheet_();
+  var rows = readSheetObjects_(sheet);
+
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i] || {};
+    if (String(row.user_id || '').trim() !== normalizedUserId) {
+      continue;
+    }
+
+    var requestType = String(row.request_type || '').trim().toLowerCase();
+    if (requestType !== 'overtime') {
+      continue;
+    }
+
+    var statusLower = String(row.status || '').trim().toLowerCase();
+    var archivedPreviousStatusLower = String(row.archived_previous_status || '').trim().toLowerCase();
+    var isApprovedOvertime = statusLower === 'approved' || (statusLower === 'archived' && archivedPreviousStatusLower === 'approved');
+    if (!isApprovedOvertime) {
+      continue;
+    }
+
+    var requestDate = formatDateValue_(row.request_date);
+    if (requestDate !== normalizedDate) {
+      continue;
+    }
+
+    var startMinutes = normalizeTimeToMinutes_(row.start_time);
+    var endMinutes = normalizeTimeToMinutes_(row.end_time);
+    if (startMinutes === null || endMinutes === null) {
+      continue;
+    }
+
+    if (timeMinutes >= startMinutes && timeMinutes <= endMinutes) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function validateTimeLogSchedule_(userId, logDate, timeIn) {
+  var scheduleResult = handleGetInternSchedule_({ intern_user_id: userId });
+  var schedule = scheduleResult && scheduleResult.ok && scheduleResult.schedule ? scheduleResult.schedule : null;
+  var daysOff = normalizeDaysOff_(schedule ? schedule.days_off : null, [0, 6]);
+  var shiftStart = normalizeTimeForCompare_(schedule && schedule.shift_start ? schedule.shift_start : DEFAULT_WORK_START_TIME_);
+  var shiftEnd = normalizeTimeForCompare_(schedule && schedule.shift_end ? schedule.shift_end : DEFAULT_WORK_END_TIME_);
+
+  var normalizedDate = formatDateValue_(logDate);
+  if (!normalizedDate || !timeIn) {
+    return '';
+  }
+
+  var isDayOff = isDayOffForDate_(normalizedDate, daysOff);
+  var isWithinShift = isTimeWithinSchedule_(timeIn, shiftStart, shiftEnd);
+
+  if (isDayOff || !isWithinShift) {
+    if (hasApprovedOvertimeRequestForDateAndTime_(userId, normalizedDate, timeIn)) {
+      return '';
+    }
+
+    if (isDayOff) {
+      return 'Login is not allowed on ' + normalizedDate + ' because it is your day off. Please file an overtime request to log in on this date.';
+    }
+
+    return 'Login time must be within your schedule (' + shiftStart + ' - ' + shiftEnd + '). Please file an overtime request to log in outside your schedule.';
+  }
+
+  return '';
 }
 
 // Validates that absence is not requested on one of the intern's configured day-off days.
@@ -3590,6 +3780,13 @@ function isStudentAssignedToSupervisor_(supervisorUserId, studentUserId) {
 }
 
 function saveStudentOjtProfile_(rowObject) {
+  if (rowObject && rowObject.user_id && rowObject.estimated_end_date) {
+    rowObject.estimated_end_date = normalizeEstimatedEndDateToWorkingDay_(
+      rowObject.user_id,
+      rowObject.estimated_end_date
+    );
+  }
+
   var sheet = getStudentOjtProfileSheet_();
   var headers = getHeaders_(sheet);
   var values = getSheetValues_(sheet);

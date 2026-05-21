@@ -62,6 +62,19 @@
     return day === 0 || day === 6;
   }
 
+  function normalizeDaysOff(value) {
+    if (Array.isArray(value) && value.length) return value;
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value);
+        if (Array.isArray(parsed) && parsed.length) return parsed;
+      } catch {
+        return [0, 6];
+      }
+    }
+    return [0, 6];
+  }
+
   function toFiniteNumber(value) {
     const parsed = Number(value || 0);
     return Number.isFinite(parsed) ? parsed : 0;
@@ -84,7 +97,7 @@
     const remainingHours = getRemainingHours(intern);
     if (remainingHours === null) return 'Not available';
     if (remainingHours <= 0) return normalizeDate(getToday());
-    return getEstimatedCompletionDate(remainingHours, AVG_DAILY_HOURS);
+    return getEstimatedCompletionDate(remainingHours, AVG_DAILY_HOURS, normalizeDaysOff(intern?.days_off));
   }
 
   function requestMatchesToday(req) {
