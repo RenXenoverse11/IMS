@@ -1367,6 +1367,8 @@ let restoringTaskMap = {};
 
   function openTaskViewForm(task) {
     viewedTaskId = getTaskActionKey(task);
+    isEditingViewedTask = false;
+    isSavingViewedTask = false;
     taskViewEditForm = {
       title: task.title,
       status: task.status,
@@ -2066,31 +2068,49 @@ let restoringTaskMap = {};
     dueSoonTasks[0] ||
     null;
   $: viewedTask = assignedTasks.find((task) => getTaskActionKey(task) === viewedTaskId) || null;
+  $: statsLoading = isLoadingAssignedTasks || isLoadingWorkLogs;
+  $: if (isViewTaskModalOpen && viewedTask && isEditingViewedTask && !canModifyTask(viewedTask)) {
+    isEditingViewedTask = false;
+    isSavingViewedTask = false;
+  }
 
 </script>
 
 <section class="activity-shell documents-page projects-page">
   <div class="stats-grid">
-    {#each summaryCards as card}
-      <article class={`stat-card tone-card-${card.tone}`}>
-        <div class={`stat-icon tone-${card.tone}`}>
-          <svelte:component this={card.icon} size={17} />
-        </div>
-        <div class="stat-body">
-          <p class="stat-label">{card.label}</p>
-          <p class="stat-value">{card.value}</p>
-          <p class="stat-sub">
-            {card.label === 'Pending'
-              ? 'Tasks waiting to start'
-              : card.label === 'Total Tasks'
-                ? 'All assigned tasks'
-                : card.label === 'Completed'
-                  ? 'Finished tasks'
-                  : 'Needs immediate attention'}
-          </p>
-        </div>
-      </article>
-    {/each}
+    {#if statsLoading}
+      {#each [1, 2, 3, 4] as _}
+        <article class="stat-card stat-loading-card">
+          <div class="act-skeleton shimmer stat-loading-icon"></div>
+          <div class="stat-body">
+            <div class="act-skeleton shimmer stat-loading-label"></div>
+            <div class="act-skeleton shimmer stat-loading-value"></div>
+            <div class="act-skeleton shimmer stat-loading-sub"></div>
+          </div>
+        </article>
+      {/each}
+    {:else}
+      {#each summaryCards as card}
+        <article class={`stat-card tone-card-${card.tone}`}>
+          <div class={`stat-icon tone-${card.tone}`}>
+            <svelte:component this={card.icon} size={17} />
+          </div>
+          <div class="stat-body">
+            <p class="stat-label">{card.label}</p>
+            <p class="stat-value">{card.value}</p>
+            <p class="stat-sub">
+              {card.label === 'Pending'
+                ? 'Tasks waiting to start'
+                : card.label === 'Total Tasks'
+                  ? 'All assigned tasks'
+                  : card.label === 'Completed'
+                    ? 'Finished tasks'
+                    : 'Needs immediate attention'}
+            </p>
+          </div>
+        </article>
+      {/each}
+    {/if}
   </div>
 
   <section class="quick-panel">
@@ -2165,7 +2185,7 @@ let restoringTaskMap = {};
   {#if isAddTaskOpen}
     <div class="task-view-modal-overlay" role="presentation" on:click={handleAddTaskOverlayClick}>
       <div
-        class="task-view-modal"
+        class="task-view-modal task-add-modal"
         role="dialog"
         aria-modal="true"
         aria-label="Add task form"
@@ -2173,20 +2193,12 @@ let restoringTaskMap = {};
         <form class="task-view-add-form" on:submit|preventDefault={addNewTask}>
           <div class="task-view-modal-head">
             <h4>Add Task</h4>
-            <div class="task-view-head-actions">
-              <button type="button" class="task-view-action" on:click={cancelAddTask}>Cancel</button>
-              <button type="submit" class="task-view-action primary" style="display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;" disabled={isSavingAddTask}>
-                {#if isSavingAddTask}
-                  <span class="spinning-icon"><Loader2 size={16} /></span>
-                {/if}
-                <span>{isSavingAddTask ? 'Saving...' : 'Save Task'}</span>
-              </button>
-            </div>
           </div>
 
-          {#if addTaskError}
-            <p class="task-form-error">{addTaskError}</p>
-          {/if}
+          <div class="task-add-modal-content">
+            {#if addTaskError}
+              <p class="task-form-error">{addTaskError}</p>
+            {/if}
 
           <div class="task-view-grid">
             <label class="title-field">
@@ -2294,6 +2306,17 @@ let restoringTaskMap = {};
                 </ul>
               {/if}
             </div>
+          </div>
+          </div>
+
+          <div class="task-add-modal-footer">
+            <button type="button" class="task-view-action" on:click={cancelAddTask}>Cancel</button>
+            <button type="submit" class="task-view-action primary" style="display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;" disabled={isSavingAddTask}>
+              {#if isSavingAddTask}
+                <span class="spinning-icon"><Loader2 size={16} /></span>
+              {/if}
+              <span>{isSavingAddTask ? 'Saving...' : 'Save Task'}</span>
+            </button>
           </div>
 
         </form>
@@ -2704,7 +2727,7 @@ let restoringTaskMap = {};
                                   <div class="worklog-attachment-actions">
                                     {#if file.link}
                                       <a
-                                        class="worklog-attachment-action"
+                                        class="worklog-attachment-action action-view"
                                         href={file.link}
                                         target="_blank"
                                         rel="noopener noreferrer"
@@ -2714,7 +2737,7 @@ let restoringTaskMap = {};
                                         <ExternalLink size={14} />
                                       </a>
                                       <a
-                                        class="worklog-attachment-action"
+                                        class="worklog-attachment-action action-download"
                                         href={getDriveDownloadUrl(file.link)}
                                         target="_blank"
                                         rel="noopener noreferrer"
@@ -4353,9 +4376,103 @@ let restoringTaskMap = {};
     display: grid;
     gap: 0.9rem;
   }
+
+  .task-view-modal.task-add-modal {
+    width: min(92vw, 720px);
+    max-height: 90vh;
+    padding: 0;
+    gap: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .task-view-modal.task-add-modal .task-view-add-form {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    gap: 0;
+  }
+
+  .task-view-modal.task-add-modal .task-view-modal-head {
+    padding: 18px 22px 12px;
+    background: #1f2937;
+  }
+
+  .task-view-modal.task-add-modal .task-view-modal-head h4 {
+    font-size: 15px;
+    font-weight: 700;
+  }
+
+  .task-add-modal-content {
+    padding: 0 22px 16px;
+    overflow-y: auto;
+    flex: 1;
+    display: grid;
+    gap: 0.8rem;
+    background: #1f2937;
+  }
+
+  .task-add-modal-footer {
+    padding: 12px 22px 16px;
+    border-top: 1px solid var(--color-border);
+    background: #1f2937;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
   :global(html.dark) .task-view-modal {
     background: #161c27;
     border: 1px solid #ffffff0f;
+  }
+  :global(html.dark) .task-view-modal.task-add-modal,
+  :global(body.dark) .task-view-modal.task-add-modal {
+    background: #1f2937;
+    border-color: #374151;
+  }
+  :global(html.dark) .task-view-modal.task-add-modal .task-add-modal-content,
+  :global(body.dark) .task-view-modal.task-add-modal .task-add-modal-content {
+    background: #1f2937;
+  }
+  :global(html.dark) .task-view-modal.task-add-modal .task-view-grid input,
+  :global(html.dark) .task-view-modal.task-add-modal .task-view-grid select,
+  :global(html.dark) .task-view-modal.task-add-modal .task-view-description textarea,
+  :global(body.dark) .task-view-modal.task-add-modal .task-view-grid input,
+  :global(body.dark) .task-view-modal.task-add-modal .task-view-grid select,
+  :global(body.dark) .task-view-modal.task-add-modal .task-view-description textarea {
+    background: #111827;
+    border-color: #374151;
+    color: #f1f5f9;
+  }
+  :global(html.dark) .task-view-modal.task-add-modal .task-view-grid label span,
+  :global(html.dark) .task-view-modal.task-add-modal .task-view-description span,
+  :global(html.dark) .task-view-modal.task-add-modal .task-view-section-head span,
+  :global(body.dark) .task-view-modal.task-add-modal .task-view-grid label span,
+  :global(body.dark) .task-view-modal.task-add-modal .task-view-description span,
+  :global(body.dark) .task-view-modal.task-add-modal .task-view-section-head span {
+    color: #94a3b8;
+  }
+  :global(html.dark) .task-view-modal.task-add-modal .task-view-action,
+  :global(body.dark) .task-view-modal.task-add-modal .task-view-action {
+    background: #1f2937;
+    border-color: #374151;
+    color: #e2e8f0;
+  }
+  :global(html.dark) .task-view-modal.task-add-modal .task-view-action.primary,
+  :global(body.dark) .task-view-modal.task-add-modal .task-view-action.primary {
+    background: #2563eb;
+    border-color: #2563eb;
+    color: #ffffff;
+  }
+  :global(html.dark) .task-view-modal.task-add-modal .task-add-modal-footer {
+    background: #1f2937;
+    border-top-color: #374151;
+  }
+  :global(body.dark) .task-view-modal.task-add-modal .task-add-modal-footer {
+    background: #1f2937;
+    border-top-color: #374151;
   }
 
   .task-view-modal-head {
@@ -5715,7 +5832,10 @@ let restoringTaskMap = {};
   }
 
   .worklogs-accordion-list {
+    display: flex;
+    flex-direction: column;
     gap: 8px;
+    padding: 2px 0;
   }
 
   .worklog-accordion-item,
@@ -5854,9 +5974,34 @@ let restoringTaskMap = {};
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 24px;
-    height: 24px;
-    border-radius: 6px;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    border: 1px solid var(--ims-ref-border);
+    background: color-mix(in srgb, var(--ims-ref-surface2) 82%, transparent);
+    color: var(--ims-ref-text2);
+    transition: border-color 0.18s ease, background-color 0.18s ease, color 0.18s ease, transform 0.12s ease;
+  }
+
+  .worklog-attachment-action:hover {
+    transform: translateY(-1px);
+    border-color: var(--ims-ref-accent2);
+    background: color-mix(in srgb, var(--ims-ref-accent2) 14%, var(--ims-ref-surface2));
+    color: var(--ims-ref-text);
+  }
+
+  .worklog-attachment-action:focus-visible {
+    outline: none;
+    border-color: var(--ims-ref-accent2);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--ims-ref-accent2) 35%, transparent);
+  }
+
+  .worklog-attachment-action.action-view {
+    color: #7fb5ff;
+  }
+
+  .worklog-attachment-action.action-download {
+    color: #8fd6a4;
   }
 
   .task-list {
@@ -6078,6 +6223,37 @@ let restoringTaskMap = {};
     gap: 4px;
   }
 
+  .activity-shell.projects-page .stat-loading-card {
+    align-items: center;
+    min-height: 92px;
+  }
+
+  .activity-shell.projects-page .stat-loading-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    flex-shrink: 0;
+  }
+
+  .activity-shell.projects-page .stat-loading-label {
+    width: 110px;
+    height: 11px;
+    border-radius: 6px;
+  }
+
+  .activity-shell.projects-page .stat-loading-value {
+    width: 60px;
+    height: 24px;
+    border-radius: 8px;
+  }
+
+  .activity-shell.projects-page .stat-loading-sub {
+    width: 140px;
+    height: 11px;
+    border-radius: 6px;
+    margin-top: 2px;
+  }
+
   .activity-shell.projects-page .stat-icon {
     width: 40px;
     height: 40px;
@@ -6171,6 +6347,27 @@ let restoringTaskMap = {};
     border-color: var(--color-border);
   }
 
+  :global(html.dark) .activity-shell.projects-page .view-controls .btn,
+  :global(body.dark) .activity-shell.projects-page .view-controls .btn {
+    background: transparent !important;
+    color: #e2e8f0 !important;
+    border-color: #334155 !important;
+  }
+
+  :global(html.dark) .activity-shell.projects-page .view-controls .btn:hover,
+  :global(body.dark) .activity-shell.projects-page .view-controls .btn:hover {
+    background: #1e2736 !important;
+    border-color: #ffffff1a !important;
+    color: #e5edf8 !important;
+  }
+
+  :global(body.dark) .activity-shell.projects-page .view-controls .btn.active {
+    background: #1e2736 !important;
+    color: #e5edf8 !important;
+    border-color: #ffffff1a !important;
+  }
+
+  :global(html.dark) .activity-shell.projects-page .view-controls .btn.active,
   :global(body.dark) .activity-shell.projects-page .view-controls .btn.active {
     background: #1e2736 !important;
     color: #e5edf8 !important;

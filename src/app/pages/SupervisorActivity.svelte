@@ -1260,21 +1260,13 @@ function toggleEditAssigneeDropdown() {
 
   {#if showAddTask}
     <div class="task-view-modal-overlay" role="presentation" on:click={() => { if (!isCreatingTask) showAddTask = false; }}>
-      <div class="task-view-modal" role="dialog" aria-modal="true" aria-label="Add Task" tabindex="-1" on:click|stopPropagation on:keydown|stopPropagation>
+      <div class="task-view-modal task-add-modal" role="dialog" aria-modal="true" aria-label="Add Task" tabindex="-1" on:click|stopPropagation on:keydown|stopPropagation>
 
         <div class="task-view-modal-head">
           <h4>Add Task</h4>
-          <div class="task-view-head-actions">
-            <button type="button" class="task-view-action" on:click={() => { showAddTask = false; }} disabled={isCreatingTask}>Cancel</button>
-            <button type="button" class="task-view-action primary" style="display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;" on:click={submitNewTask} disabled={isCreatingTask} aria-busy={isCreatingTask}>
-              {#if isCreatingTask}
-                <span class="spinning-icon"><Loader2 size={16} /></span>
-              {/if}
-              <span>{isCreatingTask ? 'Saving...' : 'Save Task'}</span>
-            </button>
-          </div>
         </div>
 
+        <div class="task-add-modal-content">
         <div class="task-view-grid">
           <label class="title-field">
             <span>Task</span>
@@ -1368,6 +1360,17 @@ function toggleEditAssigneeDropdown() {
               </ul>
             {/if}
           </div>
+        </div>
+        </div>
+
+        <div class="task-add-modal-footer">
+          <button type="button" class="task-view-action" on:click={() => { showAddTask = false; }} disabled={isCreatingTask}>Cancel</button>
+          <button type="button" class="task-view-action primary" style="display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;" on:click={submitNewTask} disabled={isCreatingTask} aria-busy={isCreatingTask}>
+            {#if isCreatingTask}
+              <span class="spinning-icon"><Loader2 size={16} /></span>
+            {/if}
+            <span>{isCreatingTask ? 'Saving...' : 'Save Task'}</span>
+          </button>
         </div>
 
       </div>
@@ -2944,6 +2947,46 @@ function toggleEditAssigneeDropdown() {
     gap: 0.9rem;
   }
 
+  .task-view-modal.task-add-modal {
+    width: min(92vw, 720px);
+    max-height: 90vh;
+    padding: 0;
+    gap: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    background: #1f2937;
+    border-color: #374151;
+  }
+
+  .task-view-modal.task-add-modal .task-view-modal-head {
+    padding: 18px 22px 12px;
+    background: #1f2937;
+  }
+
+  .task-view-modal.task-add-modal .task-view-modal-head h4 {
+    font-size: 15px;
+    font-weight: 700;
+  }
+
+  .task-add-modal-content {
+    padding: 0 22px 16px;
+    overflow-y: auto;
+    flex: 1;
+    display: grid;
+    gap: 0.8rem;
+    background: #1f2937;
+  }
+
+  .task-add-modal-footer {
+    padding: 12px 22px 16px;
+    border-top: 1px solid #374151;
+    background: #1f2937;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
   /* ensure the standalone description label in Add Task matches grid labels */
 
   .task-view-modal-head {
@@ -3155,6 +3198,33 @@ function toggleEditAssigneeDropdown() {
     font-family: inherit;
     display: block;
     margin-bottom: 0.25rem;
+  }
+
+  .task-view-modal.task-add-modal .task-view-grid input,
+  .task-view-modal.task-add-modal .task-view-grid select,
+  .task-view-modal.task-add-modal .task-view-description textarea {
+    background: #111827;
+    border-color: #374151;
+    color: #f1f5f9;
+  }
+
+  .task-view-modal.task-add-modal .task-view-grid label span,
+  .task-view-modal.task-add-modal .task-view-description span,
+  .task-view-modal.task-add-modal .task-view-section .task-view-section-head span,
+  .task-view-modal.task-add-modal .task-view-modal-head h4 {
+    color: #e5edf8;
+  }
+
+  .task-view-modal.task-add-modal .task-view-action {
+    background: #1f2937;
+    border-color: #374151;
+    color: #e2e8f0;
+  }
+
+  .task-view-modal.task-add-modal .task-view-action.primary {
+    background: #2563eb;
+    border-color: #2563eb;
+    color: #ffffff;
   }
 
   /* ── Attachment editor (matches ActivityIntern design) ── */
