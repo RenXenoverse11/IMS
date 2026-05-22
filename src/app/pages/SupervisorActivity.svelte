@@ -2546,9 +2546,10 @@ function toggleEditAssigneeDropdown() {
 
   /* full-row clickable intern task */
   .intern-row-button {
-    display:flex; align-items:flex-start; gap:0.6rem; width:100%; background:transparent; border:none; text-align:left; padding:0.6rem 0.6rem; border-radius:0.55rem; cursor:pointer
+    display:flex; align-items:center; justify-content:space-between; gap:0.75rem; width:100%; background:var(--soft); border:1px solid var(--border); text-align:left; padding:0.9rem 1rem; border-radius:0.9rem; cursor:pointer; color: var(--ink); transition: background 0.18s ease, border-color 0.18s ease, transform 0.12s ease
   }
-  .intern-row-button:hover { background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
+  .intern-row-button:hover { background: color-mix(in srgb, var(--accent) 6%, var(--soft)); border-color: color-mix(in srgb, var(--accent) 12%, var(--border)); transform: translateY(-1px); }
+  .intern-row-button:focus-visible { outline:none; border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent); }
 
   .title-text { font-weight:700; font-size:0.89rem }
 
@@ -3675,6 +3676,7 @@ function toggleEditAssigneeDropdown() {
   }
 
   .log-card,
+  .intern-row-button,
   .intern-list-item,
   .attachment-row,
   .log-attachment-main {
@@ -3734,6 +3736,7 @@ function toggleEditAssigneeDropdown() {
   :global(.dark) .small-select,
   :global(.dark) .small-date,
   :global(.dark) .log-card,
+  :global(.dark) .intern-row-button,
   :global(.dark) .intern-list-item,
   :global(.dark) .attachment-row,
   :global(.dark) .log-attachment-main {
