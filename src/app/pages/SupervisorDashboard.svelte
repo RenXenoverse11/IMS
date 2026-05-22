@@ -160,10 +160,31 @@
     return !!dateOnly && dateOnly === today;
   }
 
+  function normalizePersonName(value) {
+    return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  }
+
+  function resolveRequestStudentId(req) {
+    const directId = String(
+      req?.user_id || req?.student_user_id || req?.requester_user_id || ''
+    ).trim();
+    if (directId) return directId;
+
+    const requesterName = normalizePersonName(req?.requester_name);
+    if (!requesterName) return '';
+
+    const matchedStudent = assignedStudents.find(
+      (student) => normalizePersonName(student?.full_name) === requesterName
+    );
+    return String(matchedStudent?.user_id || '').trim();
+  }
+
   function getStudentRequestsToday(studentUserId) {
     const id = String(studentUserId || '').trim();
     if (!id) return [];
-    return assignedRequests.filter((req) => String(req?.user_id || '').trim() === id).filter(requestMatchesToday);
+    return assignedRequests
+      .filter((req) => resolveRequestStudentId(req) === id)
+      .filter(requestMatchesToday);
   }
 
   function isApprovedAbsenceToday(studentUserId) {
