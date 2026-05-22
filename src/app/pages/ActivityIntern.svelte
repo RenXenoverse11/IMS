@@ -2941,21 +2941,9 @@ let restoringTaskMap = {};
                   <li>
                     <div class="attachment-row">
                       <div class="attachment-main">
-                        {#if att && att.link}
-                          <a href={att.link} target="_blank" rel="noopener noreferrer">{att.file_name || att.name || att}</a>
-                        {:else}
-                          <span>{(att && (att.file_name || att.name)) || att}</span>
-                        {/if}
+                        <span>{(att && (att.file_name || att.name)) || att}</span>
                       </div>
                       <div class="attachment-actions">
-                        {#if att && att.link}
-                          <a class="attachment-action" href={att.link} target="_blank" rel="noopener noreferrer" aria-label="View attachment" title="View">
-                            <ExternalLink size={14} />
-                          </a>
-                          <a class="attachment-action" href={getDriveDownloadUrl(att.link)} target="_blank" rel="noopener noreferrer" aria-label="Download attachment" title="Download">
-                            <Download size={14} />
-                          </a>
-                        {/if}
                         <button type="button" class="remove-item" on:click={() => removeTaskViewAttachment(index)}>
                           Remove
                         </button>

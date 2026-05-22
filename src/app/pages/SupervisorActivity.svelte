@@ -1966,17 +1966,9 @@ function toggleEditAssigneeDropdown() {
                       <li>
                         <div class="attachment-row">
                           <div class="attachment-main">
-                            {#if a.link}
-                              <a href={a.link} target="_blank" rel="noopener noreferrer">{a.file_name || 'file'}</a>
-                            {:else}
-                              <span>{a.file_name || 'file'}</span>
-                            {/if}
+                            <span>{a.file_name || 'file'}</span>
                           </div>
                           <div class="attachment-actions">
-                            {#if a.link}
-                              <a class="attachment-action" href={a.link} target="_blank" rel="noopener noreferrer" aria-label="View attachment" title="View"><ExternalLink size={14} /></a>
-                              <a class="attachment-action" href={getDriveDownloadUrl(a.link)} target="_blank" rel="noopener noreferrer" aria-label="Download attachment" title="Download"><Download size={14} /></a>
-                            {/if}
                             <button type="button" class="remove-item" on:click={() => removeExistingAttachment(a.supattch_id)}>Remove</button>
                           </div>
                         </div>
