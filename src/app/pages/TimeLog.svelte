@@ -28,6 +28,7 @@
 
   let requiredHours = DEFAULT_REQUIRED_HOURS;
   let ojtStartDate = '';
+  let approvedAbsenceAdjustmentDays = 0;
 
   const statusMeta = {
     recorded: {
@@ -200,6 +201,36 @@
     return result;
   }
 
+  function addWorkingDaysToDateString(dateInput, workingDaysToAdd, daysOff = [0, 6]) {
+    const base = parseIsoDateOnly(dateInput);
+    if (!base) return '';
+    const extra = Math.max(0, Math.floor(Number(workingDaysToAdd) || 0));
+    const projected = addWorkingDays(base, extra, daysOff);
+    return projected ? normalizeDateOnly(projected) : '';
+  }
+
+  function getTodayDateOnly() {
+    return normalizeDateOnly(new Date());
+  }
+
+  function countApprovedAbsenceAdjustments(requests, todayDateOnly) {
+    const rows = Array.isArray(requests) ? requests : [];
+    const seen = new Set();
+    return rows.reduce((count, request) => {
+      const requestId = String(request?.id || request?.request_id || '').trim();
+      if (requestId && seen.has(requestId)) return count;
+      const requestType = String(request?.requestType || request?.request_type || '').trim().toLowerCase();
+      const requestStatus = String(request?.status || '').trim().toLowerCase();
+      const archivedPrevious = String(request?.archived_previous_status || request?.archivedPreviousStatus || '').trim().toLowerCase();
+      const approved = requestStatus === 'approved' || (requestStatus === 'archived' && archivedPrevious === 'approved');
+      if (requestType !== 'absence' || !approved) return count;
+      const requestDate = normalizeDateOnly(request?.date || request?.request_date || request?.applied_date || '');
+      if (!requestDate || (todayDateOnly && requestDate < todayDateOnly)) return count;
+      if (requestId) seen.add(requestId);
+      return count + 1;
+    }, 0);
+  }
+
   function calculateHours(currentTimeIn, currentTimeOut, withLunch = includeLunch) {
     if (!currentTimeIn || !currentTimeOut) return 0;
     const [inHours, inMinutes] = currentTimeIn.split(':').map(Number);
@@ -323,7 +354,7 @@
       if (!Number.isNaN(serialDate.getTime())) return toLocalIsoDate(serialDate);
     }
     const dateObj = new Date(text);
-    if (Number.isNaN(dateObj.getTime())) return toLocalIsoDate(new Date());
+    if (Number.isNaN(dateObj.getTime())) return '';
     return toLocalIsoDate(dateObj);
   }
 
@@ -674,6 +705,7 @@
     const user = authApi.getCurrentUser();
     if (user?.user_id) restoreLocalActiveSession(user.user_id);
     syncRequiredHoursFromAccount();
+    await loadApprovedAbsenceAdjustments();
     await loadEntriesFromApi();
     await checkForActiveSession();
     requestTlChartInit();
@@ -936,6 +968,7 @@
       }
       
       await loadEntriesFromApi();
+      await loadApprovedAbsenceAdjustments();
       // Set default date after ensuring user is loaded
       const today = new Date();
       const year = today.getFullYear();
@@ -960,6 +993,19 @@
           console.error('Error refreshing time log after auth restore:', err);
         }
       }
+    }
+  }
+
+  async function loadApprovedAbsenceAdjustments() {
+    approvedAbsenceAdjustmentDays = 0;
+    const user = authApi.getCurrentUser();
+    if (!user?.user_id) return;
+    try {
+      const response = await authApi.callApiAction('list_requests_by_user', { user_id: user.user_id });
+      const requests = Array.isArray(response?.requests) ? response.requests : [];
+      approvedAbsenceAdjustmentDays = countApprovedAbsenceAdjustments(requests, getTodayDateOnly());
+    } catch (err) {
+      console.error('Failed to load approved absence adjustments:', err);
     }
   }
 
@@ -1032,6 +1078,13 @@
   $: currentUser = authApi.getCurrentUser() || {};
   $: internFullName = String(currentUser?.full_name || '').trim() || 'Intern';
   $: companyName = String(currentUser?.company || currentUser?.ojt?.company || '').trim();
+  $: storedEstimatedEndDate = String(currentUser?.ojt?.estimated_end_date || '').trim();
+  $: normalizedStoredEstimatedEndDate = normalizeDateOnly(storedEstimatedEndDate);
+  $: baseEstimatedCompletion = getEstimatedCompletionDate(remainingHours, AVERAGE_DAILY_HOURS, internSchedule.days_off);
+  $: computedEstimatedCompletion = addWorkingDaysToDateString(baseEstimatedCompletion, approvedAbsenceAdjustmentDays, internSchedule.days_off) || baseEstimatedCompletion;
+  $: estimatedCompletionValue = normalizedStoredEstimatedEndDate
+    ? formatDate(normalizedStoredEstimatedEndDate, { month: 'short', day: '2-digit', year: 'numeric' })
+    : computedEstimatedCompletion;
   
   $: if (typeof window !== 'undefined' && completedHours >= 0 && completedHoursStorageKey) {
     localStorage.setItem(completedHoursStorageKey, String(completedHours));
@@ -1051,7 +1104,7 @@
     { label: 'Total Hours Required', value: `${formatHours(requiredHours || 0)}h`, sub: 'Per internship agreement', icon: Target, tone: 'primary' },
     { label: 'Hours Completed', value: `${formatHours(completedHours || 0)}h`, sub: `${formatHours(remainingHours || 0)}h remaining`, icon: CheckCircle2, tone: 'success' },
     { label: 'Avg. Daily Hours', value: `${AVERAGE_DAILY_HOURS}h`, sub: 'Based on schedule', icon: Clock, tone: 'info' },
-    { label: 'Est. Completion', value: getEstimatedCompletionDate(remainingHours, AVERAGE_DAILY_HOURS, internSchedule.days_off), sub: new Date().getFullYear(), icon: Calendar, tone: 'forecast' },
+    { label: 'Est. Completion', value: estimatedCompletionValue, sub: new Date().getFullYear(), icon: Calendar, tone: 'forecast' },
   ];
 </script>
 

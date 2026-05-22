@@ -48,6 +48,13 @@
     return String(value || '').trim().toLowerCase();
   }
 
+  function parseDateLoose(value) {
+    const text = String(value || '').trim();
+    if (!text) return null;
+    const parsed = new Date(text);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
   function getPendingTaskCount(studentUserId) {
     const row = tasksSummaryByStudent[String(studentUserId || '').trim()] || null;
     return Number(row?.pendingCount || 0);
@@ -117,7 +124,14 @@
     const remainingHours = getRemainingHours(intern);
     if (remainingHours === null) return 'Not available';
     if (remainingHours <= 0) return normalizeDate(getToday());
-    return getEstimatedCompletionDate(remainingHours, AVG_DAILY_HOURS, normalizeDaysOff(intern?.days_off));
+    const storedEstimatedEndDate = String(intern?.estimated_end_date || '').trim();
+    const computedEstimatedEndDate = getEstimatedCompletionDate(remainingHours, AVG_DAILY_HOURS, normalizeDaysOff(intern?.days_off));
+    const storedDateObj = parseDateLoose(storedEstimatedEndDate);
+    const computedDateObj = parseDateLoose(computedEstimatedEndDate);
+    if (storedEstimatedEndDate && (!computedDateObj || (storedDateObj && storedDateObj >= computedDateObj))) {
+      return normalizeDate(storedEstimatedEndDate);
+    }
+    return computedEstimatedEndDate;
   }
 
   function requestMatchesToday(req) {

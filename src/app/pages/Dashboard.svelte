@@ -33,6 +33,7 @@
   let activityLogs = [];
   let tasks = [];
   let pendingRequests = [];
+  let approvedAbsenceAdjustmentDays = 0;
   let internSchedule = {
     shift_start: '09:00',
     shift_end: '17:00',
@@ -110,6 +111,39 @@
     const day = dt.getDate();
     const year = dt.getFullYear();
     return `${month} ${day}, ${year}`;
+  }
+
+  function parseDateLoose(value) {
+    const text = String(value || '').trim();
+    if (!text) return null;
+    const parsed = new Date(text);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  function addWorkingDaysToDateString(dateInput, workingDaysToAdd, daysOff = [0, 6]) {
+    const base = parseIsoDateOnly(dateInput);
+    if (!base) return '';
+    const extra = Math.max(0, Math.floor(Number(workingDaysToAdd) || 0));
+    const projected = addWorkingDays(base, extra, daysOff);
+    return projected ? toIsoDateOnly(projected) : '';
+  }
+
+  function countApprovedAbsenceAdjustments(requests, todayDateOnly) {
+    const rows = Array.isArray(requests) ? requests : [];
+    const seen = new Set();
+    return rows.reduce((count, req) => {
+      const requestId = String(req?.id || req?.request_id || '').trim();
+      if (requestId && seen.has(requestId)) return count;
+      const type = String(req?.requestType || req?.request_type || '').trim().toLowerCase();
+      const status = String(req?.status || '').trim().toLowerCase();
+      const archivedPrevious = String(req?.archived_previous_status || req?.archivedPreviousStatus || '').trim().toLowerCase();
+      const approved = status === 'approved' || (status === 'archived' && archivedPrevious === 'approved');
+      if (type !== 'absence' || !approved) return count;
+      const requestDate = normalizeDateOnly(req?.date || req?.request_date || req?.applied_date || '');
+      if (!requestDate || (todayDateOnly && requestDate < todayDateOnly)) return count;
+      if (requestId) seen.add(requestId);
+      return count + 1;
+    }, 0);
   }
 
   function normalizeDepartment(dept) {
@@ -256,11 +290,22 @@
   $: avgDailyHours = 8; // You can make this dynamic if needed
   $: totalWorkingDays = Math.ceil(Math.max(0, totalOjtHours) / avgDailyHours);
   $: remainingWorkingDays = Math.ceil(Math.max(0, hoursRemaining) / avgDailyHours);
-  $: estimatedEndDateDisplay = (formStartDate && hoursRemaining > 0)
+  $: baseCalculatedEstimatedEndDate = (formStartDate && hoursRemaining > 0)
     ? getEstimatedCompletionDate(hoursRemaining, avgDailyHours, internSchedule.days_off)
-    : (profile?.estimated_end_date
-      ? formatDateLong(profile.estimated_end_date)
-      : 'Not available yet');
+    : '';
+  $: calculatedEstimatedEndDate = baseCalculatedEstimatedEndDate
+    ? (addWorkingDaysToDateString(baseCalculatedEstimatedEndDate, approvedAbsenceAdjustmentDays, internSchedule.days_off) || baseCalculatedEstimatedEndDate)
+    : '';
+  $: storedEstimatedEndDateDisplay = profile?.estimated_end_date
+    ? formatDateLong(profile.estimated_end_date)
+    : '';
+  $: storedEstimatedEndDateObj = parseDateLoose(profile?.estimated_end_date);
+  $: calculatedEstimatedEndDateObj = parseDateLoose(calculatedEstimatedEndDate);
+  $: estimatedEndDateDisplay = storedEstimatedEndDateDisplay
+    ? ((calculatedEstimatedEndDateObj && storedEstimatedEndDateObj && storedEstimatedEndDateObj < calculatedEstimatedEndDateObj)
+      ? formatDateLong(calculatedEstimatedEndDate)
+      : storedEstimatedEndDateDisplay)
+    : (calculatedEstimatedEndDate ? formatDateLong(calculatedEstimatedEndDate) : 'Not available yet');
   $: startDateDisplay = formStartDate ? formatDateLong(formStartDate) : 'Not set yet';
   $: progressPercent = totalOjtHours > 0 ? Math.min(100, Math.round((hoursCompleted / totalOjtHours) * 100)) : 0;
   $: progressFooterRemaining = `${Number(hoursRemaining || 0).toFixed(1)}h remaining`;
@@ -379,6 +424,20 @@
         })
         .slice(0, 10);
       pendingRequests = data.pending_requests || [];
+      approvedAbsenceAdjustmentDays = 0;
+      try {
+        const allRequestsResult = await callApiAction('list_requests_by_user', {
+          user_id: currentUser.user_id,
+        });
+        if (allRequestsResult && allRequestsResult.ok && Array.isArray(allRequestsResult.requests)) {
+          approvedAbsenceAdjustmentDays = countApprovedAbsenceAdjustments(
+            allRequestsResult.requests,
+            toLocalIsoDate(new Date())
+          );
+        }
+      } catch (requestErr) {
+        console.error('Failed to load approved absence adjustments:', requestErr);
+      }
 
       const timeLogActivities = [];
       if (Array.isArray(data.time_logs)) {

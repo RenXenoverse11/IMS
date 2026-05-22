@@ -2644,12 +2644,17 @@ function normalizeDaysOff_(daysOffInput, fallbackDays) {
 
 // Helper function to extend a date by business days
 function extendDateByBusinessDays_(startDateStr, businessDays, daysOff) {
-  if (!startDateStr || businessDays <= 0) {
+  if (!startDateStr) {
     return startDateStr;
   }
-  
-  // Parse the date string (YYYY-MM-DD format)
-  var parts = String(startDateStr).split('-');
+
+  var normalizedStartDate = formatDateValue_(startDateStr);
+  if (!normalizedStartDate) {
+    return String(startDateStr || '').trim();
+  }
+
+  // Parse normalized date string (YYYY-MM-DD format)
+  var parts = String(normalizedStartDate).split('-');
   if (parts.length !== 3) return startDateStr;
   
   var year = Number(parts[0]);
