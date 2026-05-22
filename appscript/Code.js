@@ -1390,7 +1390,19 @@ function handleStartSession_(payload) {
     
     var userIdCol = findColumnIndex_(headers, 'user_id');
     var logDateCol = findColumnIndex_(headers, 'log_date');
+    var timeInCol = findColumnIndex_(headers, 'time_in');
     var timeOutCol = findColumnIndex_(headers, 'time_out');
+    var normalizedLogDate = formatCellDate_(logDate);
+    var normalizedTimeIn = normalizeTimeForCompare_(timeIn);
+
+    for (var duplicateIndex = 1; duplicateIndex < values.length; duplicateIndex++) {
+      var duplicateUserId = String(values[duplicateIndex][userIdCol - 1] || '').trim();
+      var duplicateLogDate = formatCellDate_(values[duplicateIndex][logDateCol - 1]);
+      var duplicateTimeIn = normalizeTimeForCompare_(values[duplicateIndex][timeInCol - 1]);
+      if (duplicateUserId === userId && duplicateLogDate === normalizedLogDate && duplicateTimeIn === normalizedTimeIn) {
+        return { ok: false, error: 'Duplicate login is not allowed. A time log for this date and time already exists.' };
+      }
+    }
 
     for (var i = 1; i < values.length; i++) {
       var rowUserId = String(values[i][userIdCol - 1] || '').trim();

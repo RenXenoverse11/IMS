@@ -515,6 +515,16 @@
     return timeMinutes >= startMinutes && timeMinutes <= endMinutes;
   }
 
+  function hasDuplicateLoggedEntry(dateValue, timeValue) {
+    const normalizedDate = normalizeDateOnly(dateValue);
+    const normalizedTime = normalizeTimeValue(timeValue, '');
+    if (!normalizedDate || !normalizedTime) return false;
+    return entries.some((entry) => (
+      normalizeDateOnly(entry?.date || '') === normalizedDate &&
+      normalizeTimeValue(entry?.timeIn || '', '') === normalizedTime
+    ));
+  }
+
   function syncRequiredHoursFromAccount() {
     const user = authApi.getCurrentUser();
     const studentHours = Number(user?.ojt?.total_ojt_hours || 0);
@@ -566,6 +576,13 @@
           isLoggingIn = false;
           return;
         }
+      }
+
+      if (hasDuplicateLoggedEntry(date, finalTimeIn)) {
+        logSyncError = `Duplicate login is not allowed. A time log for ${formatLongDate(date)} at ${formatAttendanceTime(finalTimeIn)} already exists.`;
+        isLoggedIn = false;
+        isLoggingIn = false;
+        return;
       }
 
       const response = await authApi.callApiAction('start_session', {
