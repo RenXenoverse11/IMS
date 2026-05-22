@@ -1562,7 +1562,7 @@ function toggleEditAssigneeDropdown() {
         {:else}
           <ul style="list-style:none; margin:0; padding:0; display:grid; gap:0.6rem;">
             {#each archivedSupervisorTasks as a}
-              <li style="display:flex; justify-content:space-between; align-items:center; padding:0.6rem; border-radius:0.6rem; background:var(--surface); border:1px solid var(--border);">
+              <li style="display:flex; justify-content:space-between; align-items:center; padding:0.6rem; border-radius:0.75rem; background:var(--sa-subtle-bg); border:1px solid var(--sa-border);">
                 <div style="min-width:0">
                   <div class="archive-task-title">{a.title}</div>
                   <div class="muted" style="font-size:0.9rem">{formatDateToMMDDYYYY(a.due_date) || ''} — {a.status || ''}</div>
@@ -1997,15 +1997,18 @@ function toggleEditAssigneeDropdown() {
   <style>
   :root {
     --ink: var(--color-text, #0f172a);
-    --muted: var(--color-muted, #5b677a);
-    --border: var(--color-border, #d7e3f1);
+    --muted: var(--color-muted, #64748b);
+    --border: var(--color-border, #e2e8f0);
     --surface: var(--color-surface, #ffffff);
-    --soft: var(--color-soft, #f4f7fb);
-    --accent: var(--color-accent, #0f6cbd);
-    --modal-heading: #0f172a;
-    --modal-label: #475569;
-    --accent-dark: #0a4a8f;
-    --shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+    --soft: var(--color-soft, #f8fafc);
+    --surface-soft: var(--soft);
+    --surface2: #f1f5f9;
+    --border-strong: #cbd5e1;
+    --accent: var(--color-accent, #2563eb);
+    --modal-heading: var(--ink);
+    --modal-label: var(--muted);
+    --accent-dark: #1d4ed8;
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
   }
 
   :global(.supervisor-activity) {
@@ -2764,7 +2767,7 @@ function toggleEditAssigneeDropdown() {
 
   .intern-card {
     border: 1px solid var(--border);
-    background: var(--surface-soft, #f9fbff);
+    background: var(--surface-soft);
     border-radius: 1rem;
     padding: 1rem;
   }
@@ -2819,10 +2822,10 @@ function toggleEditAssigneeDropdown() {
     height: 2rem;
     padding: 0;
     border-radius: 0.7rem;
-    border: 1px solid rgba(148, 163, 184, 0.14);
-    background: linear-gradient(180deg, rgba(15, 23, 42, 0.9) 0%, rgba(15, 23, 42, 0.78) 100%);
-    color: #9ca3af;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border);
+    background: var(--soft);
+    color: var(--muted);
+    box-shadow: none;
     transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, opacity 0.18s ease, transform 0.18s ease;
   }
 
@@ -2832,14 +2835,14 @@ function toggleEditAssigneeDropdown() {
   }
 
   .restore-task-btn:hover {
-    background: linear-gradient(180deg, rgba(30, 41, 59, 0.96) 0%, rgba(15, 23, 42, 0.86) 100%);
-    border-color: rgba(148, 163, 184, 0.22);
-    color: #d1d5db;
+    background: color-mix(in srgb, var(--accent) 6%, var(--soft));
+    border-color: color-mix(in srgb, var(--accent) 14%, var(--border));
+    color: var(--accent);
     transform: translateY(-1px);
   }
 
   .restore-task-btn:focus-visible {
-    outline: 2px solid rgba(148, 163, 184, 0.22);
+    outline: 2px solid color-mix(in srgb, var(--accent) 18%, transparent);
     outline-offset: 2px;
   }
 
@@ -2853,8 +2856,8 @@ function toggleEditAssigneeDropdown() {
   .restore-task-btn .archive-spinner {
     width: 0.82rem;
     height: 0.82rem;
-    border-color: rgba(156, 163, 175, 0.22);
-    border-top-color: #d1d5db;
+    border-color: color-mix(in srgb, var(--muted) 20%, transparent);
+    border-top-color: var(--accent);
   }
   .quick-actions { display:flex; gap:0.45rem; align-items:center }
   .search-input { padding:0.34rem 0.6rem; border-radius:999px; border:1px solid var(--border); background:var(--soft); min-width:200px; font-size:0.95rem }
@@ -2895,13 +2898,17 @@ function toggleEditAssigneeDropdown() {
   }
 
   :global(.dark) {
-    --ink: #e5edf8;
-    --muted: #9ba3af;
-    --border: #2b3c57;
-    --surface: #162338;
-    --soft: #1c2a44;
-    --modal-heading: #e5edf8;
-    --modal-label: #9ba3af;
+    --ink: #f1f5f9;
+    --muted: #94a3b8;
+    --border: #ffffff0f;
+    --surface: #161c27;
+    --soft: #1e2736;
+    --surface-soft: var(--soft);
+    --surface2: #242f42;
+    --border-strong: #ffffff1a;
+    --modal-heading: var(--ink);
+    --modal-label: var(--muted);
+    --shadow: 0 1px 3px #00000030;
   }
 
   /* small date input used in header filters */
@@ -3427,17 +3434,30 @@ function toggleEditAssigneeDropdown() {
   /* Dashboard-aligned visual skin */
   :global(.supervisor-activity) {
     gap: 14px;
-    color: #0f172a;
+    color: var(--ink);
     font-family: 'DM Sans', sans-serif !important;
+    --sa-panel-bg: var(--surface);
+    --sa-subtle-bg: var(--soft);
+    --sa-border: var(--border);
+    --sa-text: var(--ink);
+    --sa-muted: var(--muted);
+    --sa-shadow: var(--shadow);
+    --sa-skeleton-bg: rgba(15, 23, 42, 0.09);
+  }
+
+  :global(.dark) .supervisor-activity,
+  :global(body.dark) .supervisor-activity,
+  :global(html.dark) .supervisor-activity {
+    --sa-skeleton-bg: rgba(255, 255, 255, 0.08);
   }
 
   .banner {
     padding: 10px 14px;
     border-radius: 10px;
-    background: #ffffff;
-    border: 1px solid #e2e8f0;
-    color: #64748b;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
+    background: var(--sa-panel-bg);
+    border: 1px solid var(--sa-border);
+    color: var(--sa-muted);
+    box-shadow: var(--sa-shadow);
   }
 
   .banner.error {
@@ -3452,10 +3472,10 @@ function toggleEditAssigneeDropdown() {
   }
 
   .kpi-card {
-    background: #ffffff;
-    border: 1px solid #e2e8f0;
+    background: var(--sa-panel-bg);
+    border: 1px solid var(--sa-border);
     border-radius: 14px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
+    box-shadow: var(--sa-shadow);
     min-height: auto;
     padding: 18px 20px;
     gap: 14px;
@@ -3499,7 +3519,7 @@ function toggleEditAssigneeDropdown() {
     font-weight: 600;
     letter-spacing: 0.07em;
     text-transform: uppercase;
-    color: #475569;
+    color: var(--sa-muted);
   }
 
   .kpi-value {
@@ -3507,14 +3527,14 @@ function toggleEditAssigneeDropdown() {
     font-weight: 700;
     letter-spacing: -0.8px;
     line-height: 1;
-    color: #0f172a;
+    color: var(--sa-text);
   }
 
   .kpi-sub {
     margin: 0;
     font-size: 11.5px;
     font-weight: 500;
-    color: #64748b;
+    color: var(--sa-muted);
   }
 
   .kpi-card-skeleton {
@@ -3524,7 +3544,7 @@ function toggleEditAssigneeDropdown() {
   .sa-skeleton {
     position: relative;
     overflow: hidden;
-    background: rgba(15, 23, 42, 0.09);
+    background: var(--sa-skeleton-bg);
     border-radius: 6px;
   }
 
@@ -3547,8 +3567,8 @@ function toggleEditAssigneeDropdown() {
     display: flex;
     align-items: center;
     gap: 0.7rem;
-    border: 1px solid #e2e8f0;
-    background: #f8fafc;
+    border: 1px solid var(--sa-border);
+    background: var(--sa-subtle-bg);
     border-radius: 12px;
     padding: 0.65rem 0.75rem;
   }
@@ -3575,11 +3595,11 @@ function toggleEditAssigneeDropdown() {
   }
 
   .quick-panel {
-    background: transparent !important;
-    border: none !important;
-    border-radius: 0;
-    padding: 0;
-    box-shadow: none !important;
+    background: var(--sa-panel-bg) !important;
+    border: 1px solid var(--sa-border) !important;
+    border-radius: 14px;
+    padding: 14px 16px;
+    box-shadow: var(--sa-shadow) !important;
   }
 
   .view-controls {
@@ -3595,27 +3615,27 @@ function toggleEditAssigneeDropdown() {
     gap: 0.4rem;
     border-radius: 0.7rem;
     padding: 0.32rem 0.72rem;
-    background: transparent;
-    border: 1px solid var(--color-border);
+    background: var(--sa-panel-bg);
+    border: 1px solid var(--sa-border);
     font-size: 0.84rem;
     height: 2.15rem;
     line-height: 1;
-    color: var(--color-sidebar-text);
+    color: var(--sa-muted);
     font-weight: 600;
   }
 
   .view-controls .btn.active {
-    background: var(--color-soft);
-    color: var(--color-heading);
-    border-color: var(--color-border);
+    background: var(--sa-subtle-bg);
+    color: var(--sa-text);
+    border-color: var(--sa-border);
   }
 
   .search-input,
   .quick-actions select {
     border-radius: 10px;
-    border: 1px solid #e2e8f0;
-    background: #f8fafc;
-    color: #0f172a;
+    border: 1px solid var(--sa-border);
+    background: var(--sa-subtle-bg);
+    color: var(--sa-text);
     min-height: 36px;
   }
 
@@ -3628,10 +3648,10 @@ function toggleEditAssigneeDropdown() {
   }
 
   .panel {
-    background: #ffffff;
-    border: 1px solid #e2e8f0;
+    background: var(--sa-panel-bg);
+    border: 1px solid var(--sa-border);
     border-radius: 14px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
+    box-shadow: var(--sa-shadow);
     padding: 0;
     gap: 0;
   }
@@ -3639,13 +3659,13 @@ function toggleEditAssigneeDropdown() {
   .panel-head.fullwidth {
     margin: 0;
     padding: 16px 18px 14px;
-    border-bottom: 1px solid #e2e8f0;
-    background: #ffffff;
+    border-bottom: 1px solid var(--sa-border);
+    background: var(--sa-panel-bg);
     border-top-left-radius: 14px;
     border-top-right-radius: 14px;
   }
 
-  .panel-head h3 { font-size: 14px; color: #0f172a; }
+  .panel-head h3 { font-size: 14px; color: var(--sa-text); }
 
   .log-list.panel-scroll-body,
   .progress-list.panel-scroll-body,
@@ -3658,8 +3678,8 @@ function toggleEditAssigneeDropdown() {
   .intern-list-item,
   .attachment-row,
   .log-attachment-main {
-    border: 1px solid #e2e8f0;
-    background: #f8fafc;
+    border: 1px solid var(--sa-border);
+    background: var(--sa-subtle-bg);
     border-radius: 12px;
     box-shadow: none;
   }
@@ -3669,7 +3689,7 @@ function toggleEditAssigneeDropdown() {
   .archive-task-title,
   .title-text,
   .panel .row-value {
-    color: #0f172a;
+    color: var(--sa-text);
   }
 
   .archive-task-title { font-weight: 700; }
@@ -3679,7 +3699,7 @@ function toggleEditAssigneeDropdown() {
   .detail-value,
   .log-task,
   .row-label {
-    color: #64748b;
+    color: var(--sa-muted);
   }
 
   .status-badge {
@@ -3689,8 +3709,8 @@ function toggleEditAssigneeDropdown() {
   }
 
   .icon-box {
-    background: #ffffff;
-    border: 1px solid #e2e8f0;
+    background: var(--sa-panel-bg);
+    border: 1px solid var(--sa-border);
     box-shadow: none;
   }
 
@@ -3698,14 +3718,14 @@ function toggleEditAssigneeDropdown() {
   :global(.dark) .kpi-card,
   :global(.dark) .panel,
   :global(.dark) .icon-box {
-    background: #161c27;
-    border-color: rgba(255, 255, 255, 0.06);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+    background: var(--sa-panel-bg);
+    border-color: var(--sa-border);
+    box-shadow: var(--sa-shadow);
   }
 
   :global(.dark) .panel-head.fullwidth {
-    background: #161c27;
-    border-bottom-color: rgba(255, 255, 255, 0.06);
+    background: var(--sa-panel-bg);
+    border-bottom-color: var(--sa-border);
   }
 
   :global(.dark) .view-controls .btn,
@@ -3717,9 +3737,9 @@ function toggleEditAssigneeDropdown() {
   :global(.dark) .intern-list-item,
   :global(.dark) .attachment-row,
   :global(.dark) .log-attachment-main {
-    background: #0d1117;
-    border-color: rgba(255, 255, 255, 0.08);
-    color: #e2e8f0;
+    background: var(--sa-subtle-bg);
+    border-color: var(--sa-border);
+    color: var(--sa-text);
   }
 
   :global(.dark) .kpi-value,
@@ -3728,7 +3748,7 @@ function toggleEditAssigneeDropdown() {
   :global(.dark) .task-name,
   :global(.dark) .archive-task-title,
   :global(.dark) .title-text {
-    color: #f1f5f9;
+    color: var(--sa-text);
   }
 
   :global(.dark) .kpi-title {
@@ -3740,7 +3760,7 @@ function toggleEditAssigneeDropdown() {
   :global(.dark) .detail-value,
   :global(.dark) .log-task,
   :global(.dark) .row-label {
-    color: #b7c6da;
+    color: var(--sa-muted);
   }
 
   :global(.dark) .task-view-section li input[type='text'] {
@@ -3749,16 +3769,16 @@ function toggleEditAssigneeDropdown() {
   }
 
   :global(.dark) .kpi-sub {
-    color: #94a3b8;
+    color: var(--sa-muted);
   }
 
   :global(.dark) .sa-skeleton {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--sa-skeleton-bg);
   }
 
   :global(.dark) .sa-skeleton-row {
-    background: #0d1117;
-    border-color: rgba(255, 255, 255, 0.08);
+    background: var(--sa-subtle-bg);
+    border-color: var(--sa-border);
   }
 
   :global(.dark) .shimmer::after {
