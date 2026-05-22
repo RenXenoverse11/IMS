@@ -200,7 +200,8 @@
 
   function syncRoute() {
     const hash = window.location.hash.replace(/^#/, '') || '/login';
-    const normalized = normalizePath(hash);
+    const hashPath = hash.split('?')[0] || '/login';
+    const normalized = normalizePath(hashPath);
     const authed = isAuthenticated();
     const role = String(currentUser?.role || getCurrentUser()?.role || '').trim().toLowerCase();
     const defaultPath = getRoleDefaultPath_();
@@ -216,7 +217,7 @@
       if (normalized !== deepLinkPath) {
         currentPath = deepLinkPath;
         persistLastRoleTab_(currentPath);
-        if (hash !== deepLinkPath) {
+        if (hashPath !== deepLinkPath) {
           window.location.hash = deepLinkPath;
         }
         return;
@@ -226,7 +227,7 @@
     if (authed && supervisorSession && normalized === '/supervisor/documents') {
       currentPath = '/documents';
       persistLastRoleTab_(currentPath);
-      if (hash !== '/documents') {
+      if (hashPath !== '/documents') {
         window.location.hash = '/documents';
       }
       return;
@@ -235,7 +236,7 @@
     if (!authed && !authPaths.has(normalized)) {
       currentPath = '/login';
       persistLastRoleTab_(currentPath);
-      if (hash !== '/login') {
+      if (hashPath !== '/login') {
         window.location.hash = '/login';
       }
       return;
@@ -244,7 +245,7 @@
     if (authed && authPaths.has(normalized)) {
       currentPath = defaultPath;
       persistLastRoleTab_(currentPath);
-      if (hash !== defaultPath) {
+      if (hashPath !== defaultPath) {
         window.location.hash = defaultPath;
       }
       return;
@@ -253,7 +254,7 @@
     if (authed && supervisorSession && !isSupervisorAllowedPath_(normalized)) {
       currentPath = '/supervisor';
       persistLastRoleTab_(currentPath);
-      if (hash !== '/supervisor') {
+      if (hashPath !== '/supervisor') {
         window.location.hash = '/supervisor';
       }
       return;
@@ -262,7 +263,7 @@
     if (authed && !supervisorSession && isSupervisorPath_(normalized)) {
       currentPath = '/';
       persistLastRoleTab_(currentPath);
-      if (hash !== '/') {
+      if (hashPath !== '/') {
         window.location.hash = '/';
       }
       return;
@@ -271,7 +272,7 @@
     currentPath = normalized;
     persistLastRoleTab_(currentPath);
 
-    if (normalized !== hash) {
+    if (normalized !== hashPath) {
       window.location.hash = normalized;
     }
   }

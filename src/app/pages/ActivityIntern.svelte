@@ -35,6 +35,7 @@ let nowIntervalId;
 let recentActivitiesIntervalId;
 let stopUserSubscription = () => {};
 let forceUpdate = 0; // dummy variable to trigger Svelte reactivity
+let pendingDeepLinkTaskId = '';
 
 function updateNow() {
   now = new Date();
@@ -51,6 +52,9 @@ onDestroy(() => {
   clearInterval(nowIntervalId);
   clearInterval(recentActivitiesIntervalId);
   stopUserSubscription();
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('hashchange', syncTaskIntentFromHash);
+  }
 });
 // For Recent Activity (automatic, backend-driven)
 let recentActivities = [];
@@ -181,6 +185,10 @@ onMount(() => {
   stopUserSubscription = subscribeToCurrentUser(() => {
     fetchAssignedTasks();
   });
+  syncTaskIntentFromHash();
+  if (typeof window !== 'undefined') {
+    window.addEventListener('hashchange', syncTaskIntentFromHash);
+  }
 });
 
 // Helper to compute minutes ago from a date string (using dueDate as a stand-in for last updated)
@@ -214,6 +222,28 @@ function getUserFullName(idOrEmail) {
   const supervisorByEmail = assignedSupervisors.find(s => String(s.email || '').toLowerCase() === String(idOrEmail).toLowerCase());
   if (supervisorByEmail) return supervisorByEmail.full_name || supervisorByEmail.email || supervisorByEmail.user_id || '';
   return String(idOrEmail);
+}
+
+function getTaskIntentFromHash() {
+  if (typeof window === 'undefined') return '';
+  const rawHash = String(window.location.hash || '').trim();
+  if (!rawHash) return '';
+  const queryIndex = rawHash.indexOf('?');
+  if (queryIndex === -1) return '';
+  const params = new URLSearchParams(rawHash.slice(queryIndex + 1));
+  return String(params.get('taskId') || '').trim();
+}
+
+function syncTaskIntentFromHash() {
+  pendingDeepLinkTaskId = getTaskIntentFromHash();
+}
+
+function clearTaskIntentFromHash() {
+  if (typeof window === 'undefined') return;
+  const rawHash = String(window.location.hash || '').trim();
+  const queryIndex = rawHash.indexOf('?');
+  if (queryIndex === -1) return;
+  window.location.hash = rawHash.slice(0, queryIndex) || '/activity';
 }
 
 function getSupervisorOptionLabel(supervisor) {
@@ -2072,6 +2102,15 @@ let restoringTaskMap = {};
   $: if (isViewTaskModalOpen && viewedTask && isEditingViewedTask && !canModifyTask(viewedTask)) {
     isEditingViewedTask = false;
     isSavingViewedTask = false;
+  }
+  $: if (pendingDeepLinkTaskId && assignedTasks.length) {
+    const targetTask = assignedTasks.find((task) => getTaskActionKey(task) === pendingDeepLinkTaskId);
+    if (targetTask) {
+      activeView = 'List';
+      openTaskViewForm(targetTask);
+      pendingDeepLinkTaskId = '';
+      clearTaskIntentFromHash();
+    }
   }
 
 </script>

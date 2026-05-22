@@ -349,6 +349,15 @@
     };
   }
 
+  function openAssignedTask(task) {
+    const taskId = String(task?.task_id || task?.id || '').trim();
+    if (!taskId) {
+      window.location.hash = '/activity';
+      return;
+    }
+    window.location.hash = `/activity?taskId=${encodeURIComponent(taskId)}`;
+  }
+
   function buildRequestLookup(requests) {
     const rows = Array.isArray(requests) ? requests : [];
     const lookup = {};
@@ -810,9 +819,14 @@
                       {task.due_date ? `Due: ${formatDateLong(String(task.due_date).slice(0, 10))}` : 'No due date'}
                     </div>
                   </div>
-                  <span class="dash-priority-badge dash-priority-{String(task.status || 'Pending').toLowerCase().replace(/\s+/g, '-')}">
-                    {String(task.status || 'Pending')}
-                  </span>
+                  <div class="dash-task-actions">
+                    <button type="button" class="dash-view-btn" on:click={() => openAssignedTask(task)}>
+                      View
+                    </button>
+                    <span class="dash-priority-badge dash-priority-{String(task.status || 'Pending').toLowerCase().replace(/\s+/g, '-')}">
+                      {String(task.status || 'Pending')}
+                    </span>
+                  </div>
                 </div>
               {/each}
             {:else}
@@ -1415,6 +1429,42 @@
 
   .dash-task-info {
     flex: 1;
+  }
+
+  .dash-task-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+
+  .dash-view-btn {
+    border: 1px solid rgba(59, 130, 246, 0.28);
+    background: rgba(59, 130, 246, 0.1);
+    color: #1d4ed8;
+    border-radius: 999px;
+    padding: 5px 12px;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  }
+
+  .dash-view-btn:hover {
+    background: rgba(59, 130, 246, 0.16);
+    border-color: rgba(59, 130, 246, 0.4);
+  }
+
+  :global(.dark) .dash-view-btn {
+    background: rgba(96, 165, 250, 0.14);
+    border-color: rgba(96, 165, 250, 0.28);
+    color: #bfdbfe;
+  }
+
+  :global(.dark) .dash-view-btn:hover {
+    background: rgba(96, 165, 250, 0.2);
+    border-color: rgba(96, 165, 250, 0.38);
   }
 
   .dash-priority-badge {
