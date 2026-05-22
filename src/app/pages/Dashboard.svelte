@@ -314,6 +314,8 @@
     const type = String(item?.type || item?.action || item?.status || '').toLowerCase();
     if (type.includes('login')) return 'submitted';
     if (type.includes('logout')) return 'completed';
+    if (type.includes('approved')) return 'reviewed';
+    if (type.includes('rejected')) return 'reviewed';
     if (type.includes('complete')) return 'completed';
     if (type.includes('submit')) return 'submitted';
     if (type.includes('review')) return 'reviewed';
@@ -345,6 +347,51 @@
       archived_previous_status: archivedPreviousStatus,
       priority: String(task?.priority || 'medium').trim() || 'medium',
     };
+  }
+
+  function buildRequestLookup(requests) {
+    const rows = Array.isArray(requests) ? requests : [];
+    const lookup = {};
+    for (const request of rows) {
+      const requestId = String(request?.id || request?.request_id || '').trim();
+      if (!requestId) continue;
+      lookup[requestId] = request;
+    }
+    return lookup;
+  }
+
+  function buildRequestDecisionTitle(notification, request) {
+    const type = String(notification?.type || '').trim().toLowerCase();
+    const requestType = String(request?.requestType || request?.request_type || 'Request').trim();
+    const requestDate = normalizeDateOnly(request?.date || request?.request_date || request?.applied_date || '');
+    const statusLabel = type === 'rejection' ? 'rejected' : 'approved';
+    if (requestType && requestDate) {
+      return `${requestType} request ${statusLabel} for ${formatDateLong(requestDate)}`;
+    }
+    if (requestType) {
+      return `${requestType} request ${statusLabel}`;
+    }
+    return String(notification?.title || notification?.description || 'Request update').trim();
+  }
+
+  function buildRequestDecisionActivities(notifications, requestLookup) {
+    const rows = Array.isArray(notifications) ? notifications : [];
+    return rows
+      .filter((notification) => {
+        const type = String(notification?.type || '').trim().toLowerCase();
+        const title = String(notification?.title || '').trim().toLowerCase();
+        return type === 'approval' || type === 'rejection' || title.includes('request approved') || title.includes('request rejected');
+      })
+      .map((notification) => {
+        const relatedId = String(notification?.related_id || notification?.relatedId || '').trim();
+        const request = relatedId ? requestLookup?.[relatedId] : null;
+        return {
+          id: `request-status-${String(notification?.id || notification?.notification_id || notification?.created_at || '').trim()}`,
+          type: String(notification?.type || 'reviewed').trim().toLowerCase(),
+          title: buildRequestDecisionTitle(notification, request),
+          created_at: String(notification?.created_at || '').trim(),
+        };
+      });
   }
 
   async function loadDashboard() {
@@ -424,19 +471,33 @@
         })
         .slice(0, 10);
       pendingRequests = data.pending_requests || [];
+      let allRequestRows = [];
       approvedAbsenceAdjustmentDays = 0;
       try {
         const allRequestsResult = await callApiAction('list_requests_by_user', {
           user_id: currentUser.user_id,
         });
         if (allRequestsResult && allRequestsResult.ok && Array.isArray(allRequestsResult.requests)) {
+          allRequestRows = allRequestsResult.requests;
           approvedAbsenceAdjustmentDays = countApprovedAbsenceAdjustments(
-            allRequestsResult.requests,
+            allRequestRows,
             toLocalIsoDate(new Date())
           );
         }
       } catch (requestErr) {
         console.error('Failed to load approved absence adjustments:', requestErr);
+      }
+
+      let requestNotifications = [];
+      try {
+        const notificationsResult = await callApiAction('list_notifications', {
+          user_id: currentUser.user_id,
+        });
+        requestNotifications = Array.isArray(notificationsResult?.notifications)
+          ? notificationsResult.notifications
+          : [];
+      } catch (notificationErr) {
+        console.error('Failed to load request notifications:', notificationErr);
       }
 
       const timeLogActivities = [];
@@ -466,13 +527,18 @@
         }
       }
 
-      const allActivities = [...timeLogActivities];
+      const requestLookup = buildRequestLookup(allRequestRows);
+      const requestDecisionActivities = buildRequestDecisionActivities(requestNotifications, requestLookup);
+      const allActivities = [
+        ...timeLogActivities,
+        ...requestDecisionActivities,
+      ];
       allActivities.sort((a, b) => {
         const dateA = String(a?.created_at || '').trim();
         const dateB = String(b?.created_at || '').trim();
         return dateB.localeCompare(dateA);
       });
-      activityLogs = allActivities;
+      activityLogs = allActivities.slice(0, 10);
 
       const rawStartDate = profile?.start_date || currentUser?.ojt?.start_date || currentUser?.first_login_date || '';
       formStartDate = normalizeDateOnly(rawStartDate) || '';
@@ -705,7 +771,7 @@
       <div class="dash-bottom-grid">
         <div class="dash-panel">
           <div class="dash-panel-header">
-            <span class="dash-panel-title">Recent Logs</span>
+            <span class="dash-panel-title">Recent Activity</span>
           </div>
           <div class="dash-panel-body">
             {#if Array.isArray(activityLogs) && activityLogs.length}
@@ -723,8 +789,8 @@
                 <div class="dash-empty-icon">
                   <ClipboardList size={20} />
                 </div>
-                <div class="dash-empty-text">No recent logs yet.</div>
-                <div class="dash-empty-sub">Your log in and log out records will appear here.</div>
+                <div class="dash-empty-text">No recent activity yet.</div>
+                <div class="dash-empty-sub">Your log in, log out, and request updates will appear here.</div>
               </div>
             {/if}
           </div>

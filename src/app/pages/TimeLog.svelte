@@ -336,6 +336,13 @@
     return dt;
   }
 
+  function parseDateLoose(value) {
+    const text = String(value || '').trim();
+    if (!text) return null;
+    const parsed = new Date(text);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
   function normalizeDateOnly(value) {
     function toLocalIsoDate(dateObj) {
       const year = dateObj.getFullYear();
@@ -1079,12 +1086,15 @@
   $: internFullName = String(currentUser?.full_name || '').trim() || 'Intern';
   $: companyName = String(currentUser?.company || currentUser?.ojt?.company || '').trim();
   $: storedEstimatedEndDate = String(currentUser?.ojt?.estimated_end_date || '').trim();
-  $: normalizedStoredEstimatedEndDate = normalizeDateOnly(storedEstimatedEndDate);
   $: baseEstimatedCompletion = getEstimatedCompletionDate(remainingHours, AVERAGE_DAILY_HOURS, internSchedule.days_off);
   $: computedEstimatedCompletion = addWorkingDaysToDateString(baseEstimatedCompletion, approvedAbsenceAdjustmentDays, internSchedule.days_off) || baseEstimatedCompletion;
-  $: estimatedCompletionValue = normalizedStoredEstimatedEndDate
-    ? formatDate(normalizedStoredEstimatedEndDate, { month: 'short', day: '2-digit', year: 'numeric' })
-    : computedEstimatedCompletion;
+  $: storedEstimatedCompletionDateObj = parseDateLoose(storedEstimatedEndDate);
+  $: computedEstimatedCompletionDateObj = parseDateLoose(computedEstimatedCompletion);
+  $: estimatedCompletionValue = storedEstimatedEndDate
+    ? ((computedEstimatedCompletionDateObj && storedEstimatedCompletionDateObj && storedEstimatedCompletionDateObj < computedEstimatedCompletionDateObj)
+      ? formatDate(computedEstimatedCompletion, { month: 'short', day: '2-digit', year: 'numeric' })
+      : formatDate(storedEstimatedEndDate, { month: 'short', day: '2-digit', year: 'numeric' }))
+    : formatDate(computedEstimatedCompletion, { month: 'short', day: '2-digit', year: 'numeric' });
   
   $: if (typeof window !== 'undefined' && completedHours >= 0 && completedHoursStorageKey) {
     localStorage.setItem(completedHoursStorageKey, String(completedHours));
