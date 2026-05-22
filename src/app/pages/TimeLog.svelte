@@ -371,6 +371,20 @@
     return text.includes('absence request') || text.includes('login is not allowed');
   }
 
+  function isInlineLoginError(message) {
+    const text = String(message || '').trim().toLowerCase();
+    if (!text) return false;
+    return (
+      text.includes('login') ||
+      text.includes('log in') ||
+      text.includes('duplicate') ||
+      text.includes('day off') ||
+      text.includes('schedule') ||
+      text.includes('active session') ||
+      text.includes('please select a date and enter your login time')
+    );
+  }
+
   function normalizeTimeValue(value, fallback) {
     const to24HourString = (hours, minutes) => `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
     if (value instanceof Date && !Number.isNaN(value.getTime())) {
@@ -1257,7 +1271,7 @@
     </div>
 
   {:else}
-    {#if logSyncError && !isApprovedAbsenceLoginError_(logSyncError)}
+    {#if logSyncError && !isInlineLoginError(logSyncError)}
       <div class="tl-error-banner">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
         {logSyncError}
@@ -1369,7 +1383,7 @@
             Log In
           {/if}
         </button>
-        {#if isApprovedAbsenceLoginError_(logSyncError)}
+        {#if isInlineLoginError(logSyncError)}
           <div class="tl-login-inline-error">{logSyncError}</div>
         {/if}
         {#if isLoggedIn}
