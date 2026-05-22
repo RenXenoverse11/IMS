@@ -5984,12 +5984,9 @@ let restoringTaskMap = {};
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--ims-ref-accent2) 35%, transparent);
   }
 
-  .worklog-attachment-action.action-view {
-    color: #7fb5ff;
-  }
-
+  .worklog-attachment-action.action-view,
   .worklog-attachment-action.action-download {
-    color: #8fd6a4;
+    color: #7fb5ff;
   }
 
   .task-list {
