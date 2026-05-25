@@ -1917,10 +1917,18 @@
       margin-top: 10px;
       max-height: 460px;
       overflow: auto;
-      background: linear-gradient(180deg, rgba(24, 34, 52, 0.98), rgba(20, 28, 42, 0.96));
+      background:
+        linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(241, 245, 249, 0.88));
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+      scrollbar-width: auto;
+    }
+
+    :global(.dark) .table-wrap {
+      background:
+        linear-gradient(180deg, rgba(24, 34, 52, 0.98), rgba(20, 28, 42, 0.96));
       border: 1px solid rgba(148, 163, 184, 0.14);
       box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
-      scrollbar-width: auto;
     }
 
     .control-actions {

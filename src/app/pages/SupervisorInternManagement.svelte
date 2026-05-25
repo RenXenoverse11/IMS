@@ -999,12 +999,15 @@
                 This is the first time adding {selectedStudent?.full_name}, so you'll set their work schedule now.
               </p>
 
-              <div class="setup-section">
-                <div class="setup-label">Days Off</div>
+              <div class="setup-section setup-section-card">
+                <div class="days-picker-head">
+                  <div class="setup-label">Days Off</div>
+                  <div class="days-selected-count">{internDaysOff.length} selected</div>
+                </div>
                 <p class="setup-sublabel">Select which days this intern typically has off</p>
                 <div class="days-checkbox-list">
                   {#each DAY_OPTIONS as day}
-                    <label class="day-checkbox">
+                    <label class="day-checkbox" class:selected={internDaysOff.includes(day.value)}>
                       <input
                         type="checkbox"
                         checked={internDaysOff.includes(day.value)}
@@ -1117,7 +1120,7 @@
               disabled={savingEndDate || !editingEndDate}
             >
               {#if savingEndDate}
-                <Loader2 size={16} style="animation: spin 1s linear infinite;" />
+                <span class="spinning-icon"><Loader2 size={16} /></span>
                 Saving...
               {:else}
                 Save End Date
@@ -1145,12 +1148,15 @@
               Update the work schedule for <strong>{editingScheduleInternName}</strong>
             </p>
 
-            <div class="setup-section">
-              <div class="setup-label">Days Off</div>
+            <div class="setup-section setup-section-card">
+              <div class="days-picker-head">
+                <div class="setup-label">Days Off</div>
+                <div class="days-selected-count">{editingScheduleDaysOff.length} selected</div>
+              </div>
               <p class="setup-sublabel">Select which days this intern typically has off</p>
               <div class="days-checkbox-list">
                 {#each DAY_OPTIONS as day}
-                  <label class="day-checkbox">
+                  <label class="day-checkbox" class:selected={editingScheduleDaysOff.includes(day.value)}>
                     <input
                       type="checkbox"
                       checked={editingScheduleDaysOff.includes(day.value)}
@@ -1207,7 +1213,7 @@
               disabled={savingSchedule}
             >
               {#if savingSchedule}
-                <Loader2 size={16} style="animation: spin 1s linear infinite;" />
+                <span class="spinning-icon"><Loader2 size={16} /></span>
                 Saving...
               {:else}
                 Save Schedule
@@ -1753,7 +1759,7 @@
 
   .modal-header h2 {
     margin: 0;
-    font-size: 1.55rem;
+    font-size: 1.38rem;
     font-weight: 700;
     letter-spacing: -0.2px;
     color: var(--text-primary);
@@ -1903,8 +1909,39 @@
     margin-bottom: 1.5rem;
   }
 
+  .setup-section-card {
+    padding: 0.9rem;
+    border-radius: 14px;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    background: rgba(148, 163, 184, 0.06);
+  }
+
   .setup-section-offset {
     margin-top: 1.5rem;
+  }
+
+  .days-picker-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .days-selected-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.25rem 0.55rem;
+    border-radius: 999px;
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    background: rgba(59, 130, 246, 0.08);
+    color: #2563eb;
+    font-size: 0.69rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    white-space: nowrap;
   }
 
   .setup-label {
@@ -1926,8 +1963,8 @@
   }
 
   .days-checkbox-list {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.6rem;
   }
 
@@ -1936,16 +1973,24 @@
     align-items: center;
     gap: 0.6rem;
     cursor: pointer;
-    padding: 0.56rem 0.7rem;
-    border: 1px solid transparent;
-    border-radius: 0.5rem;
+    min-height: 46px;
+    padding: 0.7rem 0.8rem;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 0.8rem;
+    background: var(--surface-soft);
     transition: all 0.2s;
     user-select: none;
   }
 
   .day-checkbox:hover {
     background: rgba(37, 99, 235, 0.08);
-    border-color: rgba(37, 99, 235, 0.2);
+    border-color: rgba(37, 99, 235, 0.24);
+  }
+
+  .day-checkbox.selected {
+    background: rgba(37, 99, 235, 0.12);
+    border-color: rgba(37, 99, 235, 0.38);
+    box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.08);
   }
 
   .day-checkbox input[type="checkbox"] {
@@ -2033,13 +2078,35 @@
     border-color: #2b3c57;
   }
 
+  :global(.dark) .setup-section-card {
+    background: rgba(15, 23, 42, 0.42);
+    border-color: rgba(71, 85, 105, 0.44);
+  }
+
   :global(.dark) .setup-header {
     border-color: rgba(148, 163, 184, 0.22);
+  }
+
+  :global(.dark) .days-selected-count {
+    background: rgba(96, 165, 250, 0.12);
+    border-color: rgba(96, 165, 250, 0.24);
+    color: #93c5fd;
+  }
+
+  :global(.dark) .day-checkbox {
+    background: rgba(15, 23, 42, 0.46);
+    border-color: rgba(71, 85, 105, 0.44);
   }
 
   :global(.dark) .day-checkbox:hover {
     background: rgba(59, 130, 246, 0.16);
     border-color: rgba(96, 165, 250, 0.34);
+  }
+
+  :global(.dark) .day-checkbox.selected {
+    background: rgba(37, 99, 235, 0.14);
+    border-color: rgba(96, 165, 250, 0.4);
+    box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.12);
   }
 
   :global(.dark) .day-checkbox span {
@@ -2783,6 +2850,34 @@
       min-width: 0;
       max-width: 100%;
       overflow-wrap: anywhere;
+    }
+
+    .modal-body {
+      padding: 18px 18px 20px;
+    }
+
+    .modal-header {
+      padding: 16px 18px;
+    }
+
+    .modal-header h2 {
+      font-size: 1.28rem;
+    }
+
+    .modal-footer {
+      position: sticky;
+      bottom: 0;
+      background: var(--surface);
+      padding: 0.9rem 1rem calc(0.9rem + env(safe-area-inset-bottom, 0px));
+    }
+
+    .days-checkbox-list {
+      gap: 0.5rem;
+    }
+
+    .day-checkbox {
+      min-height: 42px;
+      padding: 0.65rem 0.7rem;
     }
   }
 
