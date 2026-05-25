@@ -2,7 +2,7 @@
 // @ts-nocheck
   import { onMount, onDestroy } from 'svelte';
   import { getCurrentUser, subscribeToCurrentUser, callApiAction } from '../lib/auth.js';
-  import { FolderOpen, Clock3, Tag, Users2, CalendarDays, Loader2, Grid, Archive, RotateCcw, Eye, Download, Plus, Trash2, Pencil, ExternalLink, Link2, Send, UserCheck } from 'lucide-svelte';
+  import { FolderOpen, Clock3, Tag, Users2, CalendarDays, Loader2, Grid, Archive, RotateCcw, Eye, Download, Plus, Trash2, Pencil, ExternalLink, Link2, Send, X } from 'lucide-svelte';
   import FeedbackThread from '../components/FeedbackThread.svelte';
 
   export let currentUser = null;
@@ -1563,6 +1563,12 @@
     filterIntern = 'all';
   }
 
+  function closeProjectModal() {
+    viewingProjectId = null;
+    viewingProjectTab = 'Details';
+    try { localStorage.removeItem('projects.viewingProjectId'); } catch (e) {}
+  }
+
   async function loadProjectFolders(projectId) {
     const projId = String(allProjects.find(p => p.id === projectId)?.proj_id || projectId);
     isLoadingFolders = true;
@@ -1806,6 +1812,7 @@
     .sort((a, b) => String(a.timeline_end || a.deadline || '').localeCompare(String(b.timeline_end || b.deadline || '')))
     .slice(0, 5);
   $: overviewSnippets = activeProjects;
+  $: selectedViewingProject = allProjects.find((p) => p.id === viewingProjectId) || null;
 
   // Tagged Projects pagination
   let taggedProjectsPage = 0;
@@ -1904,19 +1911,21 @@
           <input class="search-input" type="text" placeholder="Search" bind:value={searchQuery} />
         </label>
 
-        <select class="quick-status" bind:value={filterStatus} aria-label="Filter by status">
-          <option value="all">All Status</option>
-          {#each STATUS_OPTIONS as s}
-            <option value={s}>{s}</option>
-          {/each}
-        </select>
+        {#if activeView === 'Projects'}
+          <select class="quick-status" bind:value={filterStatus} aria-label="Filter by status">
+            <option value="all">All Status</option>
+            {#each STATUS_OPTIONS as s}
+              <option value={s}>{s}</option>
+            {/each}
+          </select>
 
-        <select class="quick-priority" bind:value={filterPriority} aria-label="Filter by priority">
-          <option value="all">All Priority</option>
-          {#each PRIORITY_OPTIONS as p}
-            <option value={p}>{p}</option>
-          {/each}
-        </select>
+          <select class="quick-priority" bind:value={filterPriority} aria-label="Filter by priority">
+            <option value="all">All Priority</option>
+            {#each PRIORITY_OPTIONS as p}
+              <option value={p}>{p}</option>
+            {/each}
+          </select>
+        {/if}
 
         <button type="button" class="primary" on:click={openAddProjectModal}>
           <Plus size={14} />
@@ -2258,382 +2267,6 @@
                 {/if}
               </span>
             </div>
-            {#if viewingProjectId === p.id}
-                  <div class="proj-detail-card">
-                    <div class="proj-detail-tabs">
-                      <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Details'} on:click={() => viewingProjectTab = 'Details'}>Details</button>
-                      <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Submissions'} on:click={() => { viewingProjectTab = 'Submissions'; if (!p.folders) loadProjectFolders(p.id); }}>Submissions</button>
-                      <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Milestones'} on:click={() => { viewingProjectTab = 'Milestones'; if (!p.milestones || p.milestones === null) loadProjectMilestones(p.id); }}>Milestones</button>
-                      <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Feedback'} on:click={() => { viewingProjectTab = 'Feedback'; if (!feedbackMap[p.id]) loadFeedback(p.id); }}>Feedback</button>
-                    </div>
-                    <div class="proj-detail-body">
-                      {#if viewingProjectTab === 'Details'}
-                        {@const detailProgress = p.progress_percent != null ? Number(p.progress_percent) : statusToProgress(p.status)}
-                        {@const detailMembers = (p.members || []).map((id) => MEMBER_OPTIONS.find((option) => option.value === id) || { value: id, label: resolveUserName(id), initials: getInitials(resolveUserName(id)), photoUrl: '' })}
-                        {@const detailSupervisors = (p.supervisors || []).map((id) => SUPERVISOR_OPTIONS.find((option) => option.value === id) || { value: id, label: resolveUserName(id), initials: getInitials(resolveUserName(id)), photoUrl: '' })}
-                        <div class="proj-detail-read">
-                          <div class="pdr-layout">
-                            <div class="pdr-main">
-                              <div class="pdr-group">
-                                <div class="pdr-label">Project Title</div>
-                                <div class="pdr-box pdr-box-hero">{p.title || ICONS.emDash}</div>
-                              </div>
-
-                              <div class="pdr-group">
-                                <div class="pdr-label">Description</div>
-                                <div class="pdr-box pdr-box-desc">
-                                  <div class="detail-description" class:collapsed={expandedDescriptionId !== p.id}>{p.description || ICONS.emDash}</div>
-                                  {#if p.description && p.description.length > 160}
-                                    <button class="btn-link pdr-inline-link" on:click={() => toggleDescription(p.id)}>{expandedDescriptionId === p.id ? 'Show less' : 'Show more'}</button>
-                                  {/if}
-                                </div>
-                              </div>
-
-                              <div class="pdr-row-2">
-                                <div class="pdr-group">
-                                  <div class="pdr-label">Priority Level</div>
-                                  <div class="pdr-box pdr-box-inline">
-                                    <span class="pdr-priority-dot priority-{normalizePriorityLabel(p.priority_level).toLowerCase()}"></span>
-                                    <span>{normalizePriorityLabel(p.priority_level) || ICONS.emDash}</span>
-                                  </div>
-                                </div>
-                                <div class="pdr-group">
-                                  <div class="pdr-label">Status</div>
-                                  <div class="pdr-box pdr-box-inline pdr-box-muted">{(STATUS_META[p.status] || {}).label || p.status || ICONS.emDash}</div>
-                                </div>
-                              </div>
-
-                              <div class="pdr-row-2">
-                                <div class="pdr-group">
-                                  <div class="pdr-label">Timeline Start</div>
-                                  <div class="pdr-box pdr-box-inline">
-                                    <CalendarDays size={14} class="pdr-inline-icon pdr-inline-icon-primary" />
-                                    <span>{p.timeline_start ? formatDate(p.timeline_start) : ICONS.emDash}</span>
-                                  </div>
-                                </div>
-                                <div class="pdr-group">
-                                  <div class="pdr-label">Timeline End</div>
-                                  <div class="pdr-box pdr-box-inline">
-                                    <CalendarDays size={14} class="pdr-inline-icon" />
-                                    <span>{p.timeline_end ? formatDate(p.timeline_end) : ICONS.emDash}</span>
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div class="pdr-group">
-                                <div class="pdr-label">Progress</div>
-                                <div class="pdr-progress-stack">
-                                  <div class="progress-bar-outer"><div class="progress-bar-inner" style="width:{detailProgress}%"></div></div>
-                                  <div class="pdr-progress-meta">
-                                    <span>{detailProgress} / 100%</span>
-                                    <span>{detailProgress}% complete</span>
-                                  </div>
-                                </div>
-                              </div>
-
-                              {#if canManage}
-                                <div class="pdr-footer">
-                                  <button class="pdr-edit-btn" on:click={() => openEditProjectModal(p)}>
-                                    <Pencil size={14} />
-                                    <span>Edit Project</span>
-                                  </button>
-                                </div>
-                              {/if}
-                            </div>
-
-                            <aside class="pdr-sidebar">
-                              <div class="pdr-side-card">
-                                <div class="pdr-side-title">
-                                  <Users2 size={13} />
-                                  <span>Members</span>
-                                </div>
-                                {#if detailMembers.length}
-                                  {#each detailMembers as member}
-                                    <div class="pdr-person-row">
-                                      <span class="pdr-avatar" aria-hidden="true">
-                                        {#if member.photoUrl}
-                                          <img src={member.photoUrl} alt="" />
-                                        {:else}
-                                          <span>{member.initials}</span>
-                                        {/if}
-                                      </span>
-                                      <span class="pdr-person-name">{member.label}</span>
-                                    </div>
-                                  {/each}
-                                {:else}
-                                  <div class="pdr-empty-copy">No members assigned</div>
-                                {/if}
-                              </div>
-
-                              <div class="pdr-side-card">
-                                <div class="pdr-side-title">
-                                  <UserCheck size={13} />
-                                  <span>Supervisors</span>
-                                </div>
-                                {#if detailSupervisors.length}
-                                  {#each detailSupervisors as supervisor}
-                                    <div class="pdr-person-row">
-                                      <span class="pdr-avatar pdr-avatar-supervisor" aria-hidden="true">
-                                        {#if supervisor.photoUrl}
-                                          <img src={supervisor.photoUrl} alt="" />
-                                        {:else}
-                                          <span>{supervisor.initials}</span>
-                                        {/if}
-                                      </span>
-                                      <span class="pdr-person-name">{supervisor.label}</span>
-                                    </div>
-                                  {/each}
-                                {:else}
-                                  <div class="pdr-empty-copy">No supervisors assigned</div>
-                                {/if}
-                              </div>
-
-                              <div class="pdr-side-card">
-                                <div class="pdr-side-title">
-                                  <Clock3 size={13} />
-                                  <span>Timeline</span>
-                                </div>
-                                <div class="pdr-mini-timeline">
-                                  <div class="pdr-mini-dot"></div>
-                                  <div class="pdr-mini-line"></div>
-                                  <div class="pdr-mini-dot pdr-mini-dot-end"></div>
-                                </div>
-                                <div class="pdr-mini-labels">
-                                  <span>{p.timeline_start ? formatShortMonthDay(p.timeline_start) : 'Start'}</span>
-                                  <span>{p.timeline_end ? formatShortMonthDay(p.timeline_end) : 'End'}</span>
-                                </div>
-                              </div>
-                            </aside>
-                          </div>
-                        </div>
-                      {:else if viewingProjectTab === 'Submissions'}
-                        {#if canManage}
-                          <div class="sub-action-bar">
-                            <button class="sub-action-btn" disabled={isSavingFolder} on:click={() => addFolder(p.id)}>
-                              {#if isSavingFolder}<Loader2 size={13} class="spin" />{:else}<FolderOpen size={13} />{/if} New Folder
-                            </button>
-                          </div>
-                        {/if}
-
-                        {#if isLoadingFolders}
-                          <div class="proj-detail-empty" style="padding:1rem 1.25rem">
-                            <Loader2 size={18} class="spin" /> Loading folders...
-                          </div>
-                        {:else if !p.folders || p.folders.length === 0}
-                          <div class="proj-detail-empty" style="padding:1rem 1.25rem">
-                            {canManage ? 'No folders yet. Click New Folder to get started.' : 'No folders yet.'}
-                          </div>
-                        {:else}
-                          <div class="folder-list">
-                            {#each p.folders as folder (folder.id)}
-                              <div class="folder-block">
-                                <div class="folder-header" role="button" tabindex="0" on:click={() => { if (renamingFolderId !== folder.id) toggleFolder(folder.id); }} on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleFolder(folder.id); }}>
-                                  <span class="folder-chevron">{expandedFolderIds.has(folder.id) ? ICONS.chevronDown : ICONS.chevronRight}</span>
-                                  <span class="folder-icon">{ICONS.folder}</span>
-                                  {#if canManage && renamingFolderId === folder.id}
-                                    <input
-                                      class="folder-rename-input"
-                                      bind:value={renamingFolderName}
-                                      on:click|stopPropagation
-                                      on:keydown={(e) => { if (e.key === 'Enter') confirmRename(p.id); if (e.key === 'Escape') { renamingFolderId = null; } }}
-                                    />
-                                    <button class="folder-rename-confirm" on:click|stopPropagation={() => confirmRename(p.id)}>✓</button>
-                                  {:else}
-                                    <span class="folder-name">{folder.name}</span>
-                                    {#if canManage}
-                                      <button class="folder-action-btn" title="Rename" on:click|stopPropagation={() => startRenaming(folder.id, folder.name)}><Pencil size={12} /></button>
-                                      <button class="folder-action-btn folder-delete-btn" title="Delete folder" on:click|stopPropagation={() => deleteFolder(p.id, folder.id)}><Trash2 size={12} /></button>
-                                    {/if}
-                                  {/if}
-                                </div>
-
-                                {#if expandedFolderIds.has(folder.id)}
-                                  <div class="folder-content">
-                                    {#if canManage}
-                                      <div class="sub-action-bar sub-action-bar-inline">
-                                        <input id={"proj-file-input-" + p.id + "-" + folder.id} type="file" on:change={(e) => handleFileSelect(p.id, folder.id, e)} style="display:none" />
-                                        <button class="sub-action-btn" on:click={() => triggerFilePicker(p.id, folder.id)}>
-                                          <ExternalLink size={13} /> Upload File
-                                        </button>
-                                        <button class="sub-action-btn" class:sub-action-btn-active={activeLinkFolderId === folder.id} on:click={() => toggleLinkPanel(folder.id)}>
-                                          <Link2 size={13} /> Add Link
-                                        </button>
-                                      </div>
-                                    {/if}
-
-                                    {#if activeLinkFolderId === folder.id}
-                                      <div class="add-link-form">
-                                        <input class="sub-input" placeholder="Label  e.g. GitHub Repository" bind:value={viewingLinkLabel} />
-                                        <input class="sub-input" placeholder="https://example.com" bind:value={viewingLinkUrl} />
-                                        <div class="add-link-actions">
-                                          <button class="sub-action-btn" class:sub-action-btn-busy={isSavingLink} disabled={isSavingLink} on:click={() => addLinkSubmission(p.id, folder.id)}>
-                                            {#if isSavingLink}<Loader2 size={13} class="spin" /> Saving...{:else}Save Link{/if}
-                                          </button>
-                                          <button class="sub-cancel-btn" disabled={isSavingLink} on:click={() => toggleLinkPanel(folder.id)}>Cancel</button>
-                                        </div>
-                                        {#if formError}<div class="sub-error">{formError}</div>{/if}
-                                      </div>
-                                    {/if}
-
-                                    {#if pendingUpload.projectId === p.id && pendingUpload.folderId === folder.id && pendingUpload.file}
-                                      <div class="submission-card pending-upload" style="margin:0.5rem 0.75rem;">
-                                        <div class="submission-card-left">
-                                          <div class="sub-file-icon">{ICONS.file}</div>
-                                          <div class="submission-meta">
-                                            <input class="sub-input" bind:value={pendingUpload.name} placeholder="File name" />
-                                            <select class="sub-input" bind:value={pendingUpload.type}>
-                                              {#each FILE_TYPE_OPTIONS as t}<option value={t}>{t}</option>{/each}
-                                            </select>
-                                            <div class="submission-info">Selected: {pendingUpload.file ? pendingUpload.file.name : ''} ({pendingUpload.file ? (pendingUpload.file.size / (1024*1024)).toFixed(2) + ' MB' : ''})</div>
-                                          </div>
-                                        </div>
-                                        <div class="submission-actions">
-                                          <button class="sub-action-btn" disabled={isUploadingFile} on:click={() => confirmUpload(p.id, folder.id)}>
-                                            {#if isUploadingFile}<Loader2 size={13} class="spin" /> Uploading...{:else}Upload{/if}
-                                          </button>
-                                          <button class="sub-cancel-btn" disabled={isUploadingFile} on:click={cancelPendingUpload}>Cancel</button>
-                                        </div>
-                                      </div>
-                                    {/if}
-
-                                    {#if folder.submissions && folder.submissions.length > 0}
-                                      <div class="submissions-list" style="padding:0 0.75rem 0.75rem;">
-                                        {#each folder.submissions as s}
-                                          {#if s.kind === 'file'}
-                                            <div class="submission-card">
-                                              <div class="submission-card-left">
-                                                <div class="sub-file-icon">{ICONS.file}</div>
-                                                <div class="submission-meta">
-                                                  <div class="submission-name">{s.name}</div>
-                                                  <div class="submission-info">Uploaded: {s.uploaded_at ? formatDate(s.uploaded_at) : ''}</div>
-                                                </div>
-                                              </div>
-                                              <div class="submission-actions">
-                                                <button class="icon-btn" title="View in Drive" on:click={() => viewSubmission(s)}><Eye size={14} /></button>
-                                                <button class="icon-btn" title="Open in Drive" on:click={() => downloadSubmission(s)}><Download size={14} /></button>
-                                                {#if canManage}
-                                                  <button class="icon-btn" title="Delete attachment" on:click={() => deleteSubmission(p.id, folder.id, s.id)}><Trash2 size={14} /></button>
-                                                {/if}
-                                              </div>
-                                            </div>
-                                          {:else}
-                                            <div class="submission-card link-card">
-                                              <div class="link-card-body">
-                                                <div class="link-card-title">{ICONS.link} {s.title}</div>
-                                                <div class="link-card-url">{s.url}</div>
-                                                <div class="submission-info">Added: {s.added_at ? formatDate(s.added_at) : ''}</div>
-                                              </div>
-                                              <div class="submission-actions">
-                                                <button class="sub-open-btn" on:click={() => viewSubmission(s)}>Open Link</button>
-                                                {#if canManage}
-                                                  <button class="icon-btn" title="Delete link" on:click={() => deleteSubmission(p.id, folder.id, s.id)}><Trash2 size={14} /></button>
-                                                {/if}
-                                              </div>
-                                            </div>
-                                          {/if}
-                                        {/each}
-                                      </div>
-                                    {:else}
-                                      <div class="proj-detail-empty" style="padding:0.5rem 0.75rem 0.75rem">No files or links in this folder yet.</div>
-                                    {/if}
-                                  </div>
-                                {/if}
-                              </div>
-                            {/each}
-                          </div>
-                        {/if}
-                      {:else if viewingProjectTab === 'Milestones'}
-                        {#if p.milestones && p.milestones.length > 0}
-                          <div class="milestone-list">
-                            {#each p.milestones as m}
-                              <div class="ms-card" class:ms-expanded={expandedMilestoneIds.has(m.id)}>
-                                <div class="ms-header" on:click={() => toggleMilestoneExpand(m.id)} role="button" tabindex="0" on:keydown={(e)=>{ if(e.key==='Enter'||e.key===' ') toggleMilestoneExpand(m.id); }}>
-                                  <span class={"ms-icon " + (STATUS_META[m.status]?.cls || STATUS_META['Not Started'].cls)}></span>
-                                  <span class="ms-title">{m.milestone}</span>
-                                  {#if m.date}<span class="ms-due">Due: {formatDate(m.date)}</span>{/if}
-                                  <span class="ms-chevron">{expandedMilestoneIds.has(m.id) ? ICONS.chevronDown : ICONS.chevronRight}</span>
-                                </div>
-
-                                {#if expandedMilestoneIds.has(m.id)}
-                                  <div class="ms-body">
-                                    {#if parseMilestoneFiles(m).length > 0}
-                                      <div class="ms-linked-section">
-                                        <div class="ms-linked-label">Linked Files:</div>
-                                        <ul class="ms-linked-list">
-                                          {#each parseMilestoneFiles(m) as lf}
-                                            <li class="ms-linked-item">
-                                              <span>{ICONS.file} {lf.name}</span>
-                                              {#if lf.drive_url}<a href={lf.drive_url} target="_blank" rel="noopener" class="ms-open-link">Open</a>{/if}
-                                            </li>
-                                          {/each}
-                                        </ul>
-                                      </div>
-                                    {:else}
-                                      <div class="ms-no-links">No linked files yet.</div>
-                                    {/if}
-                                    <div class="ms-actions">
-                                      <span class={"proj-status-pill " + (STATUS_META[m.status]?.cls || STATUS_META['Not Started'].cls)}>
-                                        {STATUS_META[m.status]?.label || STATUS_META['Not Started'].label}
-                                      </span>
-                                    </div>
-                                  </div>
-                                {/if}
-                              </div>
-                            {/each}
-                          </div>
-                        {:else}
-                          <div class="proj-detail-empty">No milestones yet.</div>
-                        {/if}
-
-                    {:else if viewingProjectTab === 'Feedback'}
-                      <div class="feedback-wrap">
-                        {#if !feedbackLoading[p.id]}
-                          {#each (feedbackMap[p.id] || []).filter(f => !f.parent_id) as thread (feedbackIdOf(thread))}
-                            <FeedbackThread
-                              item={thread}
-                                projectId={p.id}
-                                depth={0}
-                                {replyingTo}
-                                {replyText}
-                                {replySubmitting}
-                                {currentUser}
-                                {getCurrentUser}
-                                getChildren={feedbackChildren}
-                                resolveUserName={resolveUserName}
-                                onToggleReply={toggleReply}
-                                onReplyText={updateReplyText}
-                                onSubmitReply={submitReply}
-                                onCancelReply={cancelReply}
-                                onDelete={deleteFeedback}
-                              />
-                            {/each}
-                            {#if !(feedbackMap[p.id] || []).filter(f => !f.parent_id).length}
-                              <div class="proj-detail-empty">No feedback yet. Be the first to comment.</div>
-                          {/if}
-                          <div class="fb-new-comment">
-                            <textarea class="fb-reply-input" rows="3" placeholder="Add a comment..." value={newFeedbackText[p.id] || ''} on:input={(e) => { newFeedbackText = { ...newFeedbackText, [p.id]: e.currentTarget.value }; }}></textarea>
-                            <button
-                              class="sub-action-btn fb-post-btn"
-                              class:sub-action-btn-busy={!!postingFeedback[p.id]}
-                              disabled={!!postingFeedback[p.id]}
-                              on:click={() => submitFeedback(p.id)}
-                              aria-label="Post comment"
-                            >
-                              {#if postingFeedback[p.id]}
-                                <Loader2 size={14} class="spin" />
-                                <span>Posting...</span>
-                              {:else}
-                                <Send size={14} />
-                                <span>Post Comment</span>
-                              {/if}
-                            </button>
-                          </div>
-                        {/if}
-                      </div>
-                    {/if}
-                    </div>
-                  </div>
-            {/if}
           {/each}
       </div>
     </section>
@@ -2698,6 +2331,306 @@
     {/if}
   {/if}
 </section>
+
+{#if selectedViewingProject}
+  {@const p = selectedViewingProject}
+  {@const canManage = canManageProject(p)}
+  <div class="modal-overlay proj-view-overlay" on:click={closeProjectModal}>
+    <div class="proj-view-modal" on:click|stopPropagation>
+      <div class="proj-view-head">
+        <div>
+          <div class="proj-view-kicker">Project Details</div>
+          <div class="proj-view-title">{p.title}</div>
+        </div>
+        <button class="icon-btn proj-view-close" type="button" on:click={closeProjectModal} aria-label="Close project details">
+          <X size={16} />
+        </button>
+      </div>
+
+      <div class="proj-detail-tabs">
+        <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Details'} on:click={() => viewingProjectTab = 'Details'}>Details</button>
+        <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Submissions'} on:click={() => { viewingProjectTab = 'Submissions'; if (!p.folders) loadProjectFolders(p.id); }}>Submissions</button>
+        <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Milestones'} on:click={() => { viewingProjectTab = 'Milestones'; if (!p.milestones || p.milestones === null) loadProjectMilestones(p.id); }}>Milestones</button>
+        <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Feedback'} on:click={() => { viewingProjectTab = 'Feedback'; if (!feedbackMap[p.id]) loadFeedback(p.id); }}>Feedback</button>
+      </div>
+
+      <div class="proj-detail-body proj-view-body">
+        {#if viewingProjectTab === 'Details'}
+          <div class="proj-detail-read">
+            <div class="pdr-group">
+              <div class="pdr-label">Project Title</div>
+              <div class="pdr-box title">{p.title || ICONS.emDash}</div>
+            </div>
+
+            <div class="detail-row-full">
+              <div class="detail-label">Description</div>
+              <div class="pdr-box pdr-box-desc" class:collapsed={p.description && p.description.length > 220 && expandedDescriptionId !== p.id}>
+                {p.description || ICONS.emDash}
+              </div>
+              {#if p.description && p.description.length > 220}
+                <div style="margin-top:6px">
+                  <button class="btn-link" on:click={() => toggleDescription(p.id)}>{expandedDescriptionId === p.id ? 'Show less' : 'Show more'}</button>
+                </div>
+              {/if}
+            </div>
+
+            <div class="pdr-row-2">
+              <div class="pdr-group">
+                <div class="pdr-label">Members</div>
+                <div class="pdr-box">{(p.members && p.members.length) ? p.members.map(m => resolveUserName(m)).join(', ') : ICONS.emDash}</div>
+              </div>
+              <div class="pdr-group">
+                <div class="pdr-label">Supervisor</div>
+                <div class="pdr-box">{(p.supervisors && p.supervisors.length) ? p.supervisors.map(s => resolveUserName(s)).join(', ') : ICONS.emDash}</div>
+              </div>
+            </div>
+
+            <div class="pdr-row-2">
+              <div class="pdr-group">
+                <div class="pdr-label">Priority Level</div>
+                <div class="pdr-box">{normalizePriorityLabel(p.priority_level)}</div>
+              </div>
+              <div class="pdr-group">
+                <div class="pdr-label">Status</div>
+                <div class="pdr-box">{(STATUS_META[p.status] || {}).label || p.status || ICONS.emDash}</div>
+              </div>
+            </div>
+
+            <div class="pdr-row-2">
+              <div class="pdr-group">
+                <div class="pdr-label">Timeline (Start)</div>
+                <div class="pdr-box">{p.timeline_start ? formatDate(p.timeline_start) : ICONS.emDash}</div>
+              </div>
+              <div class="pdr-group">
+                <div class="pdr-label">Timeline (End)</div>
+                <div class="pdr-box">{p.timeline_end ? formatDate(p.timeline_end) : ICONS.emDash}</div>
+              </div>
+            </div>
+
+            <div>
+              <div class="progress-bar-outer" style="margin-top:8px">
+                <div class="progress-bar-inner" style="width:{p.progress_percent != null ? Number(p.progress_percent) : statusToProgress(p.status)}%"></div>
+              </div>
+              <div style="display:flex; justify-content:flex-end; margin-top:6px; font-weight:700; font-size:0.86rem">{p.progress_percent != null ? Number(p.progress_percent) : statusToProgress(p.status)}%</div>
+            </div>
+            {#if canManage}
+              <div class="detail-manage-footer">
+                <button class="sub-action-btn" on:click={() => openEditProjectModal(p)}>Edit Project</button>
+              </div>
+            {/if}
+          </div>
+        {:else if viewingProjectTab === 'Submissions'}
+          {#if canManage}
+            <div class="sub-action-bar">
+              <button class="sub-action-btn" disabled={isSavingFolder} on:click={() => addFolder(p.id)}>
+                {#if isSavingFolder}<Loader2 size={13} class="spin" />{:else}<FolderOpen size={13} />{/if} New Folder
+              </button>
+            </div>
+          {/if}
+
+          {#if isLoadingFolders}
+            <div class="proj-detail-empty" style="padding:1rem 1.25rem">
+              <Loader2 size={18} class="spin" /> Loading folders...
+            </div>
+          {:else if !p.folders || p.folders.length === 0}
+            <div class="proj-detail-empty" style="padding:1rem 1.25rem">
+              {canManage ? 'No folders yet. Click New Folder to get started.' : 'No folders yet.'}
+            </div>
+          {:else}
+            <div class="folder-list">
+              {#each p.folders as folder (folder.id)}
+                <div class="folder-block">
+                  <div class="folder-header" role="button" tabindex="0" on:click={() => { if (renamingFolderId !== folder.id) toggleFolder(folder.id); }} on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleFolder(folder.id); }}>
+                    <span class="folder-chevron">{expandedFolderIds.has(folder.id) ? ICONS.chevronDown : ICONS.chevronRight}</span>
+                    <span class="folder-icon">{ICONS.folder}</span>
+                    {#if canManage && renamingFolderId === folder.id}
+                      <input class="folder-rename-input" bind:value={renamingFolderName} on:click|stopPropagation on:keydown={(e) => { if (e.key === 'Enter') confirmRename(p.id); if (e.key === 'Escape') { renamingFolderId = null; } }} />
+                      <button class="folder-rename-confirm" on:click|stopPropagation={() => confirmRename(p.id)}>✓</button>
+                    {:else}
+                      <span class="folder-name">{folder.name}</span>
+                      {#if canManage}
+                        <button class="folder-action-btn" title="Rename" on:click|stopPropagation={() => startRenaming(folder.id, folder.name)}><Pencil size={12} /></button>
+                        <button class="folder-action-btn folder-delete-btn" title="Delete folder" on:click|stopPropagation={() => deleteFolder(p.id, folder.id)}><Trash2 size={12} /></button>
+                      {/if}
+                    {/if}
+                  </div>
+                  {#if expandedFolderIds.has(folder.id)}
+                    <div class="folder-content">
+                      {#if canManage}
+                        <div class="sub-action-bar sub-action-bar-inline">
+                          <input id={"proj-file-input-" + p.id + "-" + folder.id} type="file" on:change={(e) => handleFileSelect(p.id, folder.id, e)} style="display:none" />
+                          <button class="sub-action-btn" on:click={() => triggerFilePicker(p.id, folder.id)}>
+                            <ExternalLink size={13} /> Upload File
+                          </button>
+                          <button class="sub-action-btn" class:sub-action-btn-active={activeLinkFolderId === folder.id} on:click={() => toggleLinkPanel(folder.id)}>
+                            <Link2 size={13} /> Add Link
+                          </button>
+                        </div>
+                      {/if}
+                      {#if activeLinkFolderId === folder.id}
+                        <div class="add-link-form">
+                          <input class="sub-input" placeholder="Label  e.g. GitHub Repository" bind:value={viewingLinkLabel} />
+                          <input class="sub-input" placeholder="https://example.com" bind:value={viewingLinkUrl} />
+                          <div class="add-link-actions">
+                            <button class="sub-action-btn" class:sub-action-btn-busy={isSavingLink} disabled={isSavingLink} on:click={() => addLinkSubmission(p.id, folder.id)}>
+                              {#if isSavingLink}<Loader2 size={13} class="spin" /> Saving...{:else}Save Link{/if}
+                            </button>
+                            <button class="sub-cancel-btn" disabled={isSavingLink} on:click={() => toggleLinkPanel(folder.id)}>Cancel</button>
+                          </div>
+                          {#if formError}<div class="sub-error">{formError}</div>{/if}
+                        </div>
+                      {/if}
+                      {#if pendingUpload.projectId === p.id && pendingUpload.folderId === folder.id && pendingUpload.file}
+                        <div class="submission-card pending-upload" style="margin:0.5rem 0.75rem;">
+                          <div class="submission-card-left">
+                            <div class="sub-file-icon">{ICONS.file}</div>
+                            <div class="submission-meta">
+                              <input class="sub-input" bind:value={pendingUpload.name} placeholder="File name" />
+                              <select class="sub-input" bind:value={pendingUpload.type}>
+                                {#each FILE_TYPE_OPTIONS as t}<option value={t}>{t}</option>{/each}
+                              </select>
+                              <div class="submission-info">Selected: {pendingUpload.file ? pendingUpload.file.name : ''} ({pendingUpload.file ? (pendingUpload.file.size / (1024*1024)).toFixed(2) + ' MB' : ''})</div>
+                            </div>
+                          </div>
+                          <div class="submission-actions">
+                            <button class="sub-action-btn" disabled={isUploadingFile} on:click={() => confirmUpload(p.id, folder.id)}>
+                              {#if isUploadingFile}<Loader2 size={13} class="spin" /> Uploading...{:else}Upload{/if}
+                            </button>
+                            <button class="sub-cancel-btn" disabled={isUploadingFile} on:click={cancelPendingUpload}>Cancel</button>
+                          </div>
+                        </div>
+                      {/if}
+                      {#if folder.submissions && folder.submissions.length > 0}
+                        <div class="submissions-list" style="padding:0 0.75rem 0.75rem;">
+                          {#each folder.submissions as s}
+                            {#if s.kind === 'file'}
+                              <div class="submission-card">
+                                <div class="submission-card-left">
+                                  <div class="sub-file-icon">{ICONS.file}</div>
+                                  <div class="submission-meta">
+                                    <div class="submission-name">{s.name}</div>
+                                    <div class="submission-info">Uploaded: {s.uploaded_at ? formatDate(s.uploaded_at) : ''}</div>
+                                  </div>
+                                </div>
+                                <div class="submission-actions">
+                                  <button class="icon-btn" title="View in Drive" on:click={() => viewSubmission(s)}><Eye size={14} /></button>
+                                  <button class="icon-btn" title="Open in Drive" on:click={() => downloadSubmission(s)}><Download size={14} /></button>
+                                  {#if canManage}
+                                    <button class="icon-btn" title="Delete attachment" on:click={() => deleteSubmission(p.id, folder.id, s.id)}><Trash2 size={14} /></button>
+                                  {/if}
+                                </div>
+                              </div>
+                            {:else}
+                              <div class="submission-card link-card">
+                                <div class="link-card-body">
+                                  <div class="link-card-title">{ICONS.link} {s.title}</div>
+                                  <div class="link-card-url">{s.url}</div>
+                                  <div class="submission-info">Added: {s.added_at ? formatDate(s.added_at) : ''}</div>
+                                </div>
+                                <div class="submission-actions">
+                                  <button class="sub-open-btn" on:click={() => viewSubmission(s)}>Open Link</button>
+                                  {#if canManage}
+                                    <button class="icon-btn" title="Delete link" on:click={() => deleteSubmission(p.id, folder.id, s.id)}><Trash2 size={14} /></button>
+                                  {/if}
+                                </div>
+                              </div>
+                            {/if}
+                          {/each}
+                        </div>
+                      {:else}
+                        <div class="proj-detail-empty" style="padding:0.5rem 0.75rem 0.75rem">No files or links in this folder yet.</div>
+                      {/if}
+                    </div>
+                  {/if}
+                </div>
+              {/each}
+            </div>
+          {/if}
+        {:else if viewingProjectTab === 'Milestones'}
+          {#if p.milestones && p.milestones.length > 0}
+            <div class="milestone-list">
+              {#each p.milestones as m}
+                <div class="ms-card" class:ms-expanded={expandedMilestoneIds.has(m.id)}>
+                  <div class="ms-header" on:click={() => toggleMilestoneExpand(m.id)} role="button" tabindex="0" on:keydown={(e)=>{ if(e.key==='Enter'||e.key===' ') toggleMilestoneExpand(m.id); }}>
+                    <span class={"ms-icon " + (STATUS_META[m.status]?.cls || STATUS_META['Not Started'].cls)}></span>
+                    <span class="ms-title">{m.milestone}</span>
+                    {#if m.date}<span class="ms-due">Due: {formatDate(m.date)}</span>{/if}
+                    <span class="ms-chevron">{expandedMilestoneIds.has(m.id) ? ICONS.chevronDown : ICONS.chevronRight}</span>
+                  </div>
+                  {#if expandedMilestoneIds.has(m.id)}
+                    <div class="ms-body">
+                      {#if parseMilestoneFiles(m).length > 0}
+                        <div class="ms-linked-section">
+                          <div class="ms-linked-label">Linked Files:</div>
+                          <ul class="ms-linked-list">
+                            {#each parseMilestoneFiles(m) as lf}
+                              <li class="ms-linked-item">
+                                <span>{ICONS.file} {lf.name}</span>
+                                {#if lf.drive_url}<a href={lf.drive_url} target="_blank" rel="noopener" class="ms-open-link">Open</a>{/if}
+                              </li>
+                            {/each}
+                          </ul>
+                        </div>
+                      {:else}
+                        <div class="ms-no-links">No linked files yet.</div>
+                      {/if}
+                      <div class="ms-actions">
+                        <span class={"proj-status-pill " + (STATUS_META[m.status]?.cls || STATUS_META['Not Started'].cls)}>
+                          {STATUS_META[m.status]?.label || STATUS_META['Not Started'].label}
+                        </span>
+                      </div>
+                    </div>
+                  {/if}
+                </div>
+              {/each}
+            </div>
+          {:else}
+            <div class="proj-detail-empty">No milestones yet.</div>
+          {/if}
+        {:else if viewingProjectTab === 'Feedback'}
+          <div class="feedback-wrap">
+            {#if !feedbackLoading[p.id]}
+              {#each (feedbackMap[p.id] || []).filter(f => !f.parent_id) as thread (feedbackIdOf(thread))}
+                <FeedbackThread
+                  item={thread}
+                  projectId={p.id}
+                  depth={0}
+                  {replyingTo}
+                  {replyText}
+                  {replySubmitting}
+                  {currentUser}
+                  {getCurrentUser}
+                  getChildren={feedbackChildren}
+                  resolveUserName={resolveUserName}
+                  onToggleReply={toggleReply}
+                  onReplyText={updateReplyText}
+                  onSubmitReply={submitReply}
+                  onCancelReply={cancelReply}
+                  onDelete={deleteFeedback}
+                />
+              {/each}
+              {#if !(feedbackMap[p.id] || []).filter(f => !f.parent_id).length}
+                <div class="proj-detail-empty">No feedback yet. Be the first to comment.</div>
+              {/if}
+              <div class="fb-new-comment">
+                <textarea class="fb-reply-input" rows="3" placeholder="Add a comment..." value={newFeedbackText[p.id] || ''} on:input={(e) => { newFeedbackText = { ...newFeedbackText, [p.id]: e.currentTarget.value }; }}></textarea>
+                <button class="sub-action-btn fb-post-btn" class:sub-action-btn-busy={!!postingFeedback[p.id]} disabled={!!postingFeedback[p.id]} on:click={() => submitFeedback(p.id)} aria-label="Post comment">
+                  {#if postingFeedback[p.id]}
+                    <Loader2 size={14} class="spin" />
+                    <span>Posting...</span>
+                  {:else}
+                    <Send size={14} />
+                    <span>Post Comment</span>
+                  {/if}
+                </button>
+              </div>
+            {/if}
+          </div>
+        {/if}
+      </div>
+    </div>
+  </div>
+{/if}
 
 {#if showAddProjectModal}
   <!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -3582,6 +3515,9 @@
     .milestone-editor,
     .milestone-editor.inline { grid-template-columns: 1fr; }
     .modal-box.large { width: min(94vw, 720px); }
+    .proj-view-overlay { padding: 12px; }
+    .proj-view-modal { width: calc(100vw - 24px); max-height: 92vh; border-radius: 14px; }
+    .proj-view-head { padding: 14px 14px 12px; }
   }
 
   /* Inline detail card styles (collapsed project view) */
@@ -3621,6 +3557,62 @@
 
   .proj-detail-body { padding: 1rem 1.25rem; min-height: 5rem; }
   .proj-detail-empty { font-size: 0.83rem; color: var(--color-muted, var(--color-sidebar-text)); }
+  .proj-view-overlay {
+    padding: 22px;
+    background: rgba(3, 7, 18, 0.64);
+    backdrop-filter: blur(8px);
+  }
+  .proj-view-modal {
+    width: min(1120px, calc(100vw - 44px));
+    max-height: min(90vh, 920px);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    border-radius: 18px;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    background: var(--color-surface);
+    box-shadow: 0 28px 72px rgba(2, 6, 23, 0.42);
+  }
+  .proj-view-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 20px 14px;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .proj-view-kicker {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-muted, var(--color-sidebar-text));
+  }
+  .proj-view-title {
+    margin-top: 4px;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--color-heading);
+  }
+  .proj-view-close { flex-shrink: 0; }
+  .proj-view-body {
+    overflow: auto;
+    padding-bottom: 1.2rem;
+  }
+  :global(body.dark) .proj-view-modal {
+    background: #161c27;
+    border-color: rgba(148, 163, 184, 0.24);
+    box-shadow: 0 30px 80px rgba(2, 6, 23, 0.6);
+  }
+  :global(body.dark) .proj-view-head {
+    border-bottom-color: rgba(255,255,255,0.08);
+  }
+  :global(body.dark) .proj-view-kicker {
+    color: #8da2c0;
+  }
+  :global(body.dark) .proj-view-title {
+    color: #f8fafc;
+  }
 
   .icon-btn-active { background: rgba(59,130,246,0.12) !important; color: #3b82f6 !important; }
 

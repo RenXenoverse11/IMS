@@ -6,7 +6,7 @@
     FolderOpen, Plus, Pencil, Trash2, ExternalLink, Loader2, Eye,
     CalendarDays, Tag, CheckCircle2, Clock3, AlertCircle, Link2,
     MessageSquare, Flag, Send, Users, UserCheck,
-    Grid, List, Archive, Download, RotateCcw
+    Grid, List, Archive, Download, RotateCcw, X
   } from 'lucide-svelte';
 
   export let currentUser = null;
@@ -666,6 +666,12 @@
         loadProjectMilestones(p.id);
       }
     }
+  }
+
+  function closeProjectModal() {
+    viewingProjectId = null;
+    viewingProjectTab = 'Details';
+    try { localStorage.removeItem('projects.viewingProjectId'); } catch (e) {}
   }
 
   function toggleDescription(projectId) {
@@ -1859,6 +1865,7 @@
   }));
 
   $: overviewSnippets = projects.filter(p => !p.archived);
+  $: selectedViewingProject = projects.find((p) => p.id === viewingProjectId) || null;
 
   // ── Your Projects pagination ───────────────────────────────────────────────
   let projectsPage = 0;
@@ -2244,14 +2251,24 @@
               </div>
 
               {#if isViewing}
-                    <div class="proj-detail-card">
-                      <div class="proj-detail-tabs" class:proj-detail-tabs-no-divider={viewingProjectTab === 'Feedback'}>
+                    <div class="proj-inline-overlay" on:click={closeProjectModal}></div>
+                    <div class="proj-detail-card proj-detail-card-modal" on:click|stopPropagation>
+                      <div class="proj-view-head">
+                        <div>
+                          <div class="proj-view-kicker">Project Details</div>
+                          <div class="proj-view-title">{p.title}</div>
+                        </div>
+                        <button class="icon-btn proj-view-close" type="button" on:click={closeProjectModal} aria-label="Close project details">
+                          <X size={16} />
+                        </button>
+                      </div>
+                      <div class="proj-detail-tabs proj-detail-tabs-modal" class:proj-detail-tabs-no-divider={viewingProjectTab === 'Feedback'}>
                         <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Details'} on:click={() => viewingProjectTab = 'Details'}>Details</button>
                         <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Submissions'} on:click={() => { viewingProjectTab = 'Submissions'; if (!p.folders) loadProjectFolders(p.id); }}>Submissions</button>
                         <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Milestones'} on:click={() => { viewingProjectTab = 'Milestones'; if (!p.milestones || p.milestones === null) loadProjectMilestones(p.id); }}>Milestones</button>
                         <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Feedback'} on:click={() => { viewingProjectTab = 'Feedback'; if (!feedbackMap[p.id]) loadFeedback(p.id); }}>Feedback</button>
                       </div>
-                      <div class="proj-detail-body">
+                      <div class="proj-detail-body proj-detail-body-modal">
                     {#if viewingProjectTab === 'Details'}
                       {#if inlineEditId === p.id}
                         {@const statusOnlyEdit = isStatusOnlyEditableProject(p)}
@@ -3543,6 +3560,52 @@
       inset 0 1px 0 rgba(255,255,255,0.03);
   }
 
+  .proj-inline-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(3, 7, 18, 0.64);
+    backdrop-filter: blur(8px);
+    z-index: 180;
+  }
+
+  .proj-detail-card-modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: min(1120px, calc(100vw - 44px));
+    max-height: min(90vh, 920px);
+    border-radius: 18px;
+    border-top: 1px solid rgba(148, 163, 184, 0.1);
+    z-index: 181;
+    display: flex;
+    flex-direction: column;
+  }
+  .proj-view-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 20px 14px;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.07);
+  }
+  .proj-view-kicker {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-muted, var(--color-sidebar-text));
+  }
+  .proj-view-title {
+    margin-top: 4px;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--color-heading);
+  }
+  .proj-view-close {
+    flex-shrink: 0;
+  }
+
   .proj-detail-tabs {
     display: flex;
     gap: 0;
@@ -3550,9 +3613,24 @@
     background: var(--color-soft);
     padding: 0 1rem;
   }
+  .proj-detail-tabs-modal {
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0;
+    flex-wrap: wrap;
+  }
   :global(body.dark) .proj-detail-tabs { background: #0d1117 !important; border-bottom-color: rgba(148, 163, 184, 0.06) !important; }
   .proj-detail-tabs.proj-detail-tabs-no-divider { border-bottom-color: transparent; }
   :global(body.dark) .proj-detail-tabs.proj-detail-tabs-no-divider { border-bottom-color: transparent !important; }
+  :global(body.dark) .proj-view-head {
+    border-bottom-color: rgba(255,255,255,0.08);
+  }
+  :global(body.dark) .proj-view-kicker {
+    color: #8da2c0;
+  }
+  :global(body.dark) .proj-view-title {
+    color: #f8fafc;
+  }
 
   .proj-detail-tab-btn {
     padding: 0.6rem 1rem;
@@ -3570,6 +3648,10 @@
   .proj-detail-tab-btn.active { color: #3b82f6; border-bottom-color: #3b82f6; font-weight: 600; }
 
   .proj-detail-body { padding: 1rem 1.25rem; min-height: 5rem; }
+  .proj-detail-body-modal {
+    overflow: auto;
+    padding-bottom: 1.2rem;
+  }
   .proj-detail-empty { font-size: 0.83rem; color: var(--color-muted, var(--color-sidebar-text)); }
 
   .icon-btn-active { background: rgba(59,130,246,0.12) !important; color: #3b82f6 !important; }
