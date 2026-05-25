@@ -2842,9 +2842,7 @@
                     {:else if viewingProjectTab === 'Feedback'}
                       <!-- ── Feedback Tab ─────────────────────────────────── -->
                       <div class="feedback-wrap">
-                        {#if feedbackLoading[p.id]}
-                          
-                        {:else}
+                        {#if !feedbackLoading[p.id]}
                           <!-- Root comment threads -->
                           {#each (feedbackMap[p.id] || []).filter(f => !f.parent_id) as thread}
                             <div class="feedback-thread">

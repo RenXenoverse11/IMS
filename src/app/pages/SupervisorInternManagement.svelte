@@ -2674,12 +2674,6 @@
     transition: all 0.2s;
   }
 
-  .bulk-option.bulk-selected .bulk-checkbox {
-    background: #2563eb;
-    border-color: #2563eb;
-    color: white;
-  }
-
   :global(.dark) .bulk-option.bulk-selected {
     background: rgba(59, 130, 246, 0.16);
     border-color: #3b82f6;
@@ -2687,11 +2681,6 @@
 
   :global(.dark) .bulk-checkbox {
     border-color: rgba(148, 163, 184, 0.35);
-  }
-
-  :global(.dark) .bulk-option.bulk-selected .bulk-checkbox {
-    background: #3b82f6;
-    border-color: #3b82f6;
   }
 
   :global(.dark) .bulk-header {

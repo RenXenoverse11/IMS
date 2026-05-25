@@ -2452,12 +2452,12 @@ let restoringTaskMap = {};
               {#if todayTasks.length === 0}
                 <p class="overview-empty-copy">No tasks with today's deadline.</p>
               {:else}
-                <ul class="overview-task-list">
+                <ul class="overview-task-list due-soon-task-list">
                   {#each todayTasks as task}
                     <li>
                       <button
                         type="button"
-                        class="overview-task-link"
+                        class="overview-task-link due-soon-task-link"
                         on:click={() => openTaskViewForm(task)}
                       >
                         <span>{task.title}</span>
@@ -2477,12 +2477,12 @@ let restoringTaskMap = {};
               {#if dueSoonTasks.length === 0}
                 <p class="overview-empty-copy">No upcoming due dates.</p>
               {:else}
-                <ul class="overview-task-list">
+                <ul class="overview-task-list due-soon-task-list">
                   {#each dueSoonTasks as task}
                     <li>
                       <button
                         type="button"
-                        class="overview-task-link"
+                        class="overview-task-link due-soon-task-link"
                         on:click={() => openTaskViewForm(task)}
                       >
                         <span>{task.title}</span>
@@ -3010,7 +3010,7 @@ let restoringTaskMap = {};
                   <div class="attachment-actions">
                     {#if att && att.link}
                       <a class="attachment-action" href={att.link} target="_blank" rel="noopener noreferrer" aria-label="View attachment" title="View">
-                        <ExternalLink size={14} />
+                        <Eye size={14} />
                       </a>
                       <a class="attachment-action" href={getDriveDownloadUrl(att.link)} target="_blank" rel="noopener noreferrer" aria-label="Download attachment" title="Download">
                         <Download size={14} />
@@ -3700,14 +3700,6 @@ let restoringTaskMap = {};
     text-transform: uppercase;
   }
 
-  .tracker-card-heading h4 {
-    margin: 0;
-    color: var(--color-heading);
-    font-size: 1rem;
-    font-weight: 650;
-    letter-spacing: -0.01em;
-  }
-
   .tracker-purpose {
     margin: 0.12rem 0 0;
     color: var(--color-muted);
@@ -3752,20 +3744,6 @@ let restoringTaskMap = {};
     box-shadow: 0 12px 24px -20px rgba(15, 23, 42, 0.35);
     padding: 0.25rem;
     z-index: 6;
-  }
-
-  .tracker-menu button {
-    width: 100%;
-    text-align: left;
-    border-radius: 0.45rem;
-    padding: 0.42rem 0.5rem;
-    color: var(--color-text);
-    font-size: 0.75rem;
-    cursor: pointer;
-  }
-
-  .tracker-menu button:hover {
-    background: var(--color-soft);
   }
 
   .tracker-title {
@@ -3823,29 +3801,6 @@ let restoringTaskMap = {};
     margin-top: 0.6rem;
   }
 
-  .tracker-form label {
-    display: grid;
-    gap: 0.3rem;
-  }
-
-  .tracker-form label span {
-    color: var(--color-muted);
-    font-size: 0.74rem;
-    font-weight: 600;
-  }
-
-  .tracker-form input,
-  .tracker-form select,
-  .tracker-form textarea {
-    border: 1px solid var(--color-border);
-    border-radius: 0.55rem;
-    background: var(--color-soft);
-    color: var(--color-text);
-    font-size: 0.82rem;
-    padding: 0.45rem 0.55rem;
-    outline: none;
-  }
-
   .tracker-form-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3856,14 +3811,6 @@ let restoringTaskMap = {};
     display: flex;
     justify-content: flex-end;
     gap: 0.45rem;
-  }
-
-  .tracker-form-actions button {
-    border-radius: 0.5rem;
-    padding: 0.35rem 0.65rem;
-    font-size: 0.76rem;
-    font-weight: 600;
-    cursor: pointer;
   }
 
   .tracker-form-actions .secondary {
@@ -3887,12 +3834,6 @@ let restoringTaskMap = {};
     flex-direction: column;
     align-items: flex-start;
     gap: 0.35rem;
-  }
-
-  .tracker-checklist-editor-head span {
-    color: var(--color-muted);
-    font-size: 0.74rem;
-    font-weight: 600;
   }
 
   .tracker-checklist-editor-head button,
@@ -4412,6 +4353,9 @@ let restoringTaskMap = {};
     overflow: hidden;
     display: flex;
     flex-direction: column;
+    background: var(--color-surface);
+    border-color: var(--color-border);
+    box-shadow: 0 30px 54px -32px rgba(15, 23, 42, 0.3);
   }
 
   .task-view-modal.task-add-modal .task-view-add-form {
@@ -4424,7 +4368,8 @@ let restoringTaskMap = {};
 
   .task-view-modal.task-add-modal .task-view-modal-head {
     padding: 18px 22px 12px;
-    background: #1f2937;
+    background: color-mix(in srgb, var(--color-surface) 84%, var(--color-soft));
+    border-bottom: 1px solid var(--color-border);
   }
 
   .task-view-modal.task-add-modal .task-view-modal-head h4 {
@@ -4438,19 +4383,20 @@ let restoringTaskMap = {};
     flex: 1;
     display: grid;
     gap: 0.8rem;
-    background: #1f2937;
+    background: var(--color-surface);
   }
 
   .task-add-modal-footer {
     padding: 12px 22px 16px;
     border-top: 1px solid var(--color-border);
-    background: #1f2937;
+    background: color-mix(in srgb, var(--color-surface) 90%, var(--color-soft));
     display: flex;
     justify-content: flex-end;
     gap: 8px;
   }
 
-  :global(html.dark) .task-view-modal {
+  :global(html.dark) .task-view-modal,
+  :global(body.dark) .task-view-modal {
     background: #161c27;
     border: 1px solid #ffffff0f;
   }
@@ -4462,6 +4408,11 @@ let restoringTaskMap = {};
   :global(html.dark) .task-view-modal.task-add-modal .task-add-modal-content,
   :global(body.dark) .task-view-modal.task-add-modal .task-add-modal-content {
     background: #1f2937;
+  }
+  :global(html.dark) .task-view-modal.task-add-modal .task-view-modal-head,
+  :global(body.dark) .task-view-modal.task-add-modal .task-view-modal-head {
+    background: #1f2937;
+    border-bottom-color: #374151;
   }
   :global(html.dark) .task-view-modal.task-add-modal .task-view-grid input,
   :global(html.dark) .task-view-modal.task-add-modal .task-view-grid select,
@@ -5449,8 +5400,7 @@ let restoringTaskMap = {};
   }
 
   .overview-panel h4,
-  .notes-title,
-  .tracker-card-heading h4 {
+  .notes-title {
     color: var(--ims-ref-text);
     font-size: 13.5px;
     font-weight: 700;
@@ -5469,17 +5419,17 @@ let restoringTaskMap = {};
   .overview-empty-copy {
     color: var(--ims-ref-text3);
     font-size: 12px;
-    margin-top: 12px;
+    margin-top: 8px;
   }
 
   .overview-panel ul {
-    margin-top: 12px;
-    gap: 5px;
+    margin-top: 8px;
+    gap: 4px;
   }
 
   .overview-panel.task-list-panel {
-    height: 190px;
-    min-height: 190px;
+    height: 188px;
+    min-height: 188px;
     display: flex;
     flex-direction: column;
   }
@@ -5503,16 +5453,16 @@ let restoringTaskMap = {};
   }
 
   .overview-task-link {
-    padding: 10px 12px;
+    padding: 9px 11px;
     border-radius: var(--ims-ref-radius-sm);
     color: var(--ims-ref-text2);
     font-size: 13px;
     background: var(--ims-ref-surface);
     border: 1px solid var(--ims-ref-border);
-    margin-bottom: 6px;
+    margin-bottom: 4px;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 3px;
     width: 100%;
     text-align: left;
     transition: all 0.2s ease;
@@ -5536,6 +5486,38 @@ let restoringTaskMap = {};
     background: var(--ims-ref-surface2);
     border-color: var(--ims-ref-accent);
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  }
+
+  .due-soon-task-list {
+    gap: 0;
+  }
+
+  .due-soon-task-link {
+    padding: 7px 10px;
+    min-height: 38px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: 0.75rem;
+  }
+
+  .due-soon-task-link span,
+  .due-soon-task-link small {
+    display: block;
+    margin: 0;
+  }
+
+  .due-soon-task-link span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .due-soon-task-link small {
+    text-align: right;
+    white-space: nowrap;
+    font-size: 10.25px;
   }
 
   .recent-activity-list li {
@@ -5717,10 +5699,7 @@ let restoringTaskMap = {};
   .form-textarea,
   .task-view-grid input,
   .task-view-grid select,
-  .task-view-description textarea,
-  .tracker-form input,
-  .tracker-form select,
-  .tracker-form textarea {
+  .task-view-description textarea {
     width: 100%;
     padding: 9px 12px;
     border-radius: var(--ims-ref-radius-sm);
@@ -5734,8 +5713,7 @@ let restoringTaskMap = {};
   }
 
   .form-textarea,
-  .task-view-description textarea,
-  .tracker-form textarea {
+  .task-view-description textarea {
     min-height: 60px;
     resize: vertical;
   }
@@ -5744,10 +5722,7 @@ let restoringTaskMap = {};
   .form-textarea:focus,
   .task-view-grid input:focus,
   .task-view-grid select:focus,
-  .task-view-description textarea:focus,
-  .tracker-form input:focus,
-  .tracker-form select:focus,
-  .tracker-form textarea:focus {
+  .task-view-description textarea:focus {
     border-color: var(--ims-ref-accent2);
     box-shadow: 0 0 0 3px var(--ims-ref-accent-glow);
   }
@@ -6058,7 +6033,6 @@ let restoringTaskMap = {};
 
   .task-view-action,
   .task-view-close,
-  .tracker-form-actions button,
   .remove-item {
     border-radius: 40px;
     border: 1px solid var(--ims-ref-border);

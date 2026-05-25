@@ -884,14 +884,6 @@ function getActivityTasks(payload) {
 			var t = tasks[ti];
 			var titleKey = String(t.task_name || '').trim().toLowerCase();
 			if (!titleKey) continue;
-			var taskDueKey = formatDateYMD_(t.due_date || '');
-			var taskAssignedBy = String(t.assigned_by || '').trim();
-			if (taskAssignedBy && taskDueKey) {
-				var taskKey = titleKey + '::' + taskDueKey + '::' + taskAssignedBy;
-				if (supTaskKeyToCreator[taskKey]) {
-					t.created_by = supTaskKeyToCreator[taskKey];
-				}
-			}
 			var matchedSupIds = supTaskTitleToIds[titleKey] || [];
 			// Fallback: if no exact-title matches, try fuzzy match against supervisor task titles
 			if (!matchedSupIds.length && titleKey && Array.isArray(supTaskRows)) {
@@ -1015,16 +1007,39 @@ function updateActivityTask(payload) {
 			var effectiveCreatorId = String(existingTask.created_by || '').trim();
 			var effectiveCreatorEmail = effectiveCreatorId.toLowerCase();
 			var ownerUserId = String(payload.user_id || existingTask.user_id || '').trim();
+			var existingUpdatedBy = String(existingTask.updated_by || '').trim();
+			var rowLooksSelfCreated = Boolean(
+				ownerUserId &&
+				effectiveCreatorId &&
+				effectiveCreatorId === ownerUserId &&
+				existingUpdatedBy === ownerUserId
+			);
 			if (!isSupervisor) {
 				// Try to infer supervisor-owned tasks to prevent intern edits.
+				// Only trust supervisor_task matches that are also linked by a real task notification
+				// for this intern, so intern-created tasks with the same title/due/supervisor stay editable.
 				try {
+					if (!rowLooksSelfCreated) {
 					var supSheet = getOrCreateSheetWithHeaders_('supervisor_task', SUPERVISOR_TASK_HEADERS_);
 					var supRows = readSheetObjects_(supSheet) || [];
+					var notifSheet = getOrCreateSheetWithHeaders_('notifications', ['notification_id', 'user_id', 'title', 'description', 'type', 'related_id', 'is_read', 'created_at']);
+					var notifRows = readSheetObjects_(notifSheet) || [];
+					var linkedSupTaskIds = {};
+					for (var ni = 0; ni < notifRows.length; ni++) {
+						var notif = notifRows[ni] || {};
+						if (String(notif.user_id || '').trim() !== ownerUserId) continue;
+						if (String(notif.type || '').trim().toLowerCase() !== 'task') continue;
+						var linkedSupTaskId = String(notif.related_id || '').trim();
+						if (!linkedSupTaskId) continue;
+						linkedSupTaskIds[linkedSupTaskId] = true;
+					}
 					var taskTitle = String(existingTask.task_name || existingTask.title || '').trim().toLowerCase();
 					var taskDueKey = formatDateYMD_(existingTask.due_date || '');
 					var taskAssignedBy = String(existingTask.assigned_by || '').trim();
 					for (var sr = 0; sr < supRows.length; sr++) {
 						var supRow = supRows[sr] || {};
+						var supTaskId = String(supRow.sup_taskid || '').trim();
+						if (!supTaskId || !linkedSupTaskIds[supTaskId]) continue;
 						var supTitle = String(supRow.task || '').trim().toLowerCase();
 						if (!supTitle || supTitle !== taskTitle) continue;
 						var supDueKey = formatDateYMD_(supRow.due_date || '');
@@ -1043,6 +1058,7 @@ function updateActivityTask(payload) {
 							effectiveCreatorEmail = supCreator.toLowerCase();
 						}
 						break;
+					}
 					}
 				} catch (e) {
 					// ignore supervisor inference errors

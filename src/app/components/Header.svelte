@@ -176,13 +176,15 @@
 
 <style>
   .header {
-     background: #fff !important;
-    border-bottom: 1px solid color-mix(in srgb, var(--color-border) 55%, transparent) !important;
+    background: color-mix(in srgb, var(--color-surface) 92%, #eef4ff) !important;
+    border-bottom: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent) !important;
     box-shadow: none !important;
     outline: none !important;
   }
+  :global(html.dark) .header,
   :global(body.dark) .header {
-     background: #161c27 !important;
+    background: #161c27 !important;
+    border-bottom-color: #ffffff0f !important;
   }
   .sync-button, .sync-icon-btn {
     background: none;
