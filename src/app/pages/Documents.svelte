@@ -41,6 +41,7 @@
   let isDeletingFolder = false;
   let documentsInFolderToDelete = []; // Documents in the folder being deleted
   let documentActionMap = {}; // Maps doc id to action: 'move', 'delete', 'duplicate'
+  let folderAction = 'delete'; // Folder action: 'move', 'rename', 'duplicate', 'delete'
   let showUploadPreview = false;
   let pendingFile = null;
   let pendingFilePreview = null;
@@ -1007,6 +1008,135 @@
     documentActionMap = {};
   }
 
+  function processFolderAction(folderPath, action) {
+    const normalizedPath = normalizeFolderPath_(folderPath);
+    const folderName = getFolderNameFromPath_(normalizedPath);
+    
+    if (action === 'delete') {
+      deleteFolder(folderPath);
+    } else if (action === 'rename') {
+      showDeleteFolderConfirm = false;
+      folderToDelete = null;
+      documentsInFolderToDelete = [];
+      documentActionMap = {};
+      folderAction = 'delete'; // Reset for next time
+      folderToRename = normalizedPath;
+      renameFolderInputValue = folderName;
+      showRenameFolderModal = true;
+    } else if (action === 'move') {
+      showActionMessage_('Move folder feature coming soon. For now, you can rename the folder or duplicate it.', 'info');
+    } else if (action === 'duplicate') {
+      isDeletingFolder = true;
+      const duplicatedFolderName = folderName + ' (Copy)';
+      const newFolderPath = '/' + duplicatedFolderName;
+
+      // Duplicate all documents in this folder
+      const docsInFolder = documents.filter(d => d.folder === normalizedPath);
+      const duplicatedDocs = docsInFolder.map(doc => ({
+        ...doc,
+        id: 'doc_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+        name: doc.name,
+        folder: newFolderPath,
+        created_at: new Date().toISOString()
+      }));
+
+      documents = [...documents, ...duplicatedDocs];
+
+      // Add folder to structure
+      if (!folderStructure.root.subfolders) {
+        folderStructure.root.subfolders = [];
+      }
+      folderStructure.root.subfolders = [
+        ...folderStructure.root.subfolders,
+        {
+          path: newFolderPath,
+          name: duplicatedFolderName,
+          createdBy: userId,
+          createdByName: currentUser?.full_name || 'Unknown'
+        }
+      ];
+
+      callBackend_('duplicate_folder', {
+        user_id: userId,
+        folder_path: normalizedPath,
+        new_folder_path: newFolderPath,
+        document_ids: docsInFolder.map(d => d.id)
+      }).then(response => {
+        if (response?.ok) {
+          showActionMessage_('Folder duplicated successfully.');
+        } else {
+          showActionMessage_('Error duplicating folder: ' + (response?.error || 'Unknown error'), 'error');
+        }
+      }).catch(err => {
+        console.error('Duplicate folder error:', err);
+        showActionMessage_('Error duplicating folder. Please try again.', 'error');
+      }).finally(() => {
+        isDeletingFolder = false;
+        showDeleteFolderConfirm = false;
+        folderToDelete = null;
+        documentsInFolderToDelete = [];
+        documentActionMap = {};
+        folderAction = 'delete'; // Reset for next time
+      });
+    }
+  }
+
+  function duplicateFolderAction_(folderPath) {
+    const normalizedPath = normalizeFolderPath_(folderPath);
+    const folderName = getFolderNameFromPath_(normalizedPath);
+    isDeleteFoldersProcessing = true;
+    
+    const duplicatedFolderName = folderName + ' (Copy)';
+    const newFolderPath = '/' + duplicatedFolderName;
+
+    // Duplicate all documents in this folder
+    const docsInFolder = documents.filter(d => d.folder === normalizedPath);
+    const duplicatedDocs = docsInFolder.map(doc => ({
+      ...doc,
+      id: 'doc_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+      name: doc.name,
+      folder: newFolderPath,
+      created_at: new Date().toISOString()
+    }));
+
+    documents = [...documents, ...duplicatedDocs];
+
+    // Add folder to structure
+    if (!folderStructure.root.subfolders) {
+      folderStructure.root.subfolders = [];
+    }
+    folderStructure.root.subfolders = [
+      ...folderStructure.root.subfolders,
+      {
+        path: newFolderPath,
+        name: duplicatedFolderName,
+        createdBy: userId,
+        createdByName: currentUser?.full_name || 'Unknown'
+      }
+    ];
+
+    callBackend_('duplicate_folder', {
+      user_id: userId,
+      folder_path: normalizedPath,
+      new_folder_path: newFolderPath,
+      document_ids: docsInFolder.map(d => d.id)
+    }).then(response => {
+      if (response?.ok) {
+        showActionMessage_('Folder duplicated successfully.');
+      } else {
+        showActionMessage_('Error duplicating folder: ' + (response?.error || 'Unknown error'), 'error');
+      }
+    }).catch(err => {
+      console.error('Duplicate folder error:', err);
+      showActionMessage_('Error duplicating folder. Please try again.', 'error');
+    }).finally(() => {
+      isDeleteFoldersProcessing = false;
+      selectedFolders.clear();
+      showFolderBulkActions = false;
+    });
+  }
+
+
   function canDeleteFolder_(folder) {
     // Supervisors can delete any folder
     if (isSupervisor) {
@@ -1393,7 +1523,62 @@
                   >
                     {selectAllFoldersChecked ? 'Deselect All' : 'Select All'}
                   </button>
-                  {#if selectedFolders.size > 0}
+                  {#if selectedFolders.size === 1}
+                    <!-- Single folder selected: show action buttons -->
+                    <div class="folder-action-bar">
+                      <button 
+                        class="folder-action-btn move"
+                        title="Move folder"
+                        disabled={isDeleteFoldersProcessing}
+                      >
+                        📁 Move
+                      </button>
+                      <button 
+                        class="folder-action-btn rename"
+                        title="Rename folder"
+                        disabled={isDeleteFoldersProcessing}
+                        on:click={() => {
+                          const selectedPath = Array.from(selectedFolders)[0];
+                          folderToRename = selectedPath;
+                          renameFolderInputValue = getFolderNameFromPath_(selectedPath);
+                          showRenameFolderModal = true;
+                          selectedFolders.clear();
+                          showFolderBulkActions = false;
+                        }}
+                      >
+                        ✏️ Rename
+                      </button>
+                      <button 
+                        class="folder-action-btn duplicate"
+                        title="Duplicate folder"
+                        disabled={isDeleteFoldersProcessing}
+                        on:click={() => {
+                          const selectedPath = Array.from(selectedFolders)[0];
+                          duplicateFolderAction_(selectedPath);
+                        }}
+                      >
+                        📋 Duplicate
+                      </button>
+                      <button 
+                        class="folder-action-btn delete"
+                        title="Delete folder"
+                        disabled={isDeleteFoldersProcessing}
+                        on:click={() => {
+                          const selectedPath = Array.from(selectedFolders)[0];
+                          folderToDelete = selectedPath;
+                          documentsInFolderToDelete = documents.filter(d => d.folder === selectedPath);
+                          documentActionMap = {};
+                          documentsInFolderToDelete.forEach(doc => {
+                            documentActionMap[doc.id] = 'move';
+                          });
+                          showDeleteFolderConfirm = true;
+                        }}
+                      >
+                        🗑️ Delete
+                      </button>
+                    </div>
+                  {:else if selectedFolders.size > 1}
+                    <!-- Multiple folders selected: show delete only -->
                     <button 
                       class="btn btn-ghost delete-bulk-btn"
                       disabled={isDeleteFoldersProcessing}
@@ -2122,13 +2307,45 @@
 
         <div class="modal-footer">
           <button class="btn btn-secondary" on:click={() => (showDeleteFolderConfirm = false)} disabled={isDeletingFolder}>Cancel</button>
-          <button class="btn btn-danger" on:click={() => deleteFolder(folderPath)} disabled={isDeletingFolder}>
+          <div class="folder-action-buttons">
+            <button 
+              class="folder-action-btn {folderAction === 'move' ? 'active' : ''}"
+              on:click={() => { folderAction = 'move'; }}
+              title="Move folder to another location"
+              disabled={isDeletingFolder}
+            >
+              📁 Move
+            </button>
+            <button 
+              class="folder-action-btn {folderAction === 'rename' ? 'active' : ''}"
+              on:click={() => { folderAction = 'rename'; }}
+              title="Rename the folder"
+              disabled={isDeletingFolder}
+            >
+              ✏️ Rename
+            </button>
+            <button 
+              class="folder-action-btn {folderAction === 'duplicate' ? 'active' : ''}"
+              on:click={() => { folderAction = 'duplicate'; }}
+              title="Duplicate folder with all contents"
+              disabled={isDeletingFolder}
+            >
+              📋 Duplicate
+            </button>
+            <button 
+              class="folder-action-btn delete {folderAction === 'delete' ? 'active' : ''}"
+              on:click={() => { folderAction = 'delete'; }}
+              title="Permanently delete folder"
+              disabled={isDeletingFolder}
+            >
+              🗑️ Delete
+            </button>
+          </div>
+          <button class="btn btn-primary" on:click={() => processFolderAction(folderPath, folderAction)} disabled={isDeletingFolder}>
             {#if isDeletingFolder}
               <span class="spinning-icon"><Loader2 size={16} /></span>
-            {:else}
-              <Trash2 size={16} />
             {/if}
-            <span>{isDeletingFolder ? 'Deleting...' : 'Delete Folder'}</span>
+            <span>{isDeletingFolder ? 'Processing...' : 'Proceed'}</span>
           </button>
         </div>
       </div>
@@ -5777,6 +5994,118 @@
   .delete-modal .btn-danger {
     min-width: 160px;
     flex: 0 1 auto;
+  }
+
+  /* Folder Action Buttons */
+  .folder-action-buttons {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: center;
+    flex-wrap: nowrap;
+    align-items: center;
+  }
+
+  .folder-action-btn {
+    padding: 0.6rem 0.9rem;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    background: var(--ims-ref-surface2, #f3f4f6);
+    color: var(--ims-ref-text3, #6b7280);
+    flex-shrink: 0;
+  }
+
+  .folder-action-btn:hover:not(:disabled) {
+    background: var(--ims-ref-surface3, #e5e7eb);
+  }
+
+  .folder-action-btn.active {
+    font-weight: 700;
+    border: 1px solid currentColor;
+    background: rgba(59, 130, 246, 0.1);
+    color: #2563eb;
+  }
+
+  .folder-action-btn.delete.active {
+    background: rgba(239, 68, 68, 0.1);
+    color: #dc2626;
+    border-color: #dc2626;
+  }
+
+  .folder-action-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  /* Folder action bar in top controls */
+  .folder-action-bar {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  .folder-action-bar .folder-action-btn {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--ims-ref-border, #e5e7eb);
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    background: var(--ims-ref-surface, white);
+    color: var(--ims-ref-text3, #6b7280);
+    flex-shrink: 0;
+  }
+
+  .folder-action-bar .folder-action-btn:hover:not(:disabled) {
+    background: var(--ims-ref-surface2, #f3f4f6);
+    border-color: var(--ims-ref-accent2, #2563eb);
+  }
+
+  .folder-action-bar .folder-action-btn.move {
+    color: #16a34a;
+    border-color: #16a34a;
+  }
+
+  .folder-action-bar .folder-action-btn.move:hover:not(:disabled) {
+    background: rgba(34, 197, 94, 0.1);
+  }
+
+  .folder-action-bar .folder-action-btn.rename {
+    color: #2563eb;
+    border-color: #2563eb;
+  }
+
+  .folder-action-bar .folder-action-btn.rename:hover:not(:disabled) {
+    background: rgba(59, 130, 246, 0.1);
+  }
+
+  .folder-action-bar .folder-action-btn.duplicate {
+    color: #0891b2;
+    border-color: #0891b2;
+  }
+
+  .folder-action-bar .folder-action-btn.duplicate:hover:not(:disabled) {
+    background: rgba(8, 145, 178, 0.1);
+  }
+
+  .folder-action-bar .folder-action-btn.delete {
+    color: #dc2626;
+    border-color: #dc2626;
+  }
+
+  .folder-action-bar .folder-action-btn.delete:hover:not(:disabled) {
+    background: rgba(239, 68, 68, 0.1);
+  }
+
+  .folder-action-bar .folder-action-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   .btn:disabled {
