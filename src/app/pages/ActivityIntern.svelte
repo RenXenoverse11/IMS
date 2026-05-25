@@ -3139,7 +3139,6 @@ let restoringTaskMap = {};
     position: relative;
     border-radius: 1.25rem;
     padding: 0;
-    isolation: isolate;
     width: 100%;
     min-width: 0;
     box-sizing: border-box;
@@ -4325,10 +4324,10 @@ let restoringTaskMap = {};
   .task-view-modal-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(10, 20, 38, 0.45);
+    background: rgba(0, 0, 0, 0.45);
     display: grid;
     place-items: center;
-    z-index: 40;
+    z-index: 200;
     padding: 1rem;
   }
 
