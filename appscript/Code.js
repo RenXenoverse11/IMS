@@ -187,6 +187,14 @@ function dispatchAction_(payload) {
     return handleDeleteDocument_(payload);
   }
 
+  if (action === 'move_document') {
+    return handleMoveDocument_(payload);
+  }
+
+  if (action === 'duplicate_document') {
+    return handleDuplicateDocument_(payload);
+  }
+
   if (action === 'share_document') {
     return handleShareDocument_(payload);
   }
@@ -5422,6 +5430,104 @@ function handleDeleteDocument_(payload) {
     return { ok: false, error: 'Server error: ' + err.message };
   }
 }
+
+function handleMoveDocument_(payload) {
+  try {
+    var docId = String(payload.doc_id || '').trim();
+    var userId = String(payload.user_id || '').trim();
+    var targetFolder = normalizeDocumentFolderPath_(payload.folder || '/');
+
+    if (!docId || !userId) {
+      return { ok: false, error: 'Missing doc_id or user_id.' };
+    }
+
+    var userRecord = findUserRecordByUserId_(userId);
+    var isSupervisor = Boolean(userRecord && userRecord.user && isSupervisorUser_(userRecord.user));
+    var groupMemberIds = getGroupMemberIds_(userId);
+    var sheet = getOrCreateSheetWithHeaders_(DOCUMENTS_SHEET_, DOCUMENTS_HEADERS_);
+    var rows = readSheetObjects_(sheet);
+
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      if (String(row.id || '').trim() !== docId) continue;
+
+      var ownerId = String(row.user_id || '').trim();
+      if (groupMemberIds.indexOf(ownerId) === -1) {
+        return { ok: false, error: 'You do not have permission to move this document.' };
+      }
+
+      var createdBy = String(row.created_by || '').trim() || ownerId;
+      if (!isSupervisor && createdBy !== userId && ownerId !== userId) {
+        return { ok: false, error: 'Only supervisors and document owners can move this document.' };
+      }
+
+      sheet.getRange(i + 2, 4).setValue(targetFolder);
+      return { ok: true, message: 'Document moved successfully.' };
+    }
+
+    return { ok: false, error: 'Document not found.' };
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) };
+  }
+}
+
+function handleDuplicateDocument_(payload) {
+  try {
+    var docId = String(payload.doc_id || '').trim();
+    var userId = String(payload.user_id || '').trim();
+    if (!docId || !userId) {
+      return { ok: false, error: 'Missing doc_id or user_id.' };
+    }
+
+    var userRecord = findUserRecordByUserId_(userId);
+    var isSupervisor = Boolean(userRecord && userRecord.user && isSupervisorUser_(userRecord.user));
+    var groupMemberIds = getGroupMemberIds_(userId);
+    var sheet = getOrCreateSheetWithHeaders_(DOCUMENTS_SHEET_, DOCUMENTS_HEADERS_);
+    var rows = readSheetObjects_(sheet);
+
+    for (var i = 0; i < rows.length; i++) {
+      var source = rows[i];
+      if (String(source.id || '').trim() !== docId) continue;
+
+      var ownerId = String(source.user_id || '').trim();
+      if (groupMemberIds.indexOf(ownerId) === -1) {
+        return { ok: false, error: 'You do not have permission to duplicate this document.' };
+      }
+
+      var createdBy = String(source.created_by || '').trim() || ownerId;
+      if (!isSupervisor && createdBy !== userId && ownerId !== userId) {
+        return { ok: false, error: 'Only supervisors and document owners can duplicate this document.' };
+      }
+
+      var sourceName = String(source.name || '').trim() || 'Untitled';
+      var newId = 'doc' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+      var newName = sourceName + ' (Copy)';
+      var nowDate = formatDateYMD_(new Date());
+
+      sheet.appendRow([
+        newId,
+        ownerId,
+        newName,
+        normalizeDocumentFolderPath_(source.folder || '/'),
+        String(source.type || 'file').trim() || 'file',
+        String(source.size || '').trim(),
+        String(source.url || '').trim(),
+        String(source.is_link || '').trim() || 'false',
+        nowDate,
+        String(source.access_level || 'private').trim() || 'private',
+        String(source.shared_with || '[]').trim() || '[]',
+        createdBy,
+        nowDate
+      ]);
+
+      return { ok: true, message: 'Document duplicated successfully.', new_doc_id: newId };
+    }
+
+    return { ok: false, error: 'Document not found.' };
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) };
+  }
+}
 function handleShareDocument_(payload) {
   try {
     var docId = String(payload.doc_id || '').trim();
@@ -6757,4 +6863,3 @@ function standardizeActAttachmentsSheet() {
     return { ok: false, error: err.message || String(err) };
   }
 }
-
