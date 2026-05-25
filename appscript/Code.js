@@ -1859,40 +1859,58 @@ function handleSaveInternSchedule_(payload) {
 
   var internIdCol = findColumnIndex_(headers, 'intern_id');
   var supervisorIdCol = findColumnIndex_(headers, 'supervisor_id');
+  var daysOffCol = findColumnIndex_(headers, 'days_off');
+  var shiftStartCol = findColumnIndex_(headers, 'shift_start');
+  var shiftEndCol = findColumnIndex_(headers, 'shift_end');
+  var updatedAtCol = findColumnIndex_(headers, 'updated_at');
+  var createdAtCol = findColumnIndex_(headers, 'created_at');
+  var createdByCol = findColumnIndex_(headers, 'created_by');
+  
   var values = getSheetValues_(sheet);
 
-  // Find and delete existing schedule for this intern (if any)
-  var rowsToDelete = [];
+  // Find existing schedule for this intern
+  var existingRowIndex = -1;
+  var existingCreatedAt = null;
+  var existingCreatedBy = null;
+  
   for (var rowIndex = 1; rowIndex < values.length; rowIndex++) {
     var rowInternId = String(values[rowIndex][internIdCol - 1] || '').trim();
     var rowSupervisorId = String(values[rowIndex][supervisorIdCol - 1] || '').trim();
     if (rowInternId === internUserId && rowSupervisorId === supervisorUserId) {
-      rowsToDelete.push(rowIndex + 1);
+      existingRowIndex = rowIndex;
+      existingCreatedAt = String(values[rowIndex][createdAtCol - 1] || '');
+      existingCreatedBy = String(values[rowIndex][createdByCol - 1] || '');
+      break;
     }
   }
 
-  // Delete old records
-  for (var r = rowsToDelete.length - 1; r >= 0; r--) {
-    sheet.deleteRow(rowsToDelete[r]);
-  }
-
-  // Add new schedule record
   var now = isoNow_();
-  appendObjectRow_(sheet, {
-    schedule_id: createId_('SCH'),
-    intern_id: internUserId,
-    supervisor_id: supervisorUserId,
-    days_off: JSON.stringify(daysOff),
-    shift_start: shiftStart,
-    shift_end: shiftEnd,
-    created_at: now,
-    updated_at: now,
-  });
+
+  if (existingRowIndex >= 0) {
+    // UPDATE existing record
+    sheet.getRange(existingRowIndex + 1, daysOffCol).setValue(JSON.stringify(daysOff));
+    sheet.getRange(existingRowIndex + 1, shiftStartCol).setValue(shiftStart);
+    sheet.getRange(existingRowIndex + 1, shiftEndCol).setValue(shiftEnd);
+    sheet.getRange(existingRowIndex + 1, updatedAtCol).setValue(now);
+  } else {
+    // CREATE new record
+    var scheduleId = createId_('SCH');
+    appendObjectRow_(sheet, {
+      schedule_id: scheduleId,
+      intern_id: internUserId,
+      supervisor_id: supervisorUserId,
+      days_off: JSON.stringify(daysOff),
+      shift_start: shiftStart,
+      shift_end: shiftEnd,
+      created_at: now,
+      updated_at: now,
+      created_by: supervisorUserId,
+    });
+  }
 
   return {
     ok: true,
     message: 'Schedule saved successfully.',
-    schedule_id: createId_('SCH'),
   };
 }
 

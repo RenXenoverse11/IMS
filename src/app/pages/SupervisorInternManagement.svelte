@@ -36,6 +36,8 @@
   let addModalSearch = '';
   let removingInternId = null;
   let selectedInternForSetup = null;
+  let modalStep = 'select'; // 'select' or 'schedule'
+  let scheduledInternIds = new Set(); // Track which interns already have schedules
   const DEFAULT_DAYS_OFF = [0, 6];
   const DAY_OPTIONS = [
     { label: 'Monday', value: 1 },
@@ -49,16 +51,18 @@
   let internDaysOff = [...DEFAULT_DAYS_OFF];
   let internShiftStart = '09:00';
   let internShiftEnd = '17:00';
-  let bulkAssignMode = false;
-  let bulkSelectedInterns = new Set();
-  let bulkDaysOff = [...DEFAULT_DAYS_OFF];
-  let bulkShiftStart = '09:00';
-  let bulkShiftEnd = '17:00';
   let showEditEndDateModal = false;
   let editingInternId = null;
   let editingInternName = '';
   let editingEndDate = '';
   let savingEndDate = false;
+  let showEditScheduleModal = false;
+  let editingScheduleInternId = null;
+  let editingScheduleInternName = '';
+  let editingScheduleDaysOff = [...DEFAULT_DAYS_OFF];
+  let editingScheduleShiftStart = '09:00';
+  let editingScheduleShiftEnd = '17:00';
+  let savingSchedule = false;
   const HOURS_PER_WORKING_DAY = 8;
 
   function toNumber(value) {
@@ -345,11 +349,21 @@
       return;
     }
 
-    // Open setup modal for this intern
+    // Check if intern already has a schedule (is already assigned to another supervisor)
+    const internHasSchedule = assignedStudents.some(s => String(s.user_id || '') === String(studentId || ''));
+    
     selectedInternForSetup = studentId;
-    internDaysOff = [...DEFAULT_DAYS_OFF];
-    internShiftStart = '09:00';
-    internShiftEnd = '17:00';
+    
+    // If intern doesn't have a schedule yet, ask to set one
+    if (!internHasSchedule) {
+      modalStep = 'schedule';
+      internDaysOff = [...DEFAULT_DAYS_OFF];
+      internShiftStart = '09:00';
+      internShiftEnd = '17:00';
+    } else {
+      // Intern already has a schedule, just assign directly
+      await confirmAddIntern(true); // true = skipScheduleSetup
+    }
   }
 
   function toggleDayOff(dayIndex) {
@@ -360,7 +374,7 @@
     }
   }
 
-  async function confirmAddIntern() {
+  async function confirmAddIntern(skipScheduleSetup = false) {
     if (!selectedInternForSetup) return;
 
     const supervisorId = String(currentUser?.user_id || '').trim();
@@ -374,18 +388,23 @@
     try {
       await assignStudentsToSupervisor(supervisorId, newIds);
       
-      // Save the schedule (days off and shift times)
-      await saveInternSchedule(
-        supervisorId,
-        selectedInternForSetup,
-        internDaysOff,
-        internShiftStart,
-        internShiftEnd
-      );
-
-      successMessage = 'Intern added successfully with schedule configured.';
+      // Only save schedule if this is the first time (intern didn't have one yet)
+      if (!skipScheduleSetup) {
+        await saveInternSchedule(
+          supervisorId,
+          selectedInternForSetup,
+          internDaysOff,
+          internShiftStart,
+          internShiftEnd
+        );
+        successMessage = 'Intern added successfully with schedule configured.';
+      } else {
+        successMessage = 'Intern added successfully. Using existing schedule.';
+      }
+      
       showAddModal = false;
       selectedInternForSetup = null;
+      modalStep = 'select';
       addModalSearch = '';
       await loadData();
     } catch (err) {
@@ -397,6 +416,7 @@
 
   function cancelSetup() {
     selectedInternForSetup = null;
+    modalStep = 'select';
     internDaysOff = [...DEFAULT_DAYS_OFF];
     internShiftStart = '09:00';
     internShiftEnd = '17:00';
@@ -414,6 +434,64 @@
     editingInternId = null;
     editingInternName = '';
     editingEndDate = '';
+  }
+
+  function openEditScheduleModal(student) {
+    const daysOff = normalizeDaysOff(student?.schedule?.days_off || student?.days_off || DEFAULT_DAYS_OFF);
+    const shiftStart = student?.schedule?.shift_start || '09:00';
+    const shiftEnd = student?.schedule?.shift_end || '17:00';
+
+    editingScheduleInternId = student.user_id;
+    editingScheduleInternName = student.full_name;
+    editingScheduleDaysOff = [...daysOff];
+    editingScheduleShiftStart = shiftStart;
+    editingScheduleShiftEnd = shiftEnd;
+    showEditScheduleModal = true;
+  }
+
+  function closeEditScheduleModal() {
+    showEditScheduleModal = false;
+    editingScheduleInternId = null;
+    editingScheduleInternName = '';
+    editingScheduleDaysOff = [...DEFAULT_DAYS_OFF];
+    editingScheduleShiftStart = '09:00';
+    editingScheduleShiftEnd = '17:00';
+  }
+
+  function toggleEditScheduleDayOff(dayIndex) {
+    if (editingScheduleDaysOff.includes(dayIndex)) {
+      editingScheduleDaysOff = editingScheduleDaysOff.filter((d) => d !== dayIndex);
+    } else {
+      editingScheduleDaysOff = [...editingScheduleDaysOff, dayIndex];
+    }
+  }
+
+  async function saveEditedSchedule() {
+    if (!editingScheduleInternId) return;
+
+    const supervisorId = String(currentUser?.user_id || '').trim();
+    savingSchedule = true;
+    errorMessage = '';
+    successMessage = '';
+
+    try {
+      await saveInternSchedule(
+        supervisorId,
+        editingScheduleInternId,
+        editingScheduleDaysOff,
+        editingScheduleShiftStart,
+        editingScheduleShiftEnd
+      );
+
+      successMessage = `${editingScheduleInternName}'s schedule has been updated.`;
+      closeEditScheduleModal();
+      await loadData();
+    } catch (err) {
+      errorMessage = err?.message || 'Unable to save schedule.';
+      console.error('Save schedule error:', err);
+    } finally {
+      savingSchedule = false;
+    }
   }
 
   async function saveEstimatedEndDate() {
@@ -445,77 +523,6 @@
     } finally {
       savingEndDate = false;
     }
-  }
-
-  function toggleBulkInternSelection(studentId) {
-    if (bulkSelectedInterns.has(studentId)) {
-      bulkSelectedInterns.delete(studentId);
-    } else {
-      bulkSelectedInterns.add(studentId);
-    }
-    bulkSelectedInterns = bulkSelectedInterns;
-  }
-
-  function toggleBulkDayOff(dayIndex) {
-    if (bulkDaysOff.includes(dayIndex)) {
-      bulkDaysOff = bulkDaysOff.filter((d) => d !== dayIndex);
-    } else {
-      bulkDaysOff = [...bulkDaysOff, dayIndex];
-    }
-  }
-
-  async function confirmBulkAssign() {
-    if (bulkSelectedInterns.size === 0) {
-      errorMessage = 'Please select at least one intern.';
-      return;
-    }
-
-    const supervisorId = String(currentUser?.user_id || '').trim();
-    const currentAssignedIds = assignedStudents.map((s) => String(s.user_id || '').trim());
-    const newInternIds = Array.from(bulkSelectedInterns).map((id) => String(id || '').trim());
-    const newIds = Array.from(new Set([...currentAssignedIds, ...newInternIds]));
-
-    saving = true;
-    errorMessage = '';
-    successMessage = '';
-
-    try {
-      // Assign all students first
-      await assignStudentsToSupervisor(supervisorId, newIds);
-
-      // Save schedules for each selected intern
-      for (const internId of newInternIds) {
-        await saveInternSchedule(
-          supervisorId,
-          internId,
-          bulkDaysOff,
-          bulkShiftStart,
-          bulkShiftEnd
-        );
-      }
-
-      successMessage = `${bulkSelectedInterns.size} interns added successfully with schedule configured.`;
-      bulkAssignMode = false;
-      bulkSelectedInterns = new Set();
-      bulkDaysOff = [...DEFAULT_DAYS_OFF];
-      bulkShiftStart = '09:00';
-      bulkShiftEnd = '17:00';
-      addModalSearch = '';
-      showAddModal = false;
-      await loadData();
-    } catch (err) {
-      errorMessage = err?.message || 'Unable to add interns.';
-    } finally {
-      saving = false;
-    }
-  }
-
-  function cancelBulkAssign() {
-    bulkAssignMode = false;
-    bulkSelectedInterns = new Set();
-    bulkDaysOff = [...DEFAULT_DAYS_OFF];
-    bulkShiftStart = '09:00';
-    bulkShiftEnd = '17:00';
   }
 
   async function handleRemoveIntern(internId) {
@@ -696,7 +703,7 @@
           <button class="btn btn-secondary" type="button" on:click={loadData} disabled={loading || saving}>
             <RefreshCw size={15} />Refresh
           </button>
-          <button class="btn btn-primary btn-with-icon" type="button" on:click={() => { bulkSelectedInterns = new Set(); bulkDaysOff = [...DEFAULT_DAYS_OFF]; bulkShiftStart = '09:00'; bulkShiftEnd = '17:00'; showAddModal = true; bulkAssignMode = true; }} disabled={loading || saving}>
+          <button class="btn btn-primary btn-with-icon" type="button" on:click={() => { showAddModal = true; modalStep = 'select'; addModalSearch = ''; }} disabled={loading || saving}>
             <Plus size={15} />
             <span>Add Interns</span>
           </button>
@@ -760,7 +767,7 @@
           <div class="empty-icon"><UserRoundCheck size={18} /></div>
           <p class="empty-title">No assigned interns yet.</p>
           <p class="empty-sub">Add interns to start monitoring their OJT progress.</p>
-          <button class="btn btn-primary btn-with-icon empty-action" type="button" on:click={() => { bulkSelectedInterns = new Set(); bulkDaysOff = [...DEFAULT_DAYS_OFF]; bulkShiftStart = '09:00'; bulkShiftEnd = '17:00'; showAddModal = true; bulkAssignMode = true; }} disabled={loading || saving}>
+          <button class="btn btn-primary btn-with-icon empty-action" type="button" on:click={() => { showAddModal = true; modalStep = 'select'; addModalSearch = ''; }} disabled={loading || saving}>
             <Plus size={15} />
             <span>Add Interns</span>
           </button>
@@ -780,6 +787,10 @@
             {@const ojtEndDateDisplay = formatDateObject(projectedEndDate)}
             {@const estimatedCompletionRaw = firstNonEmptyText(student?.estimated_end_date, student?.estimated_completion_date, student?.estimated_completion, student?.projected_completion_date, student?.expected_completion_date)}
             {@const statusText = getCurrentStatusLabel(student, remaining, projectedEndDate, daysLeft)}
+            {@const hasSchedule = !!(student?.schedule?.days_off || student?.days_off)}
+            {@const createdBy = String(student?.schedule?.created_by || '')}
+            {@const currentUserId = String(currentUser?.user_id || '')}
+            {@const isPrimary = !createdBy || createdBy === currentUserId}
             <article class="assigned-card">
               <div class="card-header-row">
                 <div class="assigned-info">
@@ -791,24 +802,52 @@
                     {/if}
                   </div>
                   <div class="info-text">
-                    <p class="font-semibold">{student.full_name}</p>
+                    <div class="name-with-badges">
+                      <p class="font-semibold">{student.full_name}</p>
+                      {#if !hasSchedule}
+                        <span class="schedule-badge schedule-badge-unscheduled" title="This intern doesn't have a schedule yet">
+                          ⚙️ Unscheduled
+                        </span>
+                      {:else if isPrimary}
+                        <span class="schedule-badge schedule-badge-primary" title="You set up this intern's schedule">
+                          ✓ Primary
+                        </span>
+                      {:else}
+                        <span class="schedule-badge schedule-badge-secondary" title="Another supervisor set up this schedule">
+                          👥 Secondary
+                        </span>
+                      {/if}
+                    </div>
                     <p class="text-xs text-muted">{internMetaLabel}</p>
                   </div>
                 </div>
-                <button 
-                  class="btn-remove" 
-                  type="button" 
-                  on:click={() => handleRemoveIntern(student.user_id)}
-                  disabled={removingInternId === student.user_id}
-                  title="Remove this intern"
-                  aria-label="Remove this intern"
-                >
-                  {#if removingInternId === student.user_id}
-                    <span class="spinning-icon"><Loader2 size={16} /></span>
-                  {:else}
-                    <Trash2 size={16} />
+                <div class="card-actions">
+                  {#if hasSchedule && isPrimary}
+                    <button
+                      class="btn-action"
+                      type="button"
+                      on:click={() => openEditScheduleModal(student)}
+                      title="Edit this intern's schedule"
+                      aria-label="Edit this intern's schedule"
+                    >
+                      ✎ Edit Schedule
+                    </button>
                   {/if}
-                </button>
+                  <button 
+                    class="btn-remove" 
+                    type="button" 
+                    on:click={() => handleRemoveIntern(student.user_id)}
+                    disabled={removingInternId === student.user_id}
+                    title="Remove this intern"
+                    aria-label="Remove this intern"
+                  >
+                    {#if removingInternId === student.user_id}
+                      <span class="spinning-icon"><Loader2 size={16} /></span>
+                    {:else}
+                      <Trash2 size={16} />
+                    {/if}
+                  </button>
+                </div>
               </div>
 
               <div class="card-body">
@@ -869,19 +908,15 @@
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div class="modal-content" role="dialog" aria-modal="true" aria-label="Assign Interns" tabindex="-1" on:click|stopPropagation>
           <div class="modal-header">
-            <h2>Assign Interns</h2>
+            <h2>{modalStep === 'select' ? 'Add Interns' : 'Configure Schedule'}</h2>
             <button class="modal-close" type="button" on:click={() => (showAddModal = false)} aria-label="Close dialog">
               <X size={20} />
             </button>
           </div>
 
           <div class="modal-body">
-            {#if bulkAssignMode}
-              <!-- Bulk assign mode -->
-              <div class="bulk-header">
-                <span class="bulk-count">{bulkSelectedInterns.size} selected</span>
-              </div>
-
+            {#if modalStep === 'select'}
+              <!-- Step 1: Select interns to add -->
               <label class="search-wrap">
                 <span class="search-icon"><Search size={14} /></span>
                 <input
@@ -901,19 +936,17 @@
               {:else}
                 <div class="intern-list-modal">
                   {#each filteredAvailable as student (student.user_id)}
-                    {@const isSelected = bulkSelectedInterns.has(student.user_id)}
+                    {@const hasSchedule = !!(student?.schedule?.days_off || student?.days_off)}
+                    {@const createdBy = String(student?.schedule?.created_by || '')}
+                    {@const currentUserId = String(currentUser?.user_id || '')}
+                    {@const isPrimary = !createdBy || createdBy === currentUserId}
                     <button
                       type="button"
-                      class="intern-option bulk-option"
-                      class:bulk-selected={isSelected}
-                      on:click={() => toggleBulkInternSelection(student.user_id)}
+                      class="intern-option"
+                      on:click={() => handleAddIntern(student.user_id)}
                       disabled={saving}
+                      title={`Add ${student.full_name} to your supervision`}
                     >
-                      <div class="bulk-checkbox">
-                        {#if isSelected}
-                          <Check size={16} />
-                        {/if}
-                      </div>
                       <div class="avatar">
                         {#if student.profile_photo_url}
                           <img src={student.profile_photo_url} alt={`${student.full_name} avatar`} />
@@ -922,80 +955,33 @@
                         {/if}
                       </div>
                       <div class="intern-option-info">
-                        <p class="font-semibold text-sm">{student.full_name}</p>
+                        <div class="modal-intern-name-row">
+                          <p class="font-semibold text-sm">{student.full_name}</p>
+                          {#if !hasSchedule}
+                            <span class="schedule-badge schedule-badge-unscheduled" style="font-size: 0.65rem;">
+                              ⚙️ Unscheduled
+                            </span>
+                          {:else if isPrimary}
+                            <span class="schedule-badge schedule-badge-primary" style="font-size: 0.65rem;">
+                              ✓ Primary
+                            </span>
+                          {:else}
+                            <span class="schedule-badge schedule-badge-secondary" style="font-size: 0.65rem;">
+                              👥 Secondary
+                            </span>
+                          {/if}
+                        </div>
                         <p class="text-xs text-muted">{student.email}</p>
                         <p class="text-xs text-muted">{student.company || '-'} • {normalizeDepartment(student.department) || '-'}</p>
                       </div>
+                      <span class="add-indicator">+ Add</span>
                     </button>
                   {/each}
                 </div>
               {/if}
 
-              <div class="setup-section setup-section-offset">
-                <div class="setup-label">Days Off</div>
-                <p class="setup-sublabel">Select which days these interns typically have off</p>
-                <div class="days-checkbox-list">
-                  {#each DAY_OPTIONS as day}
-                    <label class="day-checkbox">
-                      <input
-                        type="checkbox"
-                        checked={bulkDaysOff.includes(day.value)}
-                        on:change={() => toggleBulkDayOff(day.value)}
-                      />
-                      <span>{day.label}</span>
-                    </label>
-                  {/each}
-                </div>
-              </div>
-
-              <div class="setup-section">
-                <div class="setup-label">Shift Time</div>
-                <p class="setup-sublabel">Set the regular work hours for these interns</p>
-                <div class="shift-grid">
-                  <div class="time-input-group">
-                    <label for="bulk-shift-start">Start Time</label>
-                    <input 
-                      id="bulk-shift-start"
-                      type="time" 
-                      bind:value={bulkShiftStart}
-                      class="time-input"
-                    />
-                  </div>
-                  <div class="time-input-group">
-                    <label for="bulk-shift-end">End Time</label>
-                    <input 
-                      id="bulk-shift-end"
-                      type="time" 
-                      bind:value={bulkShiftEnd}
-                      class="time-input"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div class="setup-actions">
-                <button 
-                  class="btn btn-secondary" 
-                  type="button" 
-                  on:click={cancelBulkAssign}
-                  disabled={saving}
-                >
-                  Cancel
-                </button>
-                <button 
-                  class="btn btn-primary btn-with-icon" 
-                  type="button" 
-                  on:click={confirmBulkAssign}
-                  disabled={saving || bulkSelectedInterns.size === 0}
-                >
-                  {#if saving}
-                    <span class="spinning-icon"><Loader2 size={15} /></span>
-                  {/if}
-                  <span>{saving ? 'Assigning...' : `Assign ${bulkSelectedInterns.size} Interns`}</span>
-                </button>
-              </div>
-            {:else if selectedInternForSetup}
-              <!-- Setup form for selected intern -->
+            {:else if modalStep === 'schedule' && selectedInternForSetup}
+              <!-- Step 2: Configure schedule for selected intern -->
               {@const selectedStudent = availableToAdd.find((s) => String(s.user_id) === String(selectedInternForSetup))}
               <div class="setup-header">
                 <button 
@@ -1008,6 +994,10 @@
                 </button>
                 <h3>{selectedStudent?.full_name}</h3>
               </div>
+
+              <p class="text-muted" style="font-size: 0.875rem; margin-bottom: 1.5rem;">
+                This is the first time adding {selectedStudent?.full_name}, so you'll set their work schedule now.
+              </p>
 
               <div class="setup-section">
                 <div class="setup-label">Days Off</div>
@@ -1063,7 +1053,7 @@
                 <button 
                   class="btn btn-primary btn-with-icon" 
                   type="button" 
-                  on:click={confirmAddIntern}
+                  on:click={() => confirmAddIntern(false)}
                   disabled={saving}
                 >
                   {#if saving}
@@ -1072,50 +1062,6 @@
                   <span>{saving ? 'Adding...' : 'Add Intern'}</span>
                 </button>
               </div>
-            {:else}
-              <!-- List of available interns -->
-              <label class="search-wrap">
-                <span class="search-icon"><Search size={14} /></span>
-                <input
-                  bind:value={addModalSearch}
-                  type="text"
-                  class="search-input"
-                  placeholder="Search interns by name, email, department, or company"
-                />
-              </label>
-
-              {#if loading}
-                <p class="text-muted">Loading...</p>
-              {:else if filteredAvailable.length === 0}
-                <p class="text-muted">
-                  {availableToAdd.length === 0 ? 'All interns are already assigned.' : 'No interns match your search.'}
-                </p>
-              {:else}
-                <div class="intern-list-modal">
-                  {#each filteredAvailable as student (student.user_id)}
-                    <button
-                      type="button"
-                      class="intern-option"
-                      on:click={() => handleAddIntern(student.user_id)}
-                      disabled={saving || selectedInternForSetup}
-                    >
-                      <div class="avatar">
-                        {#if student.profile_photo_url}
-                          <img src={student.profile_photo_url} alt={`${student.full_name} avatar`} />
-                        {:else}
-                          {getInitials(student.full_name)}
-                        {/if}
-                      </div>
-                      <div class="intern-option-info">
-                        <p class="font-semibold text-sm">{student.full_name}</p>
-                        <p class="text-xs text-muted">{student.email}</p>
-                        <p class="text-xs text-muted">{student.company || '-'} • {normalizeDepartment(student.department) || '-'}</p>
-                      </div>
-                      <span class="add-indicator">Select</span>
-                    </button>
-                  {/each}
-                </div>
-              {/if}
             {/if}
           </div>
         </div>
@@ -1175,6 +1121,96 @@
                 Saving...
               {:else}
                 Save End Date
+              {/if}
+            </button>
+          </div>
+        </div>
+      </div>
+    {/if}
+
+    <!-- Edit Schedule Modal -->
+    {#if showEditScheduleModal}
+      <div class="modal-overlay" role="presentation" on:click={closeEditScheduleModal}>
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <div class="modal-content" role="dialog" aria-modal="true" aria-label="Edit Schedule" tabindex="-1" on:click|stopPropagation>
+          <div class="modal-header">
+            <h2>Edit Schedule</h2>
+            <button class="modal-close" type="button" on:click={closeEditScheduleModal} aria-label="Close dialog">
+              <X size={20} />
+            </button>
+          </div>
+
+          <div class="modal-body">
+            <p class="text-muted" style="font-size: 0.875rem; margin-bottom: 1.5rem;">
+              Update the work schedule for <strong>{editingScheduleInternName}</strong>
+            </p>
+
+            <div class="setup-section">
+              <div class="setup-label">Days Off</div>
+              <p class="setup-sublabel">Select which days this intern typically has off</p>
+              <div class="days-checkbox-list">
+                {#each DAY_OPTIONS as day}
+                  <label class="day-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={editingScheduleDaysOff.includes(day.value)}
+                      on:change={() => toggleEditScheduleDayOff(day.value)}
+                      disabled={savingSchedule}
+                    />
+                    <span>{day.label}</span>
+                  </label>
+                {/each}
+              </div>
+            </div>
+
+            <div class="setup-section">
+              <div class="setup-label">Shift Time</div>
+              <p class="setup-sublabel">Set the regular work hours for this intern</p>
+              <div class="shift-grid">
+                <div class="time-input-group">
+                  <label for="edit-shift-start">Start Time</label>
+                  <input 
+                    id="edit-shift-start"
+                    type="time" 
+                    bind:value={editingScheduleShiftStart}
+                    class="time-input"
+                    disabled={savingSchedule}
+                  />
+                </div>
+                <div class="time-input-group">
+                  <label for="edit-shift-end">End Time</label>
+                  <input 
+                    id="edit-shift-end"
+                    type="time" 
+                    bind:value={editingScheduleShiftEnd}
+                    class="time-input"
+                    disabled={savingSchedule}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button
+              type="button"
+              class="btn-cancel"
+              on:click={closeEditScheduleModal}
+              disabled={savingSchedule}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              class="btn-save"
+              on:click={saveEditedSchedule}
+              disabled={savingSchedule}
+            >
+              {#if savingSchedule}
+                <Loader2 size={16} style="animation: spin 1s linear infinite;" />
+                Saving...
+              {:else}
+                Save Schedule
               {/if}
             </button>
           </div>
@@ -1490,10 +1526,50 @@
     margin: 0;
   }
 
+  .name-with-badges {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
   .info-text .font-semibold {
     font-size: 15px;
     font-weight: 700;
     color: var(--text-primary);
+    margin: 0;
+  }
+
+  .schedule-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0.6rem;
+    border-radius: 20px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+    border: 1px solid;
+  }
+
+  .schedule-badge-unscheduled {
+    background: rgba(245, 158, 11, 0.12);
+    border-color: rgba(245, 158, 11, 0.3);
+    color: #b45309;
+  }
+
+  .schedule-badge-primary {
+    background: rgba(34, 197, 94, 0.12);
+    border-color: rgba(34, 197, 94, 0.3);
+    color: #16a34a;
+  }
+
+  .schedule-badge-secondary {
+    background: rgba(59, 130, 246, 0.12);
+    border-color: rgba(59, 130, 246, 0.3);
+    color: #2563eb;
   }
 
   .assigned-avatar {
@@ -1578,6 +1654,40 @@
     font-size: 13px;
     font-weight: 700;
     color: var(--text-primary);
+  }
+
+  .card-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .btn-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 12px;
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    border-radius: 8px;
+    background: rgba(59, 130, 246, 0.08);
+    color: #3b82f6;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+    white-space: nowrap;
+  }
+
+  .btn-action:hover:not(:disabled) {
+    background: rgba(59, 130, 246, 0.16);
+    border-color: rgba(59, 130, 246, 0.4);
+    color: #2563eb;
+  }
+
+  .btn-action:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
   }
 
   .btn-remove {
@@ -1739,6 +1849,17 @@
     padding: 0.2rem 0.5rem;
     white-space: nowrap;
     flex-shrink: 0;
+  }
+
+  .modal-intern-name-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .modal-intern-name-row .font-semibold {
+    margin: 0;
   }
 
   /* Setup form styles */
