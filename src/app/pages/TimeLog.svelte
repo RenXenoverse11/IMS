@@ -1544,12 +1544,8 @@
             <span class="tl-attendance-meta-value">{internFullName}</span>
           </div>
           <div class="tl-attendance-meta-row">
-            <span class="tl-attendance-meta-label">Company Name:</span>
-            <span class="tl-attendance-meta-value">{companyName || '\u00A0'}</span>
-          </div>
-          <div class="tl-attendance-meta-row">
-            <span class="tl-attendance-meta-label">Name of Representative:</span>
-            <span class="tl-attendance-meta-value">{'\u00A0'}</span>
+            <span class="tl-attendance-meta-label">Company/Department:</span>
+            <span class="tl-attendance-meta-value">Globe ISOC</span>
           </div>
         </div>
 
