@@ -2418,8 +2418,8 @@
           <div class="confirmation-content">
             <p>Move <strong>{selectedDocuments.size} document{selectedDocuments.size !== 1 ? 's' : ''}</strong> to:</p>
             <div class="form-group">
-              <label>Destination Folder</label>
-              <div class="folder-picker-list" role="listbox" aria-label="Destination Folder">
+              <div id="bulk-move-destination-label" class="form-label">Destination Folder</div>
+              <div class="folder-picker-list" role="listbox" aria-labelledby="bulk-move-destination-label">
                 {#each normalizedFolders as folderPath (folderPath)}
                   <button
                     type="button"
@@ -5973,24 +5973,12 @@
     max-height: 80vh;
   }
 
-  .folder-delete-modal .modal-body {
-    max-height: 60vh;
-    overflow-y: auto;
-  }
-
   .folder-documents-section {
     margin-top: 1.5rem;
     padding: 1rem;
     background: var(--ims-ref-surface2, rgba(0, 0, 0, 0.02));
     border-radius: 10px;
     border: 1px solid var(--ims-ref-border, rgba(0, 0, 0, 0.1));
-  }
-
-  .folder-documents-section .section-title {
-    margin: 0 0 1rem 0;
-    font-size: 0.95rem;
-    font-weight: 600;
-    color: var(--ims-ref-text);
   }
 
   .documents-action-list {
@@ -6162,15 +6150,6 @@
     border-color: var(--ims-ref-accent2, #2563eb);
   }
 
-  .folder-action-bar .folder-action-btn.move {
-    color: #16a34a;
-    border-color: #16a34a;
-  }
-
-  .folder-action-bar .folder-action-btn.move:hover:not(:disabled) {
-    background: rgba(34, 197, 94, 0.1);
-  }
-
   .folder-action-bar .folder-action-btn.rename {
     color: #2563eb;
     border-color: #2563eb;
@@ -6178,24 +6157,6 @@
 
   .folder-action-bar .folder-action-btn.rename:hover:not(:disabled) {
     background: rgba(59, 130, 246, 0.1);
-  }
-
-  .folder-action-bar .folder-action-btn.duplicate {
-    color: #0891b2;
-    border-color: #0891b2;
-  }
-
-  .folder-action-bar .folder-action-btn.duplicate:hover:not(:disabled) {
-    background: rgba(8, 145, 178, 0.1);
-  }
-
-  .folder-action-bar .folder-action-btn.delete {
-    color: #dc2626;
-    border-color: #dc2626;
-  }
-
-  .folder-action-bar .folder-action-btn.delete:hover:not(:disabled) {
-    background: rgba(239, 68, 68, 0.1);
   }
 
   .folder-action-bar .folder-action-btn:disabled {
