@@ -2618,8 +2618,8 @@
 
           <div class="share-form">
             <div class="form-group">
-              <label>Visibility</label>
-              <div class="visibility-mode-grid" role="tablist" aria-label="Visibility mode">
+              <div id="share-visibility-label" class="form-label">Visibility</div>
+              <div class="visibility-mode-grid" role="tablist" aria-labelledby="share-visibility-label">
                 <button type="button" class="visibility-chip" class:active={shareVisibilityMode === 'private'} on:click={() => (shareVisibilityMode = 'private')}>Only me</button>
                 <button type="button" class="visibility-chip" class:active={shareVisibilityMode === 'everyone'} on:click={() => (shareVisibilityMode = 'everyone')}>Everyone</button>
                 <button type="button" class="visibility-chip" class:active={shareVisibilityMode === 'specific'} on:click={() => (shareVisibilityMode = 'specific')}>Specific people</button>
@@ -2629,8 +2629,8 @@
 
             {#if shareVisibilityMode === 'specific' || shareVisibilityMode === 'everyone_except'}
               <div class="form-group">
-                <label>{shareVisibilityMode === 'specific' ? 'Allowed people' : 'Excluded people'}</label>
-                <div class="share-candidates-list">
+                <div id="share-candidates-label" class="form-label">{shareVisibilityMode === 'specific' ? 'Allowed people' : 'Excluded people'}</div>
+                <div class="share-candidates-list" role="group" aria-labelledby="share-candidates-label">
                   {#if shareCandidates.length > 0}
                     {#each shareCandidates as candidate (candidate.user_id)}
                       <label class="share-candidate-item">
@@ -3580,19 +3580,6 @@
     margin-bottom: 0;
   }
 
-  .form-group select {
-    padding: 0.75rem;
-    border: 1px solid var(--doc-border);
-    border-radius: 10px;
-    font-size: 0.95rem;
-    outline: none;
-    transition: border-color 0.2s ease;
-  }
-
-  .form-group select:focus {
-    border-color: #0f6cbd;
-  }
-
   .shares-list {
     margin-top: 1.5rem;
     padding-top: 1.5rem;
@@ -3887,7 +3874,6 @@
   :global(.dark) .copy-btn,
   :global(.dark) .share-link-box input,
   :global(.dark) .form-group input,
-  :global(.dark) .form-group select,
   :global(.dark) .folder-search-input,
   :global(.dark) .folder-card {
     background: #1a2c45;
@@ -3944,8 +3930,7 @@
     color: #60a5fa;
   }
 
-  :global(.dark) .form-group input:focus,
-  :global(.dark) .form-group select:focus {
+  :global(.dark) .form-group input:focus {
     border-color: #7cc3ff;
     box-shadow: 0 0 0 3px rgba(91, 177, 255, 0.24);
   }
@@ -5492,7 +5477,6 @@
   }
 
   .form-group input,
-  .form-group select,
   .share-link-box input,
   .copy-btn,
   .folder-tab,
@@ -6033,7 +6017,6 @@
   :global(html:not(.dark)) .icon-btn,
   :global(html:not(.dark)) .folder-action-btn,
   :global(html:not(.dark)) .form-group input,
-  :global(html:not(.dark)) .form-group select,
   :global(html:not(.dark)) .share-link-box input,
   :global(html:not(.dark)) .copy-btn,
   :global(html:not(.dark)) .folder-tab,
