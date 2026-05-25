@@ -1,7 +1,7 @@
 ﻿
 <script>
   import { onMount } from 'svelte';
-  import { Upload, Link2, Folder, FolderOpen, FileText, Download, Trash2, Eye, Plus, Search, Share2, Copy, X, Check, ChevronRight, Loader2, Files, Clock } from 'lucide-svelte';
+  import { Upload, Link2, Folder, FolderOpen, FileText, Download, Trash2, Eye, Plus, Search, Share2, Copy, X, Check, ChevronRight, Loader2, Files, Clock, Lock } from 'lucide-svelte';
   import * as authApi from '../lib/auth.js';
 
   // Folder structure
@@ -28,6 +28,9 @@
   let newLinkUrl = '';
   let shareEmail = '';
   let shareRole = 'Viewer';
+  let shareVisibilityMode = 'private'; // private | everyone | specific | everyone_except
+  let shareCandidates = [];
+  let selectedShareUserIds = new Set();
   let copiedId = null;
   let uploadToFolder = '/';
   let folderSearchQuery = '';
@@ -251,6 +254,12 @@
   }
 
   function canDeleteDocument_(doc) {
+    if (isSupervisor) return true;
+    const ownerId = getDocumentOwnerId_(doc);
+    return Boolean(ownerId) && ownerId === String(userId || '').trim();
+  }
+
+  function canManageShare_(doc) {
     if (isSupervisor) return true;
     const ownerId = getDocumentOwnerId_(doc);
     return Boolean(ownerId) && ownerId === String(userId || '').trim();
@@ -592,9 +601,111 @@
   }
 
   function openShareModal(doc) {
+    if (!canManageShare_(doc)) {
+      showActionMessage_('Only the document owner or supervisor can manage visibility.', 'error');
+      return;
+    }
     selectedDocForShare = doc;
     showShareModal = true;
     shareEmail = '';
+    selectedShareUserIds = new Set();
+    shareVisibilityMode = 'private';
+    if (doc?.accessLevel === 'shared') {
+      shareVisibilityMode = 'specific';
+    }
+    loadShareCandidates_();
+  }
+
+  async function loadShareCandidates_() {
+    try {
+      const response = await callBackend_('get_document_share_candidates', { user_id: userId });
+      if (response?.ok && Array.isArray(response.users)) {
+        shareCandidates = response.users
+          .filter((u) => String(u.user_id || '').trim() !== String(userId || '').trim())
+          .map((u) => ({ ...u, user_id: String(u.user_id || '').trim() }));
+      } else {
+        shareCandidates = [];
+      }
+    } catch (err) {
+      console.error('Load share candidates error:', err);
+      shareCandidates = [];
+    }
+  }
+
+  function toggleShareCandidate_(candidateUserId) {
+    if (selectedShareUserIds.has(candidateUserId)) {
+      selectedShareUserIds.delete(candidateUserId);
+    } else {
+      selectedShareUserIds.add(candidateUserId);
+    }
+    selectedShareUserIds = selectedShareUserIds;
+  }
+
+  async function applyShareVisibility() {
+    if (!selectedDocForShare) return;
+    if (!canManageShare_(selectedDocForShare)) {
+      showActionMessage_('Only the document owner or supervisor can manage visibility.', 'error');
+      return;
+    }
+    const docId = selectedDocForShare.id;
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const selectedUsers = shareCandidates.filter((u) => selectedShareUserIds.has(u.user_id));
+    const selectedEmails = selectedUsers.map((u) => String(u.email || '').trim()).filter(Boolean).filter((email) => emailRegex.test(email));
+
+    if (shareVisibilityMode === 'private') {
+      const existing = Array.isArray(selectedDocForShare.sharedWith) ? selectedDocForShare.sharedWith : [];
+      for (const entry of existing) {
+        await removeShare(docId, entry.email);
+      }
+      const docIndex = documents.findIndex((d) => d.id === docId);
+      if (docIndex !== -1) {
+        const currentDoc = mapDocumentFromApi_(documents[docIndex]);
+        const updatedDoc = { ...currentDoc, sharedWith: [], shared_with: [], accessLevel: 'private', access_level: 'private' };
+        documents = [...documents.slice(0, docIndex), updatedDoc, ...documents.slice(docIndex + 1)];
+        selectedDocForShare = updatedDoc;
+      }
+      showActionMessage_('Visibility set to Only me.');
+      showShareModal = false;
+      return;
+    }
+
+    if (shareVisibilityMode === 'specific') {
+      if (selectedEmails.length === 0) {
+        showActionMessage_('Select at least one user for specific people.', 'error');
+        return;
+      }
+      for (const email of selectedEmails) {
+        const response = await callBackend_('share_document', {
+          user_id: userId,
+          doc_id: docId,
+          email,
+          role: 'Viewer'
+        });
+        if (!response?.ok) {
+          showActionMessage_(`Failed sharing to ${email}`, 'error');
+        }
+      }
+      await loadDocuments_();
+      selectedDocForShare = documents.find((d) => d.id === docId) || selectedDocForShare;
+      showActionMessage_('Visibility updated for specific people.');
+      showShareModal = false;
+      return;
+    }
+
+    if (shareVisibilityMode === 'everyone') {
+      showActionMessage_('Everyone visibility selected. Please confirm backend policy support for full-group visibility.', 'success');
+      showShareModal = false;
+      return;
+    }
+
+    if (shareVisibilityMode === 'everyone_except') {
+      if (selectedEmails.length === 0) {
+        showActionMessage_('Select at least one user to exclude.', 'error');
+        return;
+      }
+      showActionMessage_('Everyone except selected. Exclusion rules need backend enforcement.', 'success');
+      showShareModal = false;
+    }
   }
 
   async function shareDocument() {
@@ -1670,7 +1781,7 @@
               </div>
             </div>
 
-            {#if documentFilter === 'folders'}
+            {#if documentFilter === 'folders' && !isFolderOpen}
               <div class="folder-table-wrapper">
                 <!-- Folders List -->
                 <table class="folders-table">
@@ -1752,52 +1863,6 @@
               </div>
             {/if}
 
-            {#if isFolderOpen}
-              <div class="folder-open-header">
-                <button type="button" class="folder-back-btn" on:click={closeDocumentFolder_} title="Back to folder list">
-                  <ChevronRight size={16} style="transform: rotate(180deg);" />
-                  <span>Back</span>
-                </button>
-                <ChevronRight size={14} />
-                <div class="folder-open-title">
-                  <Folder size={16} />
-                  <span>{currentFolderName}</span>
-                </div>
-              </div>
-            {/if}
-
-            {#if (documentFilter !== 'folders' || isFolderOpen) && filteredDocuments.length > 0}
-              <div class="sort-bar">
-                <div class="sort-controls">
-                  <span class="sort-label">Sort by:</span>
-                  <button 
-                    class="sort-btn"
-                    class:active={documentSort === 'date'}
-                    on:click={() => documentSort = 'date'}
-                    title="Sort by upload date (newest first)"
-                  >
-                    Date
-                  </button>
-                  <button 
-                    class="sort-btn"
-                    class:active={documentSort === 'name'}
-                    on:click={() => documentSort = 'name'}
-                    title="Sort alphabetically by name"
-                  >
-                    Name
-                  </button>
-                  <button 
-                    class="sort-btn"
-                    class:active={documentSort === 'size'}
-                    on:click={() => documentSort = 'size'}
-                    title="Sort by file size (largest first)"
-                  >
-                    Size
-                  </button>
-                </div>
-              </div>
-            {/if}
-
             {#if filteredDocuments.length > 0 && (documentFilter !== 'folders' || isFolderOpen)}
               <div class="table-wrapper">
                 <table class="documents-table">
@@ -1817,6 +1882,7 @@
                   <tbody>
                     {#each filteredDocuments as doc (doc.id)}
                       {@const canDeleteDoc = canDeleteDocument_(doc)}
+                      {@const canManageShareDoc = canManageShare_(doc)}
                       <tr 
                         class="table-row" 
                         class:row-selected={showBulkActions && canDeleteDoc && selectedDocuments.has(doc.id)}
@@ -1897,10 +1963,10 @@
                                 <Download size={14} />
                               {/if}
                             </button>
-                            {#if canDeleteDoc}
+                            {#if canManageShareDoc}
                               <button 
                                 class="icon-btn share-btn" 
-                                title="Share" 
+                                title="Manage visibility" 
                                 on:click={(e) => {
                                   e.stopPropagation();
                                   openShareModal(doc);
@@ -1908,6 +1974,17 @@
                               >
                                 <Share2 size={14} />
                               </button>
+                            {:else}
+                              <button
+                                type="button"
+                                class="icon-btn"
+                                title="Only the document owner or supervisor can manage visibility"
+                                disabled
+                              >
+                                <Lock size={14} />
+                              </button>
+                            {/if}
+                            {#if canDeleteDoc}
                               <button 
                                 class="icon-btn delete-btn" 
                                 title="Delete" 
@@ -1933,6 +2010,20 @@
                 </div>
                 <div class="empty-title">{isFolderOpen ? 'This folder is empty' : 'No documents yet'}</div>
                 <div class="empty-sub">Upload a document or add a link to get started</div>
+              </div>
+            {/if}
+
+            {#if isFolderOpen}
+              <div class="folder-open-header">
+                <button type="button" class="folder-back-btn" on:click={closeDocumentFolder_} title="Back to folder list">
+                  <ChevronRight size={16} style="transform: rotate(180deg);" />
+                  <span>Back</span>
+                </button>
+                <ChevronRight size={14} />
+                <div class="folder-open-title">
+                  <Folder size={16} />
+                  <span>{currentFolderName}</span>
+                </div>
               </div>
             {/if}
           </div>
@@ -2527,27 +2618,42 @@
 
           <div class="share-form">
             <div class="form-group">
-              <label for="shareEmail">Share with Email</label>
-              <input
-                id="shareEmail"
-                type="email"
-                placeholder="person@example.com"
-                bind:value={shareEmail}
-              />
+              <label>Visibility</label>
+              <div class="visibility-mode-grid" role="tablist" aria-label="Visibility mode">
+                <button type="button" class="visibility-chip" class:active={shareVisibilityMode === 'private'} on:click={() => (shareVisibilityMode = 'private')}>Only me</button>
+                <button type="button" class="visibility-chip" class:active={shareVisibilityMode === 'everyone'} on:click={() => (shareVisibilityMode = 'everyone')}>Everyone</button>
+                <button type="button" class="visibility-chip" class:active={shareVisibilityMode === 'specific'} on:click={() => (shareVisibilityMode = 'specific')}>Specific people</button>
+                <button type="button" class="visibility-chip" class:active={shareVisibilityMode === 'everyone_except'} on:click={() => (shareVisibilityMode = 'everyone_except')}>Everyone except...</button>
+              </div>
             </div>
 
-            <div class="form-group">
-              <label for="shareRole">Access Level</label>
-              <select id="shareRole" bind:value={shareRole}>
-                <option value="Viewer">Viewer (View only)</option>
-                <option value="Commenter">Commenter (View & comment)</option>
-                <option value="Editor">Editor (View & edit)</option>
-              </select>
-            </div>
+            {#if shareVisibilityMode === 'specific' || shareVisibilityMode === 'everyone_except'}
+              <div class="form-group">
+                <label>{shareVisibilityMode === 'specific' ? 'Allowed people' : 'Excluded people'}</label>
+                <div class="share-candidates-list">
+                  {#if shareCandidates.length > 0}
+                    {#each shareCandidates as candidate (candidate.user_id)}
+                      <label class="share-candidate-item">
+                        <input
+                          type="checkbox"
+                          checked={selectedShareUserIds.has(candidate.user_id)}
+                          on:change={() => toggleShareCandidate_(candidate.user_id)}
+                        />
+                        <span>{candidate.full_name} ({candidate.role})</span>
+                      </label>
+                    {/each}
+                  {:else}
+                    <div class="empty-shares">
+                      <p>No users found in your group.</p>
+                    </div>
+                  {/if}
+                </div>
+              </div>
+            {/if}
 
-            <button class="btn btn-primary" on:click={shareDocument} style="width: 100%;">
-              <Plus size={18} />
-              <span>Send Share Invite</span>
+            <button class="btn btn-primary" on:click={applyShareVisibility} style="width: 100%;">
+              <Check size={18} />
+              <span>Apply Visibility</span>
             </button>
           </div>
 
@@ -2810,6 +2916,68 @@
     .folder-picker-list {
       grid-template-columns: minmax(0, 1fr);
     }
+  }
+
+  .share-candidates-list {
+    max-height: 180px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    padding: 0.55rem;
+    border: 1px solid rgba(96, 165, 250, 0.25);
+    border-radius: 8px;
+    background: rgba(15, 23, 42, 0.3);
+  }
+
+  .share-candidate-item {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    font-size: 0.9rem;
+    color: #d6e2f6;
+  }
+
+  .visibility-mode-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+    margin-top: 0.35rem;
+  }
+
+  .visibility-chip {
+    height: 38px;
+    border-radius: 8px;
+    border: 1px solid rgba(96, 165, 250, 0.3);
+    background: rgba(15, 23, 42, 0.42);
+    color: #cfe0ff;
+    font-size: 0.86rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.18s ease;
+  }
+
+  .visibility-chip:hover {
+    border-color: rgba(96, 165, 250, 0.58);
+    background: rgba(30, 64, 175, 0.2);
+  }
+
+  .visibility-chip.active {
+    border-color: rgba(59, 130, 246, 0.9);
+    background: rgba(37, 99, 235, 0.34);
+    color: #eff6ff;
+  }
+
+  :global(html:not(.dark)) .visibility-chip {
+    background: #f2f7ff;
+    color: #1e293b;
+    border-color: #bfd4f3;
+  }
+
+  :global(html:not(.dark)) .visibility-chip.active {
+    background: #dbeafe;
+    border-color: #60a5fa;
+    color: #1e3a8a;
   }
 
   @keyframes spin {

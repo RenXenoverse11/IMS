@@ -219,6 +219,10 @@ function dispatchAction_(payload) {
     return handleGetDocumentsBootstrapData_(payload);
   }
 
+  if (action === 'get_document_share_candidates') {
+    return handleGetDocumentShareCandidates_(payload);
+  }
+
   if (action === 'create_request') {
     return handleCreateRequest_(payload);
   }
@@ -5854,6 +5858,38 @@ function handleGetDocumentsBootstrapData_(payload) {
       folders: folders,
       documents: docResponse.ok ? docResponse.documents : []
     };
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) };
+  }
+}
+
+function handleGetDocumentShareCandidates_(payload) {
+  try {
+    var userId = String(payload.user_id || '').trim();
+    if (!userId) {
+      return { ok: false, error: 'Missing user_id.' };
+    }
+
+    var groupMemberIds = getGroupMemberIds_(userId);
+    var usersSheet = getUsersSheet_();
+    var rows = readSheetObjects_(usersSheet);
+    var candidates = [];
+
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      var memberId = String(row.user_id || '').trim();
+      if (!memberId || groupMemberIds.indexOf(memberId) === -1) continue;
+      var status = String(row.status || '').trim().toLowerCase();
+      if (status === 'inactive') continue;
+      candidates.push({
+        user_id: memberId,
+        full_name: String(row.full_name || '').trim() || 'Unknown',
+        email: String(row.email || '').trim(),
+        role: String(row.role || '').trim() || 'intern'
+      });
+    }
+
+    return { ok: true, users: candidates };
   } catch (err) {
     return { ok: false, error: err.message || String(err) };
   }
