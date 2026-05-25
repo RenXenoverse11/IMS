@@ -5,7 +5,7 @@
   import {
     FolderOpen, Plus, Pencil, Trash2, ExternalLink, Loader2, Eye,
     CalendarDays, Tag, CheckCircle2, Clock3, AlertCircle, Link2,
-    MessageSquare, Flag, Send,
+    MessageSquare, Flag, Send, Users, UserCheck,
     Grid, List, Archive, Download, RotateCcw
   } from 'lucide-svelte';
 
@@ -141,6 +141,16 @@
     const mm = String(d.getMonth() + 1).padStart(2, '0');
     const yyyy = d.getFullYear();
     return `${dd}-${mm}-${yyyy}`;
+  }
+
+  function formatShortMonthDay(val) {
+    const s = String(val || '').trim();
+    if (!s) return '';
+    let d;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) d = new Date(s + 'T00:00:00');
+    else d = new Date(s);
+    if (isNaN(d)) return s;
+    return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(d);
   }
 
   function humanizeTime(val) {
@@ -2387,67 +2397,140 @@
                         </div>
                       {:else}
                         <!-- ── Read View ──────────────────────────────── -->
+                        {@const detailProgress = p.progress_percent != null ? p.progress_percent : statusToProgress(p.status)}
+                        {@const detailMembers = (p.members || []).map((id) => MEMBER_OPTIONS.find((option) => option.value === id) || { value: id, label: id, initials: getInitials(id), photoUrl: '' })}
+                        {@const detailSupervisors = (p.supervisors || []).map((id) => SUPERVISOR_OPTIONS.find((option) => option.value === id) || { value: id, label: id, initials: getInitials(id), photoUrl: '' })}
                         <div class="proj-detail-read">
-                          <!-- edit button moved to footer for consistency -->
-                          <div class="pdr-group">
-                            <div class="pdr-label">Project Title</div>
-                            <div class="pdr-box">{p.title || '—'}</div>
-                          </div>
-                          <div class="pdr-group">
-                            <div class="pdr-label">Description</div>
-                            <div class="pdr-box pdr-box-desc">
-                              <div class="detail-description" class:collapsed={expandedDescriptionId !== p.id}>{p.description || '—'}</div>
-                              {#if p.description && p.description.length > 160}
-                                <button class="btn-link" style="margin-top:4px" on:click={() => toggleDescription(p.id)}>{expandedDescriptionId === p.id ? 'Show less' : 'Show more'}</button>
-                              {/if}
-                            </div>
-                          </div>
-                          
-                          <div class="pdr-row-2">
-                            <div class="pdr-group">
-                              <div class="pdr-label">Members</div>
-                              <div class="pdr-box">{(p.members && p.members.length) ? p.members.map(id => MEMBER_OPTIONS.find(o => o.value === id)?.label || id).join(', ') : 'No members'}</div>
-                            </div>
-                            <div class="pdr-group">
-                              <div class="pdr-label">Supervisor</div>
-                              <div class="pdr-box">{(p.supervisors && p.supervisors.length) ? p.supervisors.map(id => SUPERVISOR_OPTIONS.find(o => o.value === id)?.label || id).join(', ') : (p.supervisor || '—')}</div>
-                            </div>
-                          </div>
+                          <div class="pdr-layout">
+                            <div class="pdr-main">
+                              <div class="pdr-group">
+                                <div class="pdr-label">Project Title</div>
+                                <div class="pdr-box pdr-box-hero">{p.title || '—'}</div>
+                              </div>
 
-                          <div class="pdr-row-2">
-                            <div class="pdr-group">
-                              <div class="pdr-label">Priority Level</div>
-                              <div class="pdr-box">{getPriorityLabel(p.priority_level) || '—'}</div>
-                            </div>
-                            <div class="pdr-group">
-                              <div class="pdr-label">Status</div>
-                              <div class="pdr-box">{(STATUS_META[p.status] || {}).label || p.status || '—'}</div>
-                            </div>
-                          </div>
+                              <div class="pdr-group">
+                                <div class="pdr-label">Description</div>
+                                <div class="pdr-box pdr-box-desc">
+                                  <div class="detail-description" class:collapsed={expandedDescriptionId !== p.id}>{p.description || '—'}</div>
+                                  {#if p.description && p.description.length > 160}
+                                    <button class="btn-link pdr-inline-link" on:click={() => toggleDescription(p.id)}>{expandedDescriptionId === p.id ? 'Show less' : 'Show more'}</button>
+                                  {/if}
+                                </div>
+                              </div>
 
-                          
-                          <div class="pdr-row-2">
-                            <div class="pdr-group">
-                              <div class="pdr-label">Timeline (Start)</div>
-                              <div class="pdr-box">{p.timeline_start ? formatDate(p.timeline_start) : '—'}</div>
-                            </div>
-                            <div class="pdr-group">
-                              <div class="pdr-label">Timeline (End)</div>
-                              <div class="pdr-box">{p.timeline_end ? formatDate(p.timeline_end) : '—'}</div>
-                            </div>
-                          </div>
+                              <div class="pdr-row-2">
+                                <div class="pdr-group">
+                                  <div class="pdr-label">Priority Level</div>
+                                  <div class="pdr-box pdr-box-inline">
+                                    <span class="pdr-priority-dot priority-{pl.toLowerCase()}"></span>
+                                    <span>{getPriorityLabel(p.priority_level) || '—'}</span>
+                                  </div>
+                                </div>
+                                <div class="pdr-group">
+                                  <div class="pdr-label">Status</div>
+                                  <div class="pdr-box pdr-box-inline pdr-box-muted">{(STATUS_META[p.status] || {}).label || p.status || '—'}</div>
+                                </div>
+                              </div>
 
-                          <!-- progress bar (derived from status or explicit percent) -->
-                          <div class="pdr-group">
-                            <div class="pdr-label">Progress</div>
-                            <div style="display:flex; align-items:center; gap:10px;">
-                              <div style="flex:1"><div class="progress-bar-outer"><div class="progress-bar-inner" style="width:{p.progress_percent != null ? p.progress_percent : statusToProgress(p.status)}%"></div></div></div>
-                              <div style="width:56px;text-align:right;font-weight:700">{p.progress_percent != null ? p.progress_percent : statusToProgress(p.status)}%</div>
-                            </div>
-                          </div>
+                              <div class="pdr-row-2">
+                                <div class="pdr-group">
+                                  <div class="pdr-label">Timeline Start</div>
+                                  <div class="pdr-box pdr-box-inline">
+                                    <CalendarDays size={14} class="pdr-inline-icon pdr-inline-icon-primary" />
+                                    <span>{p.timeline_start ? formatDate(p.timeline_start) : '—'}</span>
+                                  </div>
+                                </div>
+                                <div class="pdr-group">
+                                  <div class="pdr-label">Timeline End</div>
+                                  <div class="pdr-box pdr-box-inline">
+                                    <CalendarDays size={14} class="pdr-inline-icon" />
+                                    <span>{p.timeline_end ? formatDate(p.timeline_end) : '—'}</span>
+                                  </div>
+                                </div>
+                              </div>
 
-                          <div class="pdr-footer">
-                            <button class="sub-action-btn" on:click={() => startInlineEdit(p)}>{isStatusOnlyEditableProject(p) ? 'Update Status' : 'Edit'}</button>
+                              <div class="pdr-group">
+                                <div class="pdr-label">Progress</div>
+                                <div class="pdr-progress-stack">
+                                  <div class="progress-bar-outer"><div class="progress-bar-inner" style="width:{detailProgress}%"></div></div>
+                                  <div class="pdr-progress-meta">
+                                    <span>{detailProgress} / 100%</span>
+                                    <span>{detailProgress}% complete</span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div class="pdr-footer">
+                                <button class="pdr-edit-btn" on:click={() => startInlineEdit(p)}>
+                                  <Pencil size={14} />
+                                  <span>{isStatusOnlyEditableProject(p) ? 'Update Status' : 'Edit'}</span>
+                                </button>
+                              </div>
+                            </div>
+
+                            <aside class="pdr-sidebar">
+                              <div class="pdr-side-card">
+                                <div class="pdr-side-title">
+                                  <Users size={13} />
+                                  <span>Members</span>
+                                </div>
+                                {#if detailMembers.length}
+                                  {#each detailMembers as member}
+                                    <div class="pdr-person-row">
+                                      <span class="pdr-avatar" aria-hidden="true">
+                                        {#if member.photoUrl}
+                                          <img src={member.photoUrl} alt="" />
+                                        {:else}
+                                          <span>{member.initials}</span>
+                                        {/if}
+                                      </span>
+                                      <span class="pdr-person-name">{member.label}</span>
+                                    </div>
+                                  {/each}
+                                {:else}
+                                  <div class="pdr-empty-copy">No members assigned</div>
+                                {/if}
+                              </div>
+
+                              <div class="pdr-side-card">
+                                <div class="pdr-side-title">
+                                  <UserCheck size={13} />
+                                  <span>Supervisors</span>
+                                </div>
+                                {#if detailSupervisors.length}
+                                  {#each detailSupervisors as supervisor}
+                                    <div class="pdr-person-row">
+                                      <span class="pdr-avatar pdr-avatar-supervisor" aria-hidden="true">
+                                        {#if supervisor.photoUrl}
+                                          <img src={supervisor.photoUrl} alt="" />
+                                        {:else}
+                                          <span>{supervisor.initials}</span>
+                                        {/if}
+                                      </span>
+                                      <span class="pdr-person-name">{supervisor.label}</span>
+                                    </div>
+                                  {/each}
+                                {:else}
+                                  <div class="pdr-empty-copy">No supervisors assigned</div>
+                                {/if}
+                              </div>
+
+                              <div class="pdr-side-card">
+                                <div class="pdr-side-title">
+                                  <Clock3 size={13} />
+                                  <span>Timeline</span>
+                                </div>
+                                <div class="pdr-mini-timeline">
+                                  <div class="pdr-mini-dot"></div>
+                                  <div class="pdr-mini-line"></div>
+                                  <div class="pdr-mini-dot pdr-mini-dot-end"></div>
+                                </div>
+                                <div class="pdr-mini-labels">
+                                  <span>{p.timeline_start ? formatShortMonthDay(p.timeline_start) : 'Start'}</span>
+                                  <span>{p.timeline_end ? formatShortMonthDay(p.timeline_end) : 'End'}</span>
+                                </div>
+                              </div>
+                            </aside>
                           </div>
                         </div>
                       {/if}
@@ -3833,21 +3916,114 @@
   .ief-actions { display: flex; justify-content: flex-end; gap: 0.5rem; padding-top: 0.25rem; }
 
   /* ── Details Read View ──────────────────────────────── */
-  .proj-detail-read { padding: 0.75rem 1.25rem; display: flex; flex-direction: column; gap: 0.75rem; }
+  .proj-detail-read { padding: 1rem 1.25rem 1.15rem; display: flex; flex-direction: column; gap: 0.75rem; }
+  .pdr-layout { display: grid; grid-template-columns: minmax(0, 1fr) 13.75rem; gap: 1rem; align-items: start; }
+  .pdr-main { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+  .pdr-sidebar { display: flex; flex-direction: column; gap: 0.85rem; }
   .pdr-header { display: flex; justify-content: flex-end; margin-bottom: 0; }
-  .pdr-group { display: flex; flex-direction: column; gap: 0.3rem; }
-  .pdr-label { font-size: 0.8rem; font-weight: 600; color: var(--color-sidebar-text); }
-  .pdr-box {
-    font-size: 0.88rem; font-family: inherit; color: var(--color-text);
-    background: var(--color-surface-muted); border: 1px solid var(--color-border);
-    border-radius: 7px; padding: 0.42rem 0.7rem; width: 100%; box-sizing: border-box;
-    min-height: 2.1rem;
+  .pdr-group { display: flex; flex-direction: column; gap: 0.45rem; }
+  .pdr-label {
+    font-size: 0.77rem;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: #64748b;
   }
-  .pdr-box-desc { white-space: pre-wrap; line-height: 1.45; min-height: 4rem; }
+  :global(body.dark) .pdr-label { color: #475569; }
+  .pdr-box {
+    font-size: 0.9rem; font-family: inherit; color: var(--color-text);
+    background: #ffffff; border: 1px solid rgba(148, 163, 184, 0.16);
+    border-radius: 0.8rem; padding: 0.72rem 0.9rem; width: 100%; box-sizing: border-box;
+    min-height: 2.1rem;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.75);
+  }
+  :global(body.dark) .pdr-box {
+    background: #161926;
+    border-color: #2a2d3a;
+    color: #cbd5e1;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+  }
+  .pdr-box-hero { font-weight: 600; }
+  .pdr-box-desc { white-space: pre-wrap; line-height: 1.6; min-height: 4rem; }
+  .pdr-box-inline { display: inline-flex; align-items: center; gap: 0.5rem; color: #334155; }
+  .pdr-box-muted { color: #64748b; }
+  :global(body.dark) .pdr-box-inline { color: #cbd5e1; }
+  :global(body.dark) .pdr-box-muted { color: #94a3b8; }
   .pdr-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+  .pdr-inline-icon { color: #64748b; flex: 0 0 auto; }
+  .pdr-inline-icon-primary { color: #3b82f6; }
+  :global(body.dark) .pdr-inline-icon { color: #475569; }
+  :global(body.dark) .pdr-inline-icon-primary { color: #3b82f6; }
+  .pdr-priority-dot { width: 8px; height: 8px; border-radius: 999px; flex: 0 0 auto; background: #94a3b8; }
+  .pdr-priority-dot.priority-low { background: #38bdf8; }
+  .pdr-priority-dot.priority-medium { background: #10b981; }
+  .pdr-priority-dot.priority-high { background: #f87171; }
   .progress-bar-outer { height:10px; background:var(--color-border); border-radius:999px; overflow:hidden; }
   .progress-bar-inner { height:100%; background:linear-gradient(90deg,#10b981,#3b82f6); border-radius:999px; transition:width 350ms ease; }
+  .pdr-progress-stack { display: flex; flex-direction: column; gap: 0.45rem; }
+  .pdr-progress-meta { font-size: 0.78rem; color: #64748b; display: flex; justify-content: space-between; }
+  :global(body.dark) .pdr-progress-meta { color: #475569; }
   .pdr-footer { display:flex; justify-content:flex-end; margin-top:0.5rem; }
+  .pdr-edit-btn {
+    display: inline-flex; align-items: center; gap: 0.45rem;
+    padding: 0.72rem 1.15rem; border-radius: 0.8rem;
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    background: #ffffff; color: #0f172a;
+    font-size: 0.9rem; font-weight: 600; cursor: pointer;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.8);
+    transition: border-color 0.15s, transform 0.15s, background 0.15s;
+  }
+  .pdr-edit-btn:hover { transform: translateY(-1px); border-color: rgba(59, 130, 246, 0.35); background: #eff6ff; }
+  :global(body.dark) .pdr-edit-btn {
+    background: #161926;
+    border-color: #3b82f6;
+    color: #dbeafe;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+  }
+  :global(body.dark) .pdr-edit-btn:hover { background: #1e2540; }
+  .pdr-side-card {
+    background: #ffffff;
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    border-radius: 0.9rem;
+    padding: 0.9rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.75);
+  }
+  :global(body.dark) .pdr-side-card {
+    background: #161926;
+    border-color: #2a2d3a;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+  }
+  .pdr-side-title {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    font-size: 0.77rem; font-weight: 700; letter-spacing: 0.07em;
+    text-transform: uppercase; color: #64748b;
+  }
+  :global(body.dark) .pdr-side-title { color: #475569; }
+  .pdr-person-row { display: flex; align-items: center; gap: 0.55rem; min-width: 0; }
+  .pdr-avatar {
+    width: 1.7rem; height: 1.7rem; border-radius: 999px; flex: 0 0 auto;
+    display: inline-flex; align-items: center; justify-content: center; overflow: hidden;
+    background: #eff6ff; border: 1px solid #93c5fd; color: #2563eb; font-size: 0.63rem; font-weight: 700;
+  }
+  .pdr-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .pdr-avatar-supervisor { background: #f0fdf4; border-color: #86efac; color: #16a34a; }
+  :global(body.dark) .pdr-avatar { background: #1e2540; border-color: #3b82f6; color: #60a5fa; }
+  :global(body.dark) .pdr-avatar-supervisor { background: #1e2a1e; border-color: #22c55e; color: #22c55e; }
+  .pdr-person-name { min-width: 0; font-size: 0.84rem; color: #64748b; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  :global(body.dark) .pdr-person-name { color: #94a3b8; }
+  .pdr-empty-copy { font-size: 0.82rem; color: var(--color-sidebar-text); }
+  .pdr-mini-timeline { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.1rem; }
+  .pdr-mini-dot { width: 0.5rem; height: 0.5rem; border-radius: 999px; background: #3b82f6; flex: 0 0 auto; }
+  .pdr-mini-dot-end { background: #cbd5e1; }
+  .pdr-mini-line { flex: 1; height: 1px; background: #e2e8f0; }
+  :global(body.dark) .pdr-mini-dot-end { background: #475569; }
+  :global(body.dark) .pdr-mini-line { background: #2a2d3a; }
+  .pdr-mini-labels { display: flex; justify-content: space-between; font-size: 0.76rem; color: #94a3b8; }
+  :global(body.dark) .pdr-mini-labels { color: #475569; }
+  .pdr-inline-link { margin-top: 0.45rem; }
 
   .proj-priority-pill {
     display: inline-flex; align-items: center; justify-content: center;
@@ -4154,6 +4330,9 @@
     .proj-actions-cell { gap: 0.4rem; }
     .proj-col-timeline { max-width: 100%; white-space: normal; }
     .proj-detail-body { padding: 0.85rem 1rem; }
+    .proj-detail-read { padding: 0.9rem 1rem 1rem; }
+    .pdr-layout { grid-template-columns: 1fr; gap: 0.9rem; }
+    .pdr-sidebar { gap: 0.75rem; }
     .pdr-row-2, .ief-row-2, .detail-row-two, .row-2 { grid-template-columns: 1fr; }
 
     .modal-box.large { width: min(94vw, 720px); }
