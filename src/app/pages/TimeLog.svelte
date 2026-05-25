@@ -213,6 +213,10 @@
     return normalizeDateOnly(new Date());
   }
 
+  function syncDateToToday() {
+    date = getTodayDateOnly();
+  }
+
   function countApprovedAbsenceAdjustments(requests, todayDateOnly) {
     const rows = Array.isArray(requests) ? requests : [];
     const seen = new Set();
@@ -552,6 +556,7 @@
   }
 
   async function handleLogin() {
+    syncDateToToday();
     if (!date || !timeIn) {
       logSyncError = 'Please select a date and enter your login time.';
       return;
@@ -740,6 +745,7 @@
   }
 
   async function refreshTimeLogForCurrentUser() {
+    syncDateToToday();
     const user = authApi.getCurrentUser();
     if (user?.user_id) restoreLocalActiveSession(user.user_id);
     syncRequiredHoursFromAccount();
@@ -1008,11 +1014,10 @@
       await loadEntriesFromApi();
       await loadApprovedAbsenceAdjustments();
       // Set default date after ensuring user is loaded
+      syncDateToToday();
       const today = new Date();
       const year = today.getFullYear();
       const month = String(today.getMonth() + 1).padStart(2, '0');
-      const day = String(today.getDate()).padStart(2, '0');
-      date = `${year}-${month}-${day}`;
       if (!exportMonth) {
         exportMonth = `${year}-${month}`;
       }
@@ -1368,7 +1373,7 @@
         </div>
         <div class="tl-field">
           <label for="tl-date">Date</label>
-          <input id="tl-date" type="date" bind:value={date} />
+          <input id="tl-date" type="date" bind:value={date} readonly disabled aria-readonly="true" />
         </div>
         <div class="tl-field">
           <label for="tl-time-in">Login Time <span class="tl-req">*</span></label>
@@ -1539,12 +1544,8 @@
             <span class="tl-attendance-meta-value">{internFullName}</span>
           </div>
           <div class="tl-attendance-meta-row">
-            <span class="tl-attendance-meta-label">Company Name:</span>
-            <span class="tl-attendance-meta-value">{companyName || '\u00A0'}</span>
-          </div>
-          <div class="tl-attendance-meta-row">
-            <span class="tl-attendance-meta-label">Name of Representative:</span>
-            <span class="tl-attendance-meta-value">{'\u00A0'}</span>
+            <span class="tl-attendance-meta-label">Company/Department:</span>
+            <span class="tl-attendance-meta-value">Globe ISOC</span>
           </div>
         </div>
 

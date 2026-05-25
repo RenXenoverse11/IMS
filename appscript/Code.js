@@ -1138,6 +1138,13 @@ function handleCreateTimeLog_(payload) {
     return { ok: false, error: 'entry_type must be either "login" or "logout".' };
   }
 
+  if (entryType === 'login') {
+    var todayLogDate = String(formatDateYMD_(new Date()) || '').trim();
+    if (todayLogDate && logDate !== todayLogDate) {
+      return { ok: false, error: 'Login is only allowed for today\'s date (' + todayLogDate + ').' };
+    }
+  }
+
   var userRecord = findUserRecordByUserId_(userId);
   if (!userRecord) {
     return { ok: false, error: 'User not found.' };
@@ -1357,6 +1364,11 @@ function handleStartSession_(payload) {
 
     if (!userId || !logDate || !timeIn) {
       return { ok: false, error: 'user_id, log_date, and time_in are required.' };
+    }
+
+    var todayLogDate = String(formatDateYMD_(new Date()) || '').trim();
+    if (todayLogDate && logDate !== todayLogDate) {
+      return { ok: false, error: 'Login is only allowed for today\'s date (' + todayLogDate + ').' };
     }
 
     var userRecord = findUserRecordByUserId_(userId);
