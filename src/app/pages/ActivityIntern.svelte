@@ -5503,12 +5503,19 @@ let restoringTaskMap = {};
   }
 
   .overview-task-link {
-    padding: 8px 10px;
+    padding: 10px 12px;
     border-radius: var(--ims-ref-radius-sm);
     color: var(--ims-ref-text2);
     font-size: 13px;
-    background: transparent;
-    border: 1px solid transparent;
+    background: var(--ims-ref-surface);
+    border: 1px solid var(--ims-ref-border);
+    margin-bottom: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 100%;
+    text-align: left;
+    transition: all 0.2s ease;
   }
 
   .overview-task-link span {
@@ -5527,7 +5534,8 @@ let restoringTaskMap = {};
   .overview-task-link:hover,
   .overview-task-link.active {
     background: var(--ims-ref-surface2);
-    border-color: var(--ims-ref-border);
+    border-color: var(--ims-ref-accent);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   }
 
   .recent-activity-list li {
