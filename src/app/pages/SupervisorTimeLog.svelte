@@ -1,6 +1,6 @@
 <script>
   import { onDestroy, onMount, tick } from 'svelte';
-  import { Clock3, RefreshCw, Trash2, UserCircle2, Users, Loader2 } from 'lucide-svelte';
+  import { Clock3, RefreshCw, Trash2, UserCircle2, Users, Loader2, CalendarRange, Download, ChevronDown } from 'lucide-svelte';
   import {
     callApiAction,
     deleteSupervisorTimeLog,
@@ -32,6 +32,8 @@
   let errorMessage = '';
   let successMessage = '';
   let html2pdfLoaderPromise = null;
+  let showDeleteConfirm = false;
+  let pendingDeleteLogId = '';
 
   const HTML2PDF_CDN_URL = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
 
@@ -476,17 +478,24 @@
     }
   }
 
-  async function handleDelete(logId) {
+  function promptDelete(logId) {
+    pendingDeleteLogId = String(logId || '').trim();
+    if (!pendingDeleteLogId) return;
+    showDeleteConfirm = true;
+  }
+
+  function closeDeleteConfirm() {
+    if (deletingId) return;
+    showDeleteConfirm = false;
+    pendingDeleteLogId = '';
+  }
+
+  async function handleDelete(logId = pendingDeleteLogId) {
     const supervisorId = String(currentUser?.user_id || '').trim();
     const studentId = String(selectedStudentId || '').trim();
     const timelogId = String(logId || '').trim();
 
     if (!supervisorId || !studentId || !timelogId) {
-      return;
-    }
-
-    const confirmed = window.confirm('Delete this student time log entry?');
-    if (!confirmed) {
       return;
     }
 
@@ -498,6 +507,7 @@
       await deleteSupervisorTimeLog(supervisorId, studentId, timelogId);
       logs = logs.filter((row) => String(row.timelog_id) !== timelogId);
       successMessage = 'Intern time log deleted successfully.';
+      closeDeleteConfirm();
     } catch (err) {
       errorMessage = err?.message || 'Unable to delete selected time log.';
     } finally {
@@ -698,7 +708,8 @@
 
       <div class="control-head">
         <div class="control-actions">
-          <label class="selector-wrap">
+          <label class="selector-wrap selector-wrap-intern">
+            <span class="selector-icon"><UserCircle2 size={15} /></span>
             <select bind:value={selectedStudentId} class="stl-input" on:change={loadLogs}>
               {#if loadingStudents}
                 <option value="">Loading intern accounts...</option>
@@ -710,9 +721,10 @@
                 {/each}
               {/if}
             </select>
+            <span class="selector-caret"><ChevronDown size={15} /></span>
           </label>
 
-          <button type="button" class="btn-secondary" on:click={loadAssignedStudents} disabled={loadingStudents || loadingLogs}>
+          <button type="button" class="btn-secondary btn-refresh" on:click={loadAssignedStudents} disabled={loadingStudents || loadingLogs}>
             <RefreshCw size={15} />
             Refresh
           </button>
@@ -728,7 +740,7 @@
           <div class="stl-table-tools">
             <span class="stl-entry-count">{attendanceEntriesForExport.length} completed {attendanceEntriesForExport.length === 1 ? 'entry' : 'entries'}</span>
             <label class="stl-export-month">
-              <span>Month</span>
+              <span><CalendarRange size={14} /> Month</span>
               <input type="month" bind:value={exportMonth} />
             </label>
             <button class="stl-export-btn" type="button" on:click={exportAttendanceSheetPdf} disabled={isExportingAttendance || attendanceEntriesForExport.length === 0}>
@@ -736,6 +748,7 @@
                 <span class="spinning-icon"><Loader2 size={14} /></span>
                 Exporting...
               {:else}
+                <Download size={14} />
                 Export Attendance Sheet
               {/if}
             </button>
@@ -816,7 +829,7 @@
                       <button
                         type="button"
                         class="btn-delete"
-                        on:click={() => handleDelete(row.timelog_id)}
+                        on:click={() => promptDelete(row.timelog_id)}
                         disabled={deletingId === row.timelog_id}
                         aria-label="Delete time log entry"
                       >
@@ -895,6 +908,30 @@
       </section>
     {/if}
   </section>
+
+  {#if showDeleteConfirm}
+    <div class="modal-overlay" on:click={closeDeleteConfirm}>
+      <div class="delete-modal" on:click|stopPropagation>
+        <div class="delete-modal-head">
+          <div class="delete-modal-icon"><Trash2 size={18} /></div>
+          <h3>Delete time log</h3>
+          <p>This will permanently remove the selected student entry.</p>
+        </div>
+        <div class="delete-modal-actions">
+          <button type="button" class="btn-secondary" on:click={closeDeleteConfirm} disabled={Boolean(deletingId)}>Cancel</button>
+          <button type="button" class="btn-delete btn-delete-modal" on:click={() => handleDelete()} disabled={Boolean(deletingId)}>
+            {#if deletingId}
+              <span class="spinning-icon"><Loader2 size={13} /></span>
+              <span>Deleting...</span>
+            {:else}
+              <Trash2 size={13} />
+              <span>Delete Entry</span>
+            {/if}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
 {/if}
 
 <style>
@@ -984,14 +1021,14 @@
     align-items: center;
     justify-content: flex-end;
     gap: 14px;
-    margin: 0 0 2px;
+    margin: 2px 0 4px;
   }
 
   .control-actions {
     display: flex;
     align-items: stretch;
     gap: 10px;
-    width: min(100%, 465px);
+    width: min(100%, 560px);
   }
 
   .selector-wrap {
@@ -999,26 +1036,52 @@
     flex: 1;
     display: flex;
     align-items: center;
-    min-height: 42px;
+    min-height: 46px;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .selector-wrap-intern {
+    background: linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(241, 245, 249, 0.96));
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+  }
+
+  .selector-icon,
+  .selector-caret {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #64748b;
+    pointer-events: none;
+  }
+
+  .selector-icon {
+    left: 14px;
+  }
+
+  .selector-caret {
+    right: 14px;
   }
 
   .stl-input {
     width: 100%;
-    height: 42px;
+    height: 46px;
     box-sizing: border-box;
-    border: 1px solid #cbd5e1;
-    background: #f8fafc;
+    border: 0;
+    background: transparent;
     color: #0f172a;
-    border-radius: 10px;
-    padding: 10px 12px;
-    font-size: 13px;
+    border-radius: 12px;
+    padding: 10px 42px 10px 42px;
+    font-size: 13.5px;
+    font-weight: 600;
     outline: none;
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    appearance: none;
   }
 
   .stl-input:focus {
-    border-color: #60a5fa;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.16);
+    box-shadow: inset 0 0 0 1px #60a5fa, 0 0 0 3px rgba(59, 130, 246, 0.16);
   }
 
   .btn-secondary {
@@ -1026,13 +1089,13 @@
     align-items: center;
     justify-content: center;
     gap: 6px;
-    height: 42px;
+    height: 46px;
     box-sizing: border-box;
     border: 1px solid #cbd5e1;
     background: #f8fafc;
     color: #0f172a;
-    border-radius: 10px;
-    padding: 0 14px;
+    border-radius: 12px;
+    padding: 0 16px;
     font-size: 13px;
     font-weight: 700;
     cursor: pointer;
@@ -1043,6 +1106,11 @@
   .btn-secondary:hover:not(:disabled) {
     border-color: #93c5fd;
     background: #f1f5f9;
+  }
+
+  .btn-refresh {
+    min-width: 118px;
+    box-shadow: 0 10px 20px rgba(15, 23, 42, 0.05);
   }
 
   .btn-secondary:disabled {
@@ -1211,9 +1279,16 @@
   }
 
   .stl-entry-count {
+    display: inline-flex;
+    align-items: center;
+    min-height: 34px;
+    padding: 0 12px;
+    border-radius: 999px;
+    background: rgba(37, 99, 235, 0.08);
+    border: 1px solid rgba(37, 99, 235, 0.12);
     font-size: 12px;
-    font-weight: 600;
-    color: #64748b;
+    font-weight: 700;
+    color: #475569;
   }
 
   .stl-export-month {
@@ -1223,6 +1298,12 @@
     font-size: 11.5px;
     color: #64748b;
     font-weight: 600;
+  }
+
+  .stl-export-month span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
   }
 
   .stl-export-month input {
@@ -1259,6 +1340,7 @@
     font-weight: 700;
     cursor: pointer;
     transition: all 0.15s ease;
+    box-shadow: 0 10px 20px rgba(15, 23, 42, 0.05);
   }
 
   .stl-export-btn:hover:not(:disabled) {
@@ -1272,7 +1354,7 @@
   }
 
   .table-wrap {
-    margin-top: 12px;
+    margin-top: 14px;
     max-height: 520px;
     overflow: auto;
     border-radius: 16px;
@@ -1427,9 +1509,9 @@
     justify-content: center;
     gap: 6px;
     min-width: 98px;
-    border: 1px solid rgba(239, 68, 68, 0.24);
-    background: rgba(239, 68, 68, 0.08);
-    color: #b91c1c;
+    border: 1px solid rgba(239, 68, 68, 0.34);
+    background: linear-gradient(180deg, rgba(127, 29, 29, 0.12), rgba(239, 68, 68, 0.1));
+    color: #c62828;
     border-radius: 8px;
     padding: 8px 10px;
     font-size: 12px;
@@ -1439,9 +1521,76 @@
     margin: 0 auto;
   }
 
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(2, 6, 23, 0.62);
+    backdrop-filter: blur(6px);
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    z-index: 80;
+  }
+
+  .delete-modal {
+    width: min(100%, 420px);
+    border-radius: 18px;
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    background: linear-gradient(180deg, #1a2230 0%, #141b27 100%);
+    box-shadow: 0 28px 60px rgba(2, 6, 23, 0.5);
+    overflow: hidden;
+  }
+
+  .delete-modal-head {
+    display: grid;
+    justify-items: center;
+    text-align: center;
+    gap: 12px;
+    padding: 24px 24px 16px;
+  }
+
+  .delete-modal-head h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 800;
+    color: #f8fafc;
+  }
+
+  .delete-modal-head p {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #94a3b8;
+    max-width: 280px;
+  }
+
+  .delete-modal-icon {
+    width: 52px;
+    height: 52px;
+    border-radius: 14px;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    color: #fca5a5;
+    background: rgba(127, 29, 29, 0.4);
+    border: 1px solid rgba(248, 113, 113, 0.26);
+  }
+
+  .delete-modal-actions {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    padding: 0 24px 24px;
+  }
+
+  .btn-delete-modal {
+    min-width: 124px;
+    margin: 0;
+  }
+
   .btn-delete:hover:not(:disabled) {
-    background: rgba(239, 68, 68, 0.2);
-    border-color: rgba(239, 68, 68, 0.4);
+    background: linear-gradient(180deg, rgba(185, 28, 28, 0.24), rgba(239, 68, 68, 0.18));
+    border-color: rgba(248, 113, 113, 0.5);
     color: #991b1b;
   }
 
@@ -1797,9 +1946,26 @@
     color: #e2e8f0;
   }
 
+  :global(.dark) .selector-wrap-intern {
+    background: linear-gradient(180deg, rgba(24, 34, 52, 0.98), rgba(20, 28, 42, 0.96));
+    border-color: rgba(148, 163, 184, 0.24);
+    box-shadow: 0 12px 28px rgba(2, 6, 23, 0.22);
+  }
+
+  :global(.dark) .selector-icon,
+  :global(.dark) .selector-caret {
+    color: #8da2c0;
+  }
+
   :global(.dark) .stl-entry-count,
   :global(.dark) .stl-export-month {
     color: #94a3b8;
+  }
+
+  :global(.dark) .stl-entry-count {
+    background: rgba(37, 99, 235, 0.12);
+    border-color: rgba(96, 165, 250, 0.16);
+    color: #dbeafe;
   }
 
   :global(.dark) .stl-export-month input,
@@ -1860,6 +2026,23 @@
     color: #dbeafe;
   }
 
+  :global(.dark) .btn-delete,
+  :global(html.dark) .btn-delete,
+  :global(body.dark) .btn-delete {
+    border-color: rgba(248, 113, 113, 0.42);
+    background: linear-gradient(180deg, rgba(127, 29, 29, 0.34), rgba(153, 27, 27, 0.22));
+    color: #fca5a5;
+    box-shadow: inset 0 1px 0 rgba(254, 202, 202, 0.04);
+  }
+
+  :global(.dark) .btn-delete:hover:not(:disabled),
+  :global(html.dark) .btn-delete:hover:not(:disabled),
+  :global(body.dark) .btn-delete:hover:not(:disabled) {
+    border-color: rgba(252, 165, 165, 0.56);
+    background: linear-gradient(180deg, rgba(185, 28, 28, 0.5), rgba(220, 38, 38, 0.3));
+    color: #fee2e2;
+  }
+
   :global(.dark) .log-date-main,
   :global(.dark) .time-main {
     color: #f8fafc;
@@ -1879,6 +2062,13 @@
     background: rgba(15, 23, 42, 0.6);
     border-color: rgba(148, 163, 184, 0.25);
     color: #94a3b8;
+  }
+
+  :global(.dark) .delete-modal,
+  :global(html.dark) .delete-modal,
+  :global(body.dark) .delete-modal {
+    background: linear-gradient(180deg, #1a2230 0%, #141b27 100%);
+    border-color: rgba(148, 163, 184, 0.24);
   }
 
   @media (max-width: 1200px) {
