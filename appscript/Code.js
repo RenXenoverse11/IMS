@@ -15,7 +15,6 @@ var PROFILE_PHOTO_MAX_BYTES_ = 5 * 1024 * 1024;
 var PROFILE_PHOTO_MAX_MB_ = Math.floor(PROFILE_PHOTO_MAX_BYTES_ / (1024 * 1024));
 var PROFILE_PHOTOS_FOLDER_NAME_ = 'IMS Profile Photos';
 var TIME_LOGS_SHEET_ = 'time_logs';
-var TIME_LOGS_HEADERS_ = ['timelog_id', 'user_id', 'log_date', 'time_in', 'time_out', 'hours_rendered', 'entry_type', 'status', 'notes', 'created_at'];
 var ACTIVE_SESSIONS_SHEET_ = 'active_sessions';
 var ACTIVE_SESSIONS_HEADERS_ = ['session_id', 'user_id', 'log_date', 'time_in', 'time_out', 'hours_rendered', 'notes', 'created_at'];
 var SUPERVISOR_ASSIGNMENTS_SHEET_ = 'supervisor_assignments';
@@ -4143,10 +4142,7 @@ function getOrCreateSheetWithHeaders_(sheetName, headers) {
 }
 
 function getTimeLogsSheet_() {
-  if (isTimeLogsBackendDisabled_()) {
-    throw new Error('Time log backend is disabled.');
-  }
-  return getOrCreateSheetWithHeaders_(TIME_LOGS_SHEET_, TIME_LOGS_HEADERS_);
+  throw new Error('Legacy time_logs sheet is deprecated. Use active_sessions instead.');
 }
 
 function getActiveSessionsSheet_() {
@@ -4337,7 +4333,6 @@ function updateObjectRow_(sheet, rowIndex, obj) {
 function createId_(prefix) {
   var config = {
     'USR': { sheet: 'users', col: 'user_id', digits: 4, label: 'user' },
-    'TL': { sheet: 'time_logs', col: 'timelog_id', digits: 4, label: 'TL' },
     'SES': { sheet: 'active_sessions', col: 'session_id', digits: 4, label: 'SES' },
     'ASG': { sheet: 'supervisor_assignments', col: 'assignment_id', digits: 4, label: 'ASG' },
     'NOTIF': { sheet: 'notifications', col: 'notification_id', digits: 4, label: 'NOT' },
@@ -6792,7 +6787,6 @@ function migrateAllToSequentialIDs() {
   
   // 3. Update all dependent sheets
   var targets = [
-    { sheet: 'time_logs', cols: ['user_id'] },
     { sheet: 'active_sessions', cols: ['user_id'] },
     { sheet: 'supervisor_assignments', cols: ['supervisor_user_id', 'student_user_id'] },
     { sheet: 'student_ojt_profile', cols: ['user_id'] },

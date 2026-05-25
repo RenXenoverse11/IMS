@@ -2731,6 +2731,11 @@
       grid-template-columns: 1fr;
     }
 
+    .assigned-card {
+      min-height: auto;
+      overflow: hidden;
+    }
+
     .card-header,
     .card-body-shell,
     .stat-card {
@@ -2738,8 +2743,46 @@
       padding-right: 14px;
     }
 
+    .card-header-row {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .assigned-info {
+      width: 100%;
+    }
+
+    .card-actions {
+      width: 100%;
+      justify-content: space-between;
+      flex-wrap: wrap;
+    }
+
+    .btn-action {
+      flex: 1 1 0;
+      min-width: 0;
+    }
+
     .hours-row {
       grid-template-columns: 1fr;
+    }
+
+    .progress-head,
+    .days-remaining-display,
+    .detail-row {
+      flex-wrap: wrap;
+    }
+
+    .detail-row {
+      align-items: flex-start;
+    }
+
+    .progress-percent,
+    .days-value,
+    .detail-value {
+      min-width: 0;
+      max-width: 100%;
+      overflow-wrap: anywhere;
     }
   }
 
