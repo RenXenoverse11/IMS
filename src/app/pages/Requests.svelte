@@ -2491,7 +2491,7 @@
     margin-left: 0;
     transition: margin-left 0.2s;
   }
-  .request-card[role="button"] .request-card-content {
+  .request-card-checkbox + .request-card-content {
     margin-left: 28px;
   }
   .request-card-header {
@@ -2575,12 +2575,19 @@
     font-weight: 500;
     color: var(--text2);
     line-height: 1.65;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
   .req-reason-header {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
     gap: 12px;
+  }
+  .req-reason-header > div {
+    min-width: 0;
+    width: 100%;
   }
   .req-duration-info {
     display: flex;
