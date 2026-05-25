@@ -1232,6 +1232,7 @@
     border: 1px solid #cbd5e1;
     background: #f8fafc;
     color: #0f172a;
+    color-scheme: light;
     border-radius: 8px;
     padding: 7px 10px;
     font-size: 12px;
@@ -1806,6 +1807,10 @@
     background: #182234;
     border-color: rgba(148, 163, 184, 0.24);
     color: #e2e8f0;
+  }
+
+  :global(.dark) .stl-export-month input {
+    color-scheme: dark;
   }
 
   :global(.dark) .stl-export-btn:hover:not(:disabled) {
