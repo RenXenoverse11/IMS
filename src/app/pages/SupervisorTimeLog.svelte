@@ -626,29 +626,31 @@
             </div>
           </div>
         </div>
-        <div class="table-wrap">
-          <table class="stl-table table-skeleton" style="min-width: 700px;" aria-hidden="true">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Time In</th>
-                <th>Time Out</th>
-                <th>Hours</th>
-                <th class="action-col">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each Array(6) as _}
+        <div class="table-scroll-y">
+          <div class="table-wrap">
+            <table class="stl-table table-skeleton" style="min-width: 700px;" aria-hidden="true">
+              <thead>
                 <tr>
-                  <td><div class="sk-line sk-shimmer cell-date-sk"></div></td>
-                  <td><div class="sk-line sk-shimmer cell-time-sk"></div></td>
-                  <td><div class="sk-line sk-shimmer cell-time-sk"></div></td>
-                  <td><div class="sk-line sk-shimmer cell-hours-sk"></div></td>
-                  <td class="action-col"><div class="sk-pill sk-shimmer action-pill-sk"></div></td>
+                  <th>Date</th>
+                  <th>Time In</th>
+                  <th>Time Out</th>
+                  <th>Hours</th>
+                  <th class="action-col">Action</th>
                 </tr>
-              {/each}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {#each Array(6) as _}
+                  <tr>
+                    <td><div class="sk-line sk-shimmer cell-date-sk"></div></td>
+                    <td><div class="sk-line sk-shimmer cell-time-sk"></div></td>
+                    <td><div class="sk-line sk-shimmer cell-time-sk"></div></td>
+                    <td><div class="sk-line sk-shimmer cell-hours-sk"></div></td>
+                    <td class="action-col"><div class="sk-pill sk-shimmer action-pill-sk"></div></td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
     {:else if selectedStudent}
@@ -743,29 +745,31 @@
         </div>
 
         {#if loadingLogs}
-          <div class="table-wrap">
-            <table class="stl-table table-skeleton" style="min-width: 700px;" aria-hidden="true">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Time In</th>
-                  <th>Time Out</th>
-                  <th>Hours</th>
-                  <th class="action-col">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {#each Array(6) as _}
+          <div class="table-scroll-y">
+            <div class="table-wrap">
+              <table class="stl-table table-skeleton" style="min-width: 700px;" aria-hidden="true">
+                <thead>
                   <tr>
-                    <td><div class="sk-line sk-shimmer cell-date-sk"></div></td>
-                    <td><div class="sk-line sk-shimmer cell-time-sk"></div></td>
-                    <td><div class="sk-line sk-shimmer cell-time-sk"></div></td>
-                    <td><div class="sk-line sk-shimmer cell-hours-sk"></div></td>
-                    <td class="action-col"><div class="sk-pill sk-shimmer action-pill-sk"></div></td>
+                    <th>Date</th>
+                    <th>Time In</th>
+                    <th>Time Out</th>
+                    <th>Hours</th>
+                    <th class="action-col">Action</th>
                   </tr>
-                {/each}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {#each Array(6) as _}
+                    <tr>
+                      <td><div class="sk-line sk-shimmer cell-date-sk"></div></td>
+                      <td><div class="sk-line sk-shimmer cell-time-sk"></div></td>
+                      <td><div class="sk-line sk-shimmer cell-time-sk"></div></td>
+                      <td><div class="sk-line sk-shimmer cell-hours-sk"></div></td>
+                      <td class="action-col"><div class="sk-pill sk-shimmer action-pill-sk"></div></td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            </div>
           </div>
         {:else if logs.length === 0}
           <div class="empty-state">
@@ -774,21 +778,22 @@
             <p class="empty-sub">Entries for the selected intern will appear here.</p>
           </div>
         {:else}
-          <div class="table-wrap">
-            <table class="stl-table" style="min-width: 700px;">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Time In</th>
-                  <th>Time Out</th>
-                  <th>Hours</th>
-                  <th class="action-col">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {#each logs as row (row.timelog_id)}
+          <div class="table-scroll-y">
+            <div class="table-wrap">
+              <table class="stl-table" style="min-width: 700px;">
+                <thead>
                   <tr>
-                    <td data-label="Date">
+                    <th>Date</th>
+                    <th>Time In</th>
+                    <th>Time Out</th>
+                    <th>Hours</th>
+                    <th class="action-col">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {#each logs as row (row.timelog_id)}
+                    <tr>
+                      <td data-label="Date">
                       <div class="log-date-cell">
                         <span class="log-date-day">{formatWeekday(row.log_date)}</span>
                         <div class="log-date-copy">
@@ -828,10 +833,11 @@
                         <span>{deletingId === row.timelog_id ? 'Deleting...' : 'Delete'}</span>
                       </button>
                     </td>
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            </div>
           </div>
 
         {/if}
@@ -1271,7 +1277,7 @@
     cursor: not-allowed;
   }
 
-  .table-wrap {
+  .table-scroll-y {
     margin-top: 12px;
     max-height: 520px;
     overflow: auto;
@@ -1280,25 +1286,31 @@
     background:
       linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(241, 245, 249, 0.88));
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
-    scrollbar-width: thin;
-    scrollbar-color: rgba(59, 130, 246, 0.55) rgba(15, 23, 42, 0.18);
+    scrollbar-width: none;
+    -ms-overflow-style: none;
   }
 
-  .table-wrap::-webkit-scrollbar {
-    width: 10px;
+  .table-scroll-y::-webkit-scrollbar:vertical {
+    width: 0;
+  }
+
+  .table-wrap {
+    overflow: visible;
+    overflow-y: visible;
+  }
+
+  .table-scroll-y::-webkit-scrollbar:horizontal {
     height: 10px;
   }
 
-  .table-wrap::-webkit-scrollbar-track {
+  .table-scroll-y::-webkit-scrollbar-track:horizontal {
     background: rgba(148, 163, 184, 0.14);
     border-radius: 999px;
   }
 
-  .table-wrap::-webkit-scrollbar-thumb {
+  .table-scroll-y::-webkit-scrollbar-thumb:horizontal {
     background: rgba(59, 130, 246, 0.55);
     border-radius: 999px;
-    border: 2px solid transparent;
-    background-clip: padding-box;
   }
 
   .stl-table {
@@ -1823,7 +1835,7 @@
     border-color: rgba(96, 165, 250, 0.5);
   }
 
-  :global(.dark) .table-wrap {
+  :global(.dark) .table-scroll-y {
     border-color: rgba(255, 255, 255, 0.1);
     background:
       linear-gradient(180deg, rgba(24, 34, 52, 0.98), rgba(20, 28, 42, 0.96));
@@ -1918,18 +1930,18 @@
       padding-right: 14px;
     }
 
-    .table-wrap {
+    .table-scroll-y {
       margin-top: 10px;
       max-height: 460px;
-      overflow: auto;
       background:
         linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(241, 245, 249, 0.88));
       border: 1px solid rgba(148, 163, 184, 0.18);
       box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
       scrollbar-width: auto;
+      scrollbar-color: rgba(59, 130, 246, 0.55) transparent;
     }
 
-    :global(.dark) .table-wrap {
+    :global(.dark) .table-scroll-y {
       background:
         linear-gradient(180deg, rgba(24, 34, 52, 0.98), rgba(20, 28, 42, 0.96));
       border: 1px solid rgba(148, 163, 184, 0.14);
@@ -2037,8 +2049,11 @@
       width: 100%;
     }
 
-    .table-wrap::-webkit-scrollbar {
-      width: 10px;
+    .table-scroll-y::-webkit-scrollbar:vertical {
+      width: 0;
+    }
+
+    .table-scroll-y::-webkit-scrollbar:horizontal {
       height: 10px;
     }
   }

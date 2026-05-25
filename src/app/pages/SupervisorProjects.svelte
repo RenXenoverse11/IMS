@@ -2,7 +2,7 @@
 // @ts-nocheck
   import { onMount, onDestroy } from 'svelte';
   import { getCurrentUser, subscribeToCurrentUser, callApiAction } from '../lib/auth.js';
-  import { FolderOpen, Clock3, Tag, Users2, CalendarDays, Loader2, Grid, Archive, RotateCcw, Eye, Download, Plus, Trash2, Pencil, ExternalLink, Link2, Send } from 'lucide-svelte';
+  import { FolderOpen, Clock3, Tag, Users2, CalendarDays, Loader2, Grid, Archive, RotateCcw, Eye, Download, Plus, Trash2, Pencil, ExternalLink, Link2, Send, UserCheck } from 'lucide-svelte';
   import FeedbackThread from '../components/FeedbackThread.svelte';
 
   export let currentUser = null;
@@ -1122,6 +1122,19 @@
     const mm = String(d.getMonth() + 1).padStart(2, '0');
     const yyyy = d.getFullYear();
     return `${dd}-${mm}-${yyyy}`;
+  }
+
+  function formatShortMonthDay(val) {
+    const s = String(val || '').trim();
+    if (!s) return '';
+
+    let d;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) d = new Date(s + 'T00:00:00');
+    else d = new Date(s);
+
+    if (isNaN(d)) return s;
+
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   }
 
   function statusToProgress(value) {
@@ -2255,68 +2268,143 @@
                     </div>
                     <div class="proj-detail-body">
                       {#if viewingProjectTab === 'Details'}
-                          <div class="proj-detail-read">
-                          <div class="pdr-group">
-                            <div class="pdr-label">Project Title</div>
-                            <div class="pdr-box title">{p.title || ICONS.emDash}</div>
-                          </div>
-
-                          <div class="detail-row-full">
-                            <div class="detail-label">Description</div>
-                            <div class="pdr-box pdr-box-desc" class:collapsed={p.description && p.description.length > 220 && expandedDescriptionId !== p.id}>
-                              {p.description || ICONS.emDash}
-                            </div>
-                            {#if p.description && p.description.length > 220}
-                              <div style="margin-top:6px">
-                                <button class="btn-link" on:click={() => toggleDescription(p.id)}>{expandedDescriptionId === p.id ? 'Show less' : 'Show more'}</button>
+                        {@const detailProgress = p.progress_percent != null ? Number(p.progress_percent) : statusToProgress(p.status)}
+                        {@const detailMembers = (p.members || []).map((id) => MEMBER_OPTIONS.find((option) => option.value === id) || { value: id, label: resolveUserName(id), initials: getInitials(resolveUserName(id)), photoUrl: '' })}
+                        {@const detailSupervisors = (p.supervisors || []).map((id) => SUPERVISOR_OPTIONS.find((option) => option.value === id) || { value: id, label: resolveUserName(id), initials: getInitials(resolveUserName(id)), photoUrl: '' })}
+                        <div class="proj-detail-read">
+                          <div class="pdr-layout">
+                            <div class="pdr-main">
+                              <div class="pdr-group">
+                                <div class="pdr-label">Project Title</div>
+                                <div class="pdr-box pdr-box-hero">{p.title || ICONS.emDash}</div>
                               </div>
-                            {/if}
-                          </div>
 
-                          <div class="pdr-row-2">
-                            <div class="pdr-group">
-                              <div class="pdr-label">Members</div>
-                              <div class="pdr-box">{(p.members && p.members.length) ? p.members.map(m => resolveUserName(m)).join(', ') : ICONS.emDash}</div>
-                            </div>
-                            <div class="pdr-group">
-                              <div class="pdr-label">Supervisor</div>
-                              <div class="pdr-box">{(p.supervisors && p.supervisors.length) ? p.supervisors.map(s => resolveUserName(s)).join(', ') : ICONS.emDash}</div>
-                            </div>
-                          </div>
+                              <div class="pdr-group">
+                                <div class="pdr-label">Description</div>
+                                <div class="pdr-box pdr-box-desc">
+                                  <div class="detail-description" class:collapsed={expandedDescriptionId !== p.id}>{p.description || ICONS.emDash}</div>
+                                  {#if p.description && p.description.length > 160}
+                                    <button class="btn-link pdr-inline-link" on:click={() => toggleDescription(p.id)}>{expandedDescriptionId === p.id ? 'Show less' : 'Show more'}</button>
+                                  {/if}
+                                </div>
+                              </div>
 
-                          <div class="pdr-row-2">
-                            <div class="pdr-group">
-                              <div class="pdr-label">Priority Level</div>
-                              <div class="pdr-box">{normalizePriorityLabel(p.priority_level)}</div>
-                            </div>
-                            <div class="pdr-group">
-                              <div class="pdr-label">Status</div>
-                              <div class="pdr-box">{(STATUS_META[p.status] || {}).label || p.status || ICONS.emDash}</div>
-                            </div>
-                          </div>
+                              <div class="pdr-row-2">
+                                <div class="pdr-group">
+                                  <div class="pdr-label">Priority Level</div>
+                                  <div class="pdr-box pdr-box-inline">
+                                    <span class="pdr-priority-dot priority-{normalizePriorityLabel(p.priority_level).toLowerCase()}"></span>
+                                    <span>{normalizePriorityLabel(p.priority_level) || ICONS.emDash}</span>
+                                  </div>
+                                </div>
+                                <div class="pdr-group">
+                                  <div class="pdr-label">Status</div>
+                                  <div class="pdr-box pdr-box-inline pdr-box-muted">{(STATUS_META[p.status] || {}).label || p.status || ICONS.emDash}</div>
+                                </div>
+                              </div>
 
-                          <div class="pdr-row-2">
-                            <div class="pdr-group">
-                              <div class="pdr-label">Timeline (Start)</div>
-                              <div class="pdr-box">{p.timeline_start ? formatDate(p.timeline_start) : ICONS.emDash}</div>
-                            </div>
-                            <div class="pdr-group">
-                              <div class="pdr-label">Timeline (End)</div>
-                              <div class="pdr-box">{p.timeline_end ? formatDate(p.timeline_end) : ICONS.emDash}</div>
-                            </div>
-                          </div>
+                              <div class="pdr-row-2">
+                                <div class="pdr-group">
+                                  <div class="pdr-label">Timeline Start</div>
+                                  <div class="pdr-box pdr-box-inline">
+                                    <CalendarDays size={14} class="pdr-inline-icon pdr-inline-icon-primary" />
+                                    <span>{p.timeline_start ? formatDate(p.timeline_start) : ICONS.emDash}</span>
+                                  </div>
+                                </div>
+                                <div class="pdr-group">
+                                  <div class="pdr-label">Timeline End</div>
+                                  <div class="pdr-box pdr-box-inline">
+                                    <CalendarDays size={14} class="pdr-inline-icon" />
+                                    <span>{p.timeline_end ? formatDate(p.timeline_end) : ICONS.emDash}</span>
+                                  </div>
+                                </div>
+                              </div>
 
-                          <div>
-                            <div class="progress-bar-outer" style="margin-top:8px">
-                              <div class="progress-bar-inner" style="width:{p.progress_percent != null ? Number(p.progress_percent) : statusToProgress(p.status)}%"></div>
+                              <div class="pdr-group">
+                                <div class="pdr-label">Progress</div>
+                                <div class="pdr-progress-stack">
+                                  <div class="progress-bar-outer"><div class="progress-bar-inner" style="width:{detailProgress}%"></div></div>
+                                  <div class="pdr-progress-meta">
+                                    <span>{detailProgress} / 100%</span>
+                                    <span>{detailProgress}% complete</span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {#if canManage}
+                                <div class="pdr-footer">
+                                  <button class="pdr-edit-btn" on:click={() => openEditProjectModal(p)}>
+                                    <Pencil size={14} />
+                                    <span>Edit Project</span>
+                                  </button>
+                                </div>
+                              {/if}
                             </div>
-                            <div style="display:flex; justify-content:flex-end; margin-top:6px; font-weight:700; font-size:0.86rem">{p.progress_percent != null ? Number(p.progress_percent) : statusToProgress(p.status)}%</div>
+
+                            <aside class="pdr-sidebar">
+                              <div class="pdr-side-card">
+                                <div class="pdr-side-title">
+                                  <Users2 size={13} />
+                                  <span>Members</span>
+                                </div>
+                                {#if detailMembers.length}
+                                  {#each detailMembers as member}
+                                    <div class="pdr-person-row">
+                                      <span class="pdr-avatar" aria-hidden="true">
+                                        {#if member.photoUrl}
+                                          <img src={member.photoUrl} alt="" />
+                                        {:else}
+                                          <span>{member.initials}</span>
+                                        {/if}
+                                      </span>
+                                      <span class="pdr-person-name">{member.label}</span>
+                                    </div>
+                                  {/each}
+                                {:else}
+                                  <div class="pdr-empty-copy">No members assigned</div>
+                                {/if}
+                              </div>
+
+                              <div class="pdr-side-card">
+                                <div class="pdr-side-title">
+                                  <UserCheck size={13} />
+                                  <span>Supervisors</span>
+                                </div>
+                                {#if detailSupervisors.length}
+                                  {#each detailSupervisors as supervisor}
+                                    <div class="pdr-person-row">
+                                      <span class="pdr-avatar pdr-avatar-supervisor" aria-hidden="true">
+                                        {#if supervisor.photoUrl}
+                                          <img src={supervisor.photoUrl} alt="" />
+                                        {:else}
+                                          <span>{supervisor.initials}</span>
+                                        {/if}
+                                      </span>
+                                      <span class="pdr-person-name">{supervisor.label}</span>
+                                    </div>
+                                  {/each}
+                                {:else}
+                                  <div class="pdr-empty-copy">No supervisors assigned</div>
+                                {/if}
+                              </div>
+
+                              <div class="pdr-side-card">
+                                <div class="pdr-side-title">
+                                  <Clock3 size={13} />
+                                  <span>Timeline</span>
+                                </div>
+                                <div class="pdr-mini-timeline">
+                                  <div class="pdr-mini-dot"></div>
+                                  <div class="pdr-mini-line"></div>
+                                  <div class="pdr-mini-dot pdr-mini-dot-end"></div>
+                                </div>
+                                <div class="pdr-mini-labels">
+                                  <span>{p.timeline_start ? formatShortMonthDay(p.timeline_start) : 'Start'}</span>
+                                  <span>{p.timeline_end ? formatShortMonthDay(p.timeline_end) : 'End'}</span>
+                                </div>
+                              </div>
+                            </aside>
                           </div>
-                          {#if canManage}
-                            <div class="detail-manage-footer">
-                              <button class="sub-action-btn" on:click={() => openEditProjectModal(p)}>Edit Project</button>
-                            </div>
-                          {/if}
                         </div>
                       {:else if viewingProjectTab === 'Submissions'}
                         {#if canManage}
@@ -3801,6 +3889,175 @@
   .meta-link { color:#60a5fa; text-decoration:underline; }
   .muted { color:var(--color-sidebar-text); font-weight:500; }
   .detail-value.timeline { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .proj-detail-read { padding: 0.9rem 1rem 1rem; }
+  .pdr-layout { display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(240px, 0.95fr); gap: 1rem; align-items: start; }
+  .pdr-main,
+  .pdr-sidebar { min-width: 0; }
+  .pdr-main { display: flex; flex-direction: column; gap: 0.95rem; }
+  .pdr-sidebar { display: flex; flex-direction: column; gap: 0.85rem; }
+  .pdr-group { display: flex; flex-direction: column; gap: 0.38rem; }
+  .pdr-label {
+    font-size: 0.77rem;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: #64748b;
+  }
+  :global(body.dark) .pdr-label { color: #475569; }
+  .pdr-box {
+    font-size: 0.9rem;
+    color: #0f172a;
+    background: #ffffff;
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    border-radius: 0.82rem;
+    padding: 0.9rem 1rem;
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 3rem;
+    box-shadow:
+      0 14px 28px -30px rgba(15, 23, 42, 0.22),
+      inset 0 1px 0 rgba(255,255,255,0.78);
+  }
+  :global(body.dark) .pdr-box {
+    color: #e5edf8;
+    background: #161926;
+    border-color: rgba(148, 163, 184, 0.14);
+    box-shadow:
+      0 16px 30px -32px rgba(2, 6, 23, 0.72),
+      inset 0 1px 0 rgba(255,255,255,0.03);
+  }
+  .pdr-box-hero { font-size: 1rem; font-weight: 700; }
+  .pdr-box-desc { white-space: normal; line-height: 1.5; }
+  .detail-description { white-space: pre-wrap; }
+  .detail-description.collapsed { display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; line-clamp:3; overflow:hidden; }
+  .pdr-inline-link { margin-top: 0.45rem; align-self: flex-start; }
+  .pdr-row-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.85rem; }
+  .pdr-box-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    font-weight: 600;
+  }
+  .pdr-box-muted { color: #64748b; }
+  :global(body.dark) .pdr-box-muted { color: #94a3b8; }
+  .pdr-inline-icon { color: #64748b; flex: 0 0 auto; }
+  .pdr-inline-icon-primary { color: #2563eb; }
+  :global(body.dark) .pdr-inline-icon { color: #64748b; }
+  :global(body.dark) .pdr-inline-icon-primary { color: #60a5fa; }
+  .pdr-priority-dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 999px;
+    display: inline-block;
+    flex: 0 0 auto;
+  }
+  .pdr-priority-dot.priority-low { background: #38bdf8; }
+  .pdr-priority-dot.priority-medium { background: #10b981; }
+  .pdr-priority-dot.priority-high { background: #f87171; }
+  .pdr-progress-stack { display: grid; gap: 0.6rem; }
+  .pdr-progress-meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    font-size: 0.78rem;
+    color: #64748b;
+  }
+  :global(body.dark) .pdr-progress-meta { color: #64748b; }
+  .pdr-footer { display:flex; justify-content:flex-end; margin-top:0.15rem; }
+  .pdr-edit-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    min-width: 84px;
+    padding: 0.78rem 1.1rem;
+    border-radius: 0.85rem;
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    background: #ffffff;
+    color: #0f172a;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.8);
+    transition: border-color 0.15s, transform 0.15s, background 0.15s;
+  }
+  .pdr-edit-btn:hover { transform: translateY(-1px); border-color: rgba(59, 130, 246, 0.35); background: #eff6ff; }
+  :global(body.dark) .pdr-edit-btn {
+    background: #161926;
+    border-color: #3b82f6;
+    color: #dbeafe;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+  }
+  :global(body.dark) .pdr-edit-btn:hover { background: #1e2540; }
+  .pdr-side-card {
+    background: #ffffff;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 0.9rem;
+    padding: 0.9rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+    box-shadow:
+      0 14px 28px -30px rgba(15, 23, 42, 0.28),
+      inset 0 1px 0 rgba(255,255,255,0.75);
+  }
+  :global(body.dark) .pdr-side-card {
+    background: #161926;
+    border-color: rgba(148, 163, 184, 0.16);
+    box-shadow:
+      0 16px 30px -32px rgba(2, 6, 23, 0.7),
+      inset 0 1px 0 rgba(255,255,255,0.03);
+  }
+  .pdr-side-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.77rem;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: #64748b;
+  }
+  :global(body.dark) .pdr-side-title { color: #475569; }
+  .pdr-person-row { display: flex; align-items: center; gap: 0.55rem; min-width: 0; }
+  .pdr-avatar {
+    width: 1.7rem;
+    height: 1.7rem;
+    border-radius: 999px;
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    background: #eff6ff;
+    border: 1px solid #93c5fd;
+    color: #2563eb;
+    font-size: 0.63rem;
+    font-weight: 700;
+  }
+  .pdr-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .pdr-avatar-supervisor { background: #f0fdf4; border-color: #86efac; color: #16a34a; }
+  :global(body.dark) .pdr-avatar { background: #1e2540; border-color: #3b82f6; color: #60a5fa; }
+  :global(body.dark) .pdr-avatar-supervisor { background: #1e2a1e; border-color: #22c55e; color: #22c55e; }
+  .pdr-person-name {
+    min-width: 0;
+    font-size: 0.84rem;
+    color: #64748b;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  :global(body.dark) .pdr-person-name { color: #94a3b8; }
+  .pdr-empty-copy { font-size: 0.82rem; color: var(--color-sidebar-text); }
+  .pdr-mini-timeline { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.1rem; }
+  .pdr-mini-dot { width: 0.5rem; height: 0.5rem; border-radius: 999px; background: #3b82f6; flex: 0 0 auto; }
+  .pdr-mini-dot-end { background: #cbd5e1; }
+  .pdr-mini-line { flex: 1; height: 1px; background: #e2e8f0; }
+  :global(body.dark) .pdr-mini-dot-end { background: #475569; }
+  :global(body.dark) .pdr-mini-line { background: #2a2d3a; }
+  .pdr-mini-labels { display: flex; justify-content: space-between; font-size: 0.76rem; color: #94a3b8; }
+  :global(body.dark) .pdr-mini-labels { color: #475569; }
 
   /* â”€â”€ Inline Edit Form (Details tab) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   .inline-edit-form { padding: 1rem 1.25rem; display: flex; flex-direction: column; gap: 0.75rem; }
@@ -3816,24 +4073,6 @@
   .ief-textarea { resize: vertical; min-height: 72px; }
   .ief-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
   .ief-actions { display: flex; justify-content: flex-end; gap: 0.5rem; padding-top: 0.25rem; }
-
-  /* â”€â”€ Details Read View â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-  .proj-detail-read { padding: 0.75rem 1.25rem; display: flex; flex-direction: column; gap: 0.75rem; }
-  .pdr-header { display: flex; justify-content: flex-end; margin-bottom: 0; }
-  .pdr-group { display: flex; flex-direction: column; gap: 0.3rem; }
-  .pdr-label { font-size: 0.8rem; font-weight: 600; color: var(--color-sidebar-text); }
-  .pdr-box {
-    font-size: 0.88rem; font-family: inherit; color: var(--color-text);
-    background: var(--color-surface-muted); border: 1px solid var(--color-border);
-    border-radius: 7px; padding: 0.42rem 0.7rem; width: 100%; box-sizing: border-box;
-    min-height: 2.1rem;
-  }
-  .pdr-box-desc { white-space: pre-wrap; line-height: 1.45; min-height: 4rem; }
-  .pdr-box-desc.collapsed { display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; line-clamp:3; overflow:hidden; }
-  .pdr-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
-  .progress-bar-outer { height:10px; background:var(--color-border); border-radius:999px; overflow:hidden; }
-  .progress-bar-inner { height:100%; background:linear-gradient(90deg,#10b981,#3b82f6); border-radius:999px; transition:width 350ms ease; }
-  .pdr-footer { display:flex; justify-content:flex-end; margin-top:0.5rem; }
 
   .proj-priority-pill {
     display: inline-flex; align-items: center; justify-content: center;
