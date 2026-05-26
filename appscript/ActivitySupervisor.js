@@ -61,7 +61,7 @@ function createSupervisorTasks(payload) {
     if (!title) return { ok: false, error: 'title is required.' };
     if (!assignees.length) return { ok: false, error: 'At least one assigned_student_id is required.' };
 
-    var now = isoNow_();
+    var now = formatTimestamp_(new Date());
     var created = 0;
     // Also record a supervisor-level task record in 'supervisor_task' sheet
       var supRow = null;
@@ -322,6 +322,7 @@ function updateSupervisorTask(payload) {
     var archivePrevIdx = headers.indexOf('supervisor_archived_previous_status');
     var taskIdx = headers.indexOf('task');
     var createdByIdx = headers.indexOf('created_by');
+    var createdAtIdx = headers.indexOf('created_at');
 
     var currentStatus = statusIdx !== -1 ? String(values[foundRow - 1][statusIdx] || '').trim() : '';
     var currentArchivePreviousStatus = archivePrevIdx !== -1 ? String(values[foundRow - 1][archivePrevIdx] || '').trim() : '';
@@ -360,6 +361,9 @@ function updateSupervisorTask(payload) {
           obj.status = currentArchivePreviousStatus || 'Pending';
         }
       }
+    }
+    if (createdAtIdx !== -1) {
+      obj.created_at = formatTimestamp_(values[foundRow - 1][createdAtIdx]) || String(values[foundRow - 1][createdAtIdx] || '').trim();
     }
     if (payload.updated_by !== undefined) obj.updated_by = String(payload.updated_by || '');
     if (Object.keys(obj).length === 0) return { ok: false, error: 'No fields to update.' };

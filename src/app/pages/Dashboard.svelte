@@ -7,14 +7,16 @@
     getStudentDashboard,
   } from '../lib/auth.js';
   import { Target, CheckCircle, Hourglass, CalendarDays, ClipboardList, ArrowRight } from 'lucide-svelte';
-  import { getEstimatedCompletionDate } from '../lib/getEstimatedCompletionDate.js';
+  import { formatWorkingDuration, getEstimatedCompletionDate, getWorkingDurationParts } from '../lib/getEstimatedCompletionDate.js';
   
   const PROGRESS_MODES = {
-    APPROVED: 'APPROVED',
-    ALL: 'ALL',
+    RENDERED: 'RENDERED',
+    PROJECTED: 'PROJECTED',
   };
 
   let visibilityChangeTimeout = null;
+  let activeSessionTicker = null;
+  let now = new Date();
   const VISIBILITY_RELOAD_DELAY = 200;
   let lastLoadTime = 0;
   const RELOAD_COOLDOWN = 5 * 60 * 1000;
@@ -26,14 +28,17 @@
   let errorMessage = '';
   let successMessage = '';
 
-  let progressMode = PROGRESS_MODES.APPROVED;
+  let progressMode = PROGRESS_MODES.RENDERED;
   let profile = null;
   let timeLogs = [];
+  let activeSession = null;
   let totalCompletedHours = 0;
   let activityLogs = [];
   let tasks = [];
   let pendingRequests = [];
+  let requestRows = [];
   let approvedAbsenceAdjustmentDays = 0;
+  let pendingAbsenceAdjustmentDays = 0;
   let internSchedule = {
     shift_start: '09:00',
     shift_end: '17:00',
@@ -128,8 +133,9 @@
     return projected ? toIsoDateOnly(projected) : '';
   }
 
-  function countApprovedAbsenceAdjustments(requests, todayDateOnly) {
+  function countAbsenceAdjustments(requests, todayDateOnly, allowedStatuses) {
     const rows = Array.isArray(requests) ? requests : [];
+    const statusLookup = new Set((Array.isArray(allowedStatuses) ? allowedStatuses : []).map((status) => String(status || '').toLowerCase()));
     const seen = new Set();
     return rows.reduce((count, req) => {
       const requestId = String(req?.id || req?.request_id || '').trim();
@@ -137,8 +143,8 @@
       const type = String(req?.requestType || req?.request_type || '').trim().toLowerCase();
       const status = String(req?.status || '').trim().toLowerCase();
       const archivedPrevious = String(req?.archived_previous_status || req?.archivedPreviousStatus || '').trim().toLowerCase();
-      const approved = status === 'approved' || (status === 'archived' && archivedPrevious === 'approved');
-      if (type !== 'absence' || !approved) return count;
+      const effectiveStatus = status === 'archived' ? archivedPrevious : status;
+      if (type !== 'absence' || !statusLookup.has(effectiveStatus)) return count;
       const requestDate = normalizeDateOnly(req?.date || req?.request_date || req?.applied_date || '');
       if (!requestDate || (todayDateOnly && requestDate < todayDateOnly)) return count;
       if (requestId) seen.add(requestId);
@@ -260,31 +266,48 @@
     return cursor;
   }
 
-  function sumHours(logs, mode) {
-    const rows = Array.isArray(logs) ? logs : [];
-    return rows.reduce((acc, row) => {
-      if (mode === PROGRESS_MODES.APPROVED && String(row?.status || '').toLowerCase() !== 'approved') {
-        return acc;
-      }
-      const hours = Number(row?.hours_rendered || 0);
+  function getActiveSessionElapsedHours(session, nowDate) {
+    if (!session) return 0;
+    const sessionDate = normalizeDateOnly(session?.log_date);
+    const timeIn = normalizeTimeTo24Hour(session?.time_in);
+    if (!sessionDate || !timeIn) return 0;
+
+    const startedAt = new Date(`${sessionDate}T${timeIn}:00`);
+    const current = nowDate instanceof Date ? nowDate : new Date();
+    if (Number.isNaN(startedAt.getTime()) || Number.isNaN(current.getTime()) || current <= startedAt) {
+      return 0;
+    }
+
+    return Number(((current.getTime() - startedAt.getTime()) / 3600000).toFixed(2));
+  }
+
+  function sumRequestHours(requests, requestType, allowedStatuses) {
+    const rows = Array.isArray(requests) ? requests : [];
+    const targetType = String(requestType || '').trim().toLowerCase();
+    const statusLookup = new Set((Array.isArray(allowedStatuses) ? allowedStatuses : []).map((status) => String(status || '').toLowerCase()));
+    const seen = new Set();
+
+    return rows.reduce((acc, req) => {
+      const requestId = String(req?.id || req?.request_id || '').trim();
+      if (requestId && seen.has(requestId)) return acc;
+
+      const type = String(req?.requestType || req?.request_type || '').trim().toLowerCase();
+      const status = String(req?.status || '').trim().toLowerCase();
+      const archivedPrevious = String(req?.archived_previous_status || req?.archivedPreviousStatus || '').trim().toLowerCase();
+      const effectiveStatus = status === 'archived' ? archivedPrevious : status;
+      if (type !== targetType || !statusLookup.has(effectiveStatus)) return acc;
+
+      const hours = Number(req?.total_hours || req?.totalHours || 0);
+      if (requestId) seen.add(requestId);
       return acc + (Number.isFinite(hours) ? hours : 0);
     }, 0);
   }
 
-  function sumPendingRequestHours(requests) {
-    const rows = Array.isArray(requests) ? requests : [];
-    return rows.reduce((acc, req) => {
-      if (String(req?.requestType || '').toLowerCase() === 'overtime') {
-        const hours = Number(req?.total_hours || 0);
-        return acc + (Number.isFinite(hours) ? hours : 0);
-      }
-      return acc;
-    }, 0);
-  }
-
   $: totalOjtHours = Number(formTotalOjtHours || profile?.total_ojt_hours || 0);
-  $: pendingOvertimeHours = sumPendingRequestHours(pendingRequests);
-  $: effectiveCompletedHours = progressMode === PROGRESS_MODES.ALL ? totalCompletedHours + pendingOvertimeHours : totalCompletedHours;
+  $: activeSessionElapsedHours = getActiveSessionElapsedHours(activeSession, now);
+  $: projectedOvertimeHours = sumRequestHours(requestRows, 'overtime', ['pending', 'approved']);
+  $: projectedAdditionalHours = activeSessionElapsedHours + projectedOvertimeHours;
+  $: effectiveCompletedHours = progressMode === PROGRESS_MODES.PROJECTED ? totalCompletedHours + projectedAdditionalHours : totalCompletedHours;
   $: hoursCompleted = effectiveCompletedHours;
   $: isCompleted = profile?.completed_at ? true : false;
   $: hoursRemaining = isCompleted ? 0 : Math.max(0, totalOjtHours - hoursCompleted);
@@ -295,7 +318,7 @@
     ? getEstimatedCompletionDate(hoursRemaining, avgDailyHours, internSchedule.days_off)
     : '';
   $: calculatedEstimatedEndDate = baseCalculatedEstimatedEndDate
-    ? (addWorkingDaysToDateString(baseCalculatedEstimatedEndDate, approvedAbsenceAdjustmentDays, internSchedule.days_off) || baseCalculatedEstimatedEndDate)
+    ? (addWorkingDaysToDateString(baseCalculatedEstimatedEndDate, absenceAdjustmentDays, internSchedule.days_off) || baseCalculatedEstimatedEndDate)
     : '';
   $: storedEstimatedEndDateDisplay = profile?.estimated_end_date
     ? formatDateLong(profile.estimated_end_date)
@@ -450,6 +473,16 @@
         console.error('Failed to load intern schedule:', scheduleErr);
       }
 
+      try {
+        const activeSessionResult = await callApiAction('get_active_session', {
+          user_id: currentUser.user_id,
+        });
+        activeSession = activeSessionResult?.ok && activeSessionResult.session ? activeSessionResult.session : null;
+      } catch (activeSessionErr) {
+        console.error('Failed to load active session:', activeSessionErr);
+        activeSession = null;
+      }
+
       profile = data.profile;
       timeLogs = data.time_logs;
       const serverCompletedHours = Number(data.total_completed_hours || 0);
@@ -485,16 +518,26 @@
         .slice(0, 10);
       pendingRequests = data.pending_requests || [];
       let allRequestRows = [];
+      requestRows = [];
       approvedAbsenceAdjustmentDays = 0;
+      pendingAbsenceAdjustmentDays = 0;
       try {
         const allRequestsResult = await callApiAction('list_requests_by_user', {
           user_id: currentUser.user_id,
         });
         if (allRequestsResult && allRequestsResult.ok && Array.isArray(allRequestsResult.requests)) {
           allRequestRows = allRequestsResult.requests;
-          approvedAbsenceAdjustmentDays = countApprovedAbsenceAdjustments(
+          requestRows = allRequestRows;
+          const todayDateOnly = toLocalIsoDate(new Date());
+          approvedAbsenceAdjustmentDays = countAbsenceAdjustments(
             allRequestRows,
-            toLocalIsoDate(new Date())
+            todayDateOnly,
+            ['approved']
+          );
+          pendingAbsenceAdjustmentDays = countAbsenceAdjustments(
+            allRequestRows,
+            todayDateOnly,
+            ['pending']
           );
         }
       } catch (requestErr) {
@@ -592,12 +635,16 @@
     if (currentUser?.user_id) {
       loadDashboard();
     }
+    activeSessionTicker = setInterval(() => {
+      now = new Date();
+    }, 30000);
   });
   
   onDestroy(() => {
     if (typeof unsubscribeAuth === 'function') unsubscribeAuth();
     document.removeEventListener('visibilitychange', onVisibilityChange);
     if (visibilityChangeTimeout) clearTimeout(visibilityChangeTimeout);
+    if (activeSessionTicker) clearInterval(activeSessionTicker);
   });
 </script>
 
@@ -709,6 +756,26 @@
           </div>
         </div>
 
+        <div class="dash-view-toggle" aria-label="Progress view">
+          <button
+            type="button"
+            class="dash-mode-btn"
+            class:active={progressMode === PROGRESS_MODES.RENDERED}
+            on:click={() => (progressMode = PROGRESS_MODES.RENDERED)}
+            title="Uses logged rendered hours only"
+          >
+            Rendered
+          </button>
+          <button
+            type="button"
+            class="dash-mode-btn"
+            class:active={progressMode === PROGRESS_MODES.PROJECTED}
+            on:click={() => (progressMode = PROGRESS_MODES.PROJECTED)}
+            title="Includes active login time and pending absence effects. Overtime counts only after it is logged."
+          >
+            Projected
+          </button>
+        </div>
       </div>
 
       <div class="dash-stat-grid">
@@ -730,7 +797,9 @@
           <div class="dash-stat-body">
             <div class="dash-stat-label">Hours Completed</div>
             <div class="dash-stat-value">{Number(hoursCompleted || 0).toFixed(1)}</div>
-            <div class="dash-stat-sub">All rendered hours</div>
+            <div class="dash-stat-sub">
+              {progressMode === PROGRESS_MODES.PROJECTED && projectedAdditionalHours > 0 ? 'Rendered + projected requests' : 'All rendered hours'}
+            </div>
           </div>
         </div>
 
@@ -751,8 +820,24 @@
           </div>
           <div class="dash-stat-body">
             <div class="dash-stat-label">Working Days Needed</div>
-            <div class="dash-stat-value">{remainingWorkingDays} <span class="dash-stat-unit">days</span></div>
-            <div class="dash-stat-sub">To complete OJT</div>
+            <div class="dash-stat-value">
+              {#if remainingDurationParts.days > 0}
+                {remainingDurationParts.days} <span class="dash-stat-unit">{remainingDurationParts.days === 1 ? 'day' : 'days'}</span>
+              {:else if remainingDurationParts.hours > 0}
+                {remainingDurationParts.hours} <span class="dash-stat-unit">{remainingDurationParts.hours === 1 ? 'hour' : 'hours'}</span>
+              {:else}
+                0 <span class="dash-stat-unit">days</span>
+              {/if}
+            </div>
+            <div class="dash-stat-sub">
+              {#if remainingDurationParts.days > 0 && remainingDurationParts.hours > 0}
+                plus {remainingDurationParts.hours} {remainingDurationParts.hours === 1 ? 'hour' : 'hours'}
+              {:else if remainingDurationLabel === 'Completed'}
+                OJT completed
+              {:else}
+                To complete OJT
+              {/if}
+            </div>
           </div>
         </div>
       </div>
@@ -777,7 +862,14 @@
         <div class="dash-card">
           <div class="dash-section-label">{isCompleted ? 'Completed On' : 'Estimated End Date'}</div>
           <div class="dash-end-value">{estimatedEndDateDisplay}</div>
-          <div class="dash-end-meta">Start: {startDateDisplay} · Working days only</div>
+          <div class="dash-end-meta">
+            Start: {startDateDisplay} ·
+            {#if remainingDurationLabel === 'Completed'}
+              Completed
+            {:else}
+              {remainingDurationLabel} left
+            {/if}
+          </div>
         </div>
       </div>
 
@@ -1007,7 +1099,7 @@
     border: 1px solid rgba(255, 255, 255, 0.15);
   }
 
-  .dash-view-btn {
+  .dash-mode-btn {
     border: none;
     background: transparent;
     color: rgba(255, 255, 255, 0.66);
@@ -1020,7 +1112,7 @@
     transition: all 0.2s ease;
   }
 
-  .dash-view-btn.active {
+  .dash-mode-btn.active {
     background: rgba(255, 255, 255, 0.95);
     color: #1e3a8a;
   }
@@ -1707,7 +1799,7 @@
       padding: 2px;
     }
 
-    .dash-view-btn {
+    .dash-mode-btn {
       padding: 3px 12px;
       font-size: 11px;
       line-height: 1.1;
@@ -1723,7 +1815,7 @@
       font-size: 18px;
     }
 
-    .dash-view-btn {
+    .dash-mode-btn {
       padding: 3px 10px;
       font-size: 10.5px;
     }

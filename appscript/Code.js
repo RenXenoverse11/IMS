@@ -246,6 +246,10 @@ function dispatchAction_(payload) {
     return handleDeleteRequest_(payload);
   }
 
+  if (action === 'retract_approved_absence') {
+    return handleRetractApprovedAbsence_(payload);
+  }
+
   if (action === 'archive_request') {
     return handleArchiveRequest_(payload);
   }
@@ -2605,6 +2609,7 @@ function handleListRequestsByUser_(payload) {
         status: String(row.status || 'Pending'),
         requester_name: String(row.requester_name || ''),
         created_at: String(row.created_at || ''),
+        original_request_id: String(row.request_time || ''),
       });
     }
   }
@@ -2659,6 +2664,7 @@ function handleListAssignedStudentRequests_(payload) {
         status: String(row.status || 'Pending'),
         requester_name: String(row.requester_name || ''),
         created_at: String(row.created_at || ''),
+        original_request_id: String(row.request_time || ''),
         archived: row.archived === 'true' || row.archived === true,
       });
     }
@@ -2914,6 +2920,177 @@ function normalizeEstimatedEndDateToWorkingDay_(userId, estimatedEndDate) {
   return extendDateByBusinessDays_(normalizedDate, 0, daysOff);
 }
 
+function shiftEstimatedEndDateByWorkingDays_(userId, dayDelta) {
+  var normalizedUserId = String(userId || '').trim();
+  var delta = Number(dayDelta || 0);
+  if (!normalizedUserId || !delta) {
+    return '';
+  }
+
+  var profileSheet = getStudentOjtProfileSheet_();
+  var profileRows = getSheetValues_(profileSheet);
+  var profileHeaders = getHeaders_(profileSheet);
+  var userIdColIndex = findColumnIndex_(profileHeaders, 'user_id');
+  var estimatedEndDateColIndex = findColumnIndex_(profileHeaders, 'estimated_end_date');
+  if (userIdColIndex <= 0 || estimatedEndDateColIndex <= 0) {
+    return '';
+  }
+
+  var profileRowIndex = -1;
+  var currentEstimatedEndDate = '';
+  for (var p = 1; p < profileRows.length; p++) {
+    if (String(profileRows[p][userIdColIndex - 1] || '').trim() === normalizedUserId) {
+      profileRowIndex = p;
+      currentEstimatedEndDate = String(profileRows[p][estimatedEndDateColIndex - 1] || '').trim();
+      break;
+    }
+  }
+
+  if (profileRowIndex < 1 || !currentEstimatedEndDate) {
+    return '';
+  }
+
+  var scheduleResult = handleGetInternSchedule_({ intern_user_id: normalizedUserId });
+  var daysOff = scheduleResult && scheduleResult.ok && scheduleResult.schedule
+    ? scheduleResult.schedule.days_off
+    : [0, 6];
+  var normalizedDate = formatDateValue_(currentEstimatedEndDate);
+  var parts = String(normalizedDate || '').split('-');
+  if (parts.length !== 3) {
+    return '';
+  }
+
+  var cursor = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+  if (Number.isNaN(cursor.getTime())) {
+    return '';
+  }
+
+  var daysOffArray = normalizeDaysOff_(daysOff, [0, 6]);
+  var remaining = Math.abs(Math.floor(delta));
+  var direction = delta > 0 ? 1 : -1;
+  while (remaining > 0) {
+    cursor.setDate(cursor.getDate() + direction);
+    if (daysOffArray.indexOf(cursor.getDay()) === -1) {
+      remaining--;
+    }
+  }
+
+  while (daysOffArray.indexOf(cursor.getDay()) !== -1) {
+    cursor.setDate(cursor.getDate() + direction);
+  }
+
+  var nextDate = cursor.getFullYear() + '-' + String(cursor.getMonth() + 1).padStart(2, '0') + '-' + String(cursor.getDate()).padStart(2, '0');
+  profileSheet.getRange(profileRowIndex + 1, estimatedEndDateColIndex).setValue(nextDate);
+  return nextDate;
+}
+
+function handleRetractApprovedAbsence_(payload) {
+  var userId = String(payload.user_id || '').trim();
+  var originalRequestId = String(payload.request_id || payload.original_request_id || '').trim();
+  var reason = String(payload.reason || '').trim();
+
+  if (!userId || !originalRequestId || !reason) {
+    return { ok: false, error: 'user_id, request_id, and reason are required.' };
+  }
+
+  var requesterRecord = findUserRecordByUserId_(userId);
+  if (!requesterRecord || isSupervisorUser_(requesterRecord.user)) {
+    return { ok: false, error: 'Only interns can retract approved absences.' };
+  }
+
+  var sheet = getRequestsSheet_();
+  var rows = getSheetValues_(sheet);
+  var headers = getHeaders_(sheet);
+  var requestIdCol = findColumnIndex_(headers, 'request_id');
+  var userIdCol = findColumnIndex_(headers, 'user_id');
+  var typeCol = findColumnIndex_(headers, 'request_type');
+  var dateCol = findColumnIndex_(headers, 'request_date');
+  var statusCol = findColumnIndex_(headers, 'status');
+  var requestTimeCol = findColumnIndex_(headers, 'request_time');
+
+  var originalRowIndex = -1;
+  var originalDate = '';
+  for (var i = 1; i < rows.length; i++) {
+    if (String(rows[i][requestIdCol - 1] || '').trim() !== originalRequestId) continue;
+    originalRowIndex = i;
+    originalDate = formatDateValue_(rows[i][dateCol - 1]);
+    break;
+  }
+
+  if (originalRowIndex < 1) {
+    return { ok: false, error: 'Approved absence request not found.' };
+  }
+
+  if (String(rows[originalRowIndex][userIdCol - 1] || '').trim() !== userId) {
+    return { ok: false, error: 'You can only retract your own absence request.' };
+  }
+
+  if (String(rows[originalRowIndex][typeCol - 1] || '').trim().toLowerCase() !== 'absence') {
+    return { ok: false, error: 'Only absence requests can be retracted.' };
+  }
+
+  if (String(rows[originalRowIndex][statusCol - 1] || '').trim().toLowerCase() !== 'approved') {
+    return { ok: false, error: 'Only approved absence requests can be retracted.' };
+  }
+
+  var today = formatDateYMD_(new Date());
+  if (!originalDate || originalDate <= today) {
+    return { ok: false, error: 'Only future approved absences can be retracted.' };
+  }
+
+  for (var r = 1; r < rows.length; r++) {
+    var type = String(rows[r][typeCol - 1] || '').trim().toLowerCase();
+    var status = String(rows[r][statusCol - 1] || '').trim().toLowerCase();
+    var linkedId = requestTimeCol > 0 ? String(rows[r][requestTimeCol - 1] || '').trim() : '';
+    if (type === 'absence retraction' && status === 'pending' && linkedId === originalRequestId) {
+      return { ok: false, error: 'A retraction request is already pending for this absence.' };
+    }
+  }
+
+  var requestId = 'REQ-' + Date.now();
+  var createdAt = formatTimestamp_(new Date());
+  var requesterName = String(requesterRecord.user.full_name || '').trim() || 'Student';
+  var row = [];
+  for (var h = 0; h < headers.length; h++) {
+    var header = headers[h];
+    if (header === 'request_id') row.push(requestId);
+    else if (header === 'user_id') row.push(userId);
+    else if (header === 'requester_name') row.push(requesterName);
+    else if (header === 'request_type') row.push('Absence Retraction');
+    else if (header === 'request_date') row.push(originalDate);
+    else if (header === 'request_time') row.push(originalRequestId);
+    else if (header === 'reason') row.push(reason);
+    else if (header === 'status') row.push('Pending');
+    else if (header === 'created_at') row.push(createdAt);
+    else row.push('');
+  }
+  sheet.appendRow(row);
+
+  var supervisorUserIds = findSupervisorsForStudent_(userId);
+  for (var s = 0; s < supervisorUserIds.length; s++) {
+    createNotification_(
+      supervisorUserIds[s],
+      'Approved Absence Retraction Request',
+      requesterName + ' requested to retract an approved absence for ' + originalDate + '.',
+      'request',
+      requestId
+    );
+  }
+
+  return {
+    ok: true,
+    request: {
+      id: requestId,
+      requestType: 'Absence Retraction',
+      date: originalDate,
+      reason: reason,
+      status: 'Pending',
+      requester_name: requesterName,
+      original_request_id: originalRequestId
+    }
+  };
+}
+
 function handleUpdateRequestStatus_(payload) {
   var requestId = String(payload.request_id || '').trim();
   var newStatus = String(payload.status || '').trim();
@@ -2960,6 +3137,8 @@ function handleUpdateRequestStatus_(payload) {
   var studentUserId = String(rows[requestRowIndex][userIdColIndex - 1] || '').trim();
   var currentStatus = String(rows[requestRowIndex][updateColIndex - 1] || '').trim();
   var currentStatusLower = currentStatus.toLowerCase();
+  var currentRequestType = String(rows[requestRowIndex][requestTypeColIndex - 1] || '').trim();
+  var currentRequestTypeLower = currentRequestType.toLowerCase();
   var currentArchivedPreviousStatus = archivedPreviousStatusColIndex > 0
     ? String(rows[requestRowIndex][archivedPreviousStatusColIndex - 1] || '').trim()
     : '';
@@ -2998,6 +3177,70 @@ function handleUpdateRequestStatus_(payload) {
     if (newStatus === 'Pending' && currentStatusLower !== 'archived') {
       return { ok: false, error: 'Only archived requests can be recovered.' };
     }
+  }
+
+  if (currentRequestTypeLower === 'absence retraction' && effectiveStatus === 'Approved') {
+    if (currentStatusLower !== 'pending') {
+      return { ok: false, error: 'Only pending retraction requests can be approved.' };
+    }
+
+    var requestTimeColIndex = findColumnIndex_(headers, 'request_time');
+    var linkedOriginalRequestId = requestTimeColIndex > 0
+      ? String(rows[requestRowIndex][requestTimeColIndex - 1] || '').trim()
+      : '';
+    if (!linkedOriginalRequestId) {
+      return { ok: false, error: 'This retraction request is missing the original absence reference.' };
+    }
+
+    var originalRequestRowIndex = -1;
+    for (var originalIndex = 1; originalIndex < rows.length; originalIndex++) {
+      if (String(rows[originalIndex][requestIdColIndex - 1] || '').trim() === linkedOriginalRequestId) {
+        originalRequestRowIndex = originalIndex;
+        break;
+      }
+    }
+
+    if (originalRequestRowIndex < 1) {
+      return { ok: false, error: 'Original approved absence request not found.' };
+    }
+
+    if (String(rows[originalRequestRowIndex][userIdColIndex - 1] || '').trim() !== studentUserId) {
+      return { ok: false, error: 'Retraction request does not match the original absence owner.' };
+    }
+
+    if (String(rows[originalRequestRowIndex][requestTypeColIndex - 1] || '').trim().toLowerCase() !== 'absence' ||
+        String(rows[originalRequestRowIndex][updateColIndex - 1] || '').trim().toLowerCase() !== 'approved') {
+      return { ok: false, error: 'Original request is no longer an approved absence.' };
+    }
+
+    var originalRequestDate = requestDateColIndex > 0 ? formatDateValue_(rows[originalRequestRowIndex][requestDateColIndex - 1]) : '';
+    var todayDate = formatDateYMD_(new Date());
+    if (!originalRequestDate || originalRequestDate <= todayDate) {
+      return { ok: false, error: 'Only future approved absences can be retracted.' };
+    }
+
+    var deleteRows = [originalRequestRowIndex + 1, requestRowIndex + 1].sort(function(a, b) { return b - a; });
+    for (var dr = 0; dr < deleteRows.length; dr++) {
+      sheet.deleteRow(deleteRows[dr]);
+    }
+
+    try {
+      shiftEstimatedEndDateByWorkingDays_(studentUserId, -1);
+    } catch (profileRetractErr) {
+      Logger.log('Warning: Could not reverse estimated_end_date for absence retraction: ' + (profileRetractErr && profileRetractErr.message ? profileRetractErr.message : String(profileRetractErr)));
+    }
+
+    if (studentUserId) {
+      createNotification_(
+        studentUserId,
+        'Absence Retraction Approved',
+        'Your approved absence for ' + originalRequestDate + ' has been retracted.',
+        'approval',
+        linkedOriginalRequestId
+      );
+    }
+
+    return { ok: true, message: 'Approved absence retraction. The absence request was removed.', status: 'Approved', deleted: true };
   }
 
   if (isRecoverTransition) {
@@ -5222,6 +5465,97 @@ function addActivityTaskAttachment(payload) {
   }
 }
 
+function deleteActivityTaskAttachment(payload) {
+  try {
+    var attachmentId = String(payload.attachment_id || payload.id || '').trim();
+    var requesterId = String(payload.user_id || payload.requester_id || payload.updated_by || '').trim();
+    if (!attachmentId) return { ok: false, error: 'attachment_id is required.' };
+    if (!requesterId) return { ok: false, error: 'user_id is required.' };
+
+    var sheet = getOrCreateSheetWithHeaders_(ACT_ATTACHMENTS_SHEET_, ACT_ATTACHMENTS_HEADERS_);
+    var values = getSheetValues_(sheet) || [];
+    if (values.length <= 1) return { ok: false, error: 'No rows found.' };
+
+    var requesterRecord = null;
+    try { requesterRecord = findUserRecordByUserId_(requesterId); } catch (e) { requesterRecord = null; }
+    var isSupervisor = Boolean(requesterRecord && requesterRecord.user && isSupervisorUser_(requesterRecord.user));
+
+    var headers = values[0].map(function(h){ return normalizeHeader_(h); });
+    var idIdx = headers.indexOf('id');
+    var taskIdIdx = headers.indexOf('task_id');
+    var fileNameIdx = headers.indexOf('file_name');
+    var userIdIdx = headers.indexOf('user_id');
+    var uploadedByIdx = headers.indexOf('uploaded_by');
+
+    if (idIdx === -1) return { ok: false, error: 'id column not found.' };
+
+    var foundRowIndex = -1;
+    var foundRow = null;
+    for (var r = 1; r < values.length; r++) {
+      if (String(values[r][idIdx] || '').trim() === attachmentId) {
+        foundRowIndex = r + 1;
+        foundRow = values[r];
+        break;
+      }
+    }
+    if (!foundRow) return { ok: false, error: 'Attachment not found.' };
+
+    var ownerId = userIdIdx !== -1 ? String(foundRow[userIdIdx] || '').trim() : '';
+    var uploadedBy = uploadedByIdx !== -1 ? String(foundRow[uploadedByIdx] || '').trim() : '';
+    if (!isSupervisor && requesterId !== ownerId && requesterId !== uploadedBy) {
+      return { ok: false, error: 'You can only remove attachments you uploaded unless you are a supervisor.' };
+    }
+
+    var taskId = taskIdIdx !== -1 ? String(foundRow[taskIdIdx] || '').trim() : '';
+    var fileName = fileNameIdx !== -1 ? String(foundRow[fileNameIdx] || '').trim() : '';
+
+    sheet.deleteRow(foundRowIndex);
+
+    try {
+      if (taskId) {
+        var remainingNames = [];
+        var refreshed = getSheetValues_(sheet) || [];
+        for (var i = 1; i < refreshed.length; i++) {
+          var rowTaskId = taskIdIdx !== -1 ? String(refreshed[i][taskIdIdx] || '').trim() : '';
+          if (rowTaskId !== taskId) continue;
+          var rowFileName = fileNameIdx !== -1 ? String(refreshed[i][fileNameIdx] || '').trim() : '';
+          if (rowFileName && remainingNames.indexOf(rowFileName) === -1) {
+            remainingNames.push(rowFileName);
+          }
+        }
+
+        var activitySheet = getSheet_('activity_logs');
+        if (activitySheet) {
+          var activityValues = getSheetValues_(activitySheet) || [];
+          if (activityValues.length > 0) {
+            var activityHeaders = activityValues[0].map(function(h){ return normalizeHeader_(h); });
+            var activityIdIdx = activityHeaders.indexOf('id');
+            var attachmentsIdx = activityHeaders.indexOf('attachments');
+            if (activityIdIdx !== -1 && attachmentsIdx !== -1) {
+              for (var ar = 1; ar < activityValues.length; ar++) {
+                if (String(activityValues[ar][activityIdIdx] || '').trim() !== taskId) continue;
+                updateObjectRow_(activitySheet, ar + 1, { attachments: JSON.stringify(remainingNames) });
+                break;
+              }
+            }
+          }
+        }
+      }
+    } catch (syncErr) {
+      // Non-fatal: the attachment row was removed even if the summary column couldn't be synced.
+    }
+
+    return {
+      ok: true,
+      attachment_id: attachmentId,
+      task_id: taskId,
+      file_name: fileName
+    };
+  } catch (err) {
+    return { ok: false, error: err && err.message ? String(err.message) : String(err) };
+  }
+}
+
 
 // Migration helper: fix rows in act_attachments where columns got shifted.
 // Heuristics: detects ISO timestamps, user_id patterns (e.g., user_0001 or emails), and task id patterns (ACT_, WL_, ATT_, WLA_)
@@ -5894,10 +6228,43 @@ function handleDeleteFolder_(payload) {
       return { ok: false, error: 'You do not have permission to delete this folder.' };
     }
 
-    // Delete the folder from the sheet (remove the row at folderIndex + 2 because row 1 is headers)
-    sheet.deleteRow(folderIndex + 2);
+    var deletedFolderCount = 0;
+    for (var f = rows.length - 1; f >= 0; f--) {
+      var folderRow = rows[f];
+      var deleteFolderUserId = String(folderRow.user_id || '').trim();
+      if (groupMemberIds.indexOf(deleteFolderUserId) === -1) {
+        continue;
+      }
 
-    return { ok: true, message: 'Folder deleted successfully.' };
+      var deleteFolderPath = normalizeDocumentFolderPath_(folderRow.path || folderRow.folder_name || '');
+      if (isDocumentFolderPathInTree_(deleteFolderPath, folderPath)) {
+        sheet.deleteRow(f + 2);
+        deletedFolderCount++;
+      }
+    }
+
+    var deletedDocumentCount = 0;
+    var documentsSheet = getOrCreateSheetWithHeaders_(DOCUMENTS_SHEET_, DOCUMENTS_HEADERS_);
+    var documentRows = readSheetObjects_(documentsSheet);
+    for (var d = documentRows.length - 1; d >= 0; d--) {
+      var docRow = documentRows[d];
+      var docOwnerId = String(docRow.user_id || '').trim();
+      if (groupMemberIds.indexOf(docOwnerId) === -1) {
+        continue;
+      }
+
+      if (isDocumentFolderPathInTree_(docRow.folder || '/', folderPath)) {
+        documentsSheet.deleteRow(d + 2);
+        deletedDocumentCount++;
+      }
+    }
+
+    return {
+      ok: true,
+      message: 'Folder deleted successfully.',
+      deleted_folders: deletedFolderCount,
+      deleted_documents: deletedDocumentCount
+    };
   } catch (err) {
     return { ok: false, error: err.message || String(err) };
   }
@@ -5979,6 +6346,12 @@ function normalizeDocumentFolderPath_(value) {
     .map(function(part) { return String(part || '').trim(); })
     .filter(function(part) { return !!part; });
   return parts.length ? '/' + parts.join('/') : '/';
+}
+
+function isDocumentFolderPathInTree_(path, folderPath) {
+  var normalizedPath = normalizeDocumentFolderPath_(path);
+  var normalizedFolder = normalizeDocumentFolderPath_(folderPath);
+  return normalizedPath === normalizedFolder || normalizedPath.indexOf(normalizedFolder + '/') === 0;
 }
 
 function handleGetDocumentsBootstrapData_(payload) {

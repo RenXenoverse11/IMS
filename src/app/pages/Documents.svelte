@@ -1,7 +1,7 @@
 ﻿
 <script>
   import { onMount } from 'svelte';
-  import { Upload, Link2, Folder, FolderOpen, FileText, Download, Trash2, Eye, Plus, Search, Share2, Copy, X, Check, ChevronRight, Loader2, Files, Clock, Lock } from 'lucide-svelte';
+  import { Upload, Link2, Folder, FolderOpen, FileText, Download, Trash2, Eye, Plus, Search, Share2, Copy, X, Check, ChevronRight, Loader2, Files, Clock, Lock, Pencil } from 'lucide-svelte';
   import * as authApi from '../lib/auth.js';
 
   // Folder structure
@@ -181,6 +181,17 @@
   function getFolderDocumentCount_(folderPath) {
     const normalized = normalizeFolderPath_(folderPath);
     return documents.filter((doc) => normalizeFolderPath_(doc.folder) === normalized).length;
+  }
+
+  function isFolderPathInTree_(path, folderPath) {
+    const normalizedPath = normalizeFolderPath_(path);
+    const normalizedFolder = normalizeFolderPath_(folderPath);
+    return normalizedPath === normalizedFolder || normalizedPath.startsWith(normalizedFolder + '/');
+  }
+
+  function getFolderTreeDocumentCount_(folderPath) {
+    const normalized = normalizeFolderPath_(folderPath);
+    return documents.filter((doc) => isFolderPathInTree_(doc.folder, normalized)).length;
   }
 
   function parseStoredAuthUserId_() {
@@ -1150,16 +1161,17 @@
     const normalizedPath = normalizeFolderPath_(folderPath);
     isDeletingFolder = true;
 
-    // Remove folder from structure
+    // Remove folder, nested folders, and their documents optimistically.
     folderStructure.root.subfolders = folderStructure.root.subfolders.filter(
       f => {
         const fPath = typeof f === 'string' ? f : f.path;
-        return normalizeFolderPath_(fPath) !== normalizedPath;
+        return !isFolderPathInTree_(fPath, normalizedPath);
       }
     );
+    documents = documents.filter(doc => !isFolderPathInTree_(doc.folder, normalizedPath));
 
     // Reset currentFolder if it was the deleted folder
-    if (currentFolder === normalizedPath) {
+    if (isFolderPathInTree_(currentFolder, normalizedPath)) {
       currentFolder = '/';
     }
 
@@ -1172,14 +1184,16 @@
         showActionMessage_('Folder deleted successfully.');
       } else {
         showActionMessage_('Error deleting folder: ' + (response?.error || 'Unknown error'), 'error');
-        // Reload folders if delete failed to restore the UI
+        // Reload data if delete failed to restore the UI
         loadFolders_();
+        loadDocuments_();
       }
     }).catch(err => {
       console.error('Delete folder error:', err);
       showActionMessage_('Error deleting folder. Please try again.', 'error');
-      // Reload folders if delete failed to restore the UI
+      // Reload data if delete failed to restore the UI
       loadFolders_();
+      loadDocuments_();
     }).finally(() => {
       isDeletingFolder = false;
     });
@@ -1412,23 +1426,21 @@
           });
 
           if (response?.ok) {
-            // Move all documents from this folder to root
-            documents = documents.map(doc =>
-              normalizeFolderPath_(doc.folder) === folderPath ? { ...doc, folder: '/' } : doc
-            );
+            // Remove all documents in this folder tree.
+            documents = documents.filter(doc => !isFolderPathInTree_(doc.folder, folderPath));
 
-            // Remove folder from structure
+            // Remove folder and nested folders from structure.
             folderStructure.root.subfolders = folderStructure.root.subfolders.filter(
               f => {
                 const fPath = typeof f === 'string' ? f : f.path;
-                return normalizeFolderPath_(fPath) !== folderPath;
+                return !isFolderPathInTree_(fPath, folderPath);
               }
             );
 
             successCount++;
 
             // Reset currentFolder if it was a deleted folder
-            if (currentFolder === folderPath) {
+            if (isFolderPathInTree_(currentFolder, folderPath)) {
               currentFolder = '/';
             }
           } else {
@@ -1724,36 +1736,8 @@
                   >
                     {selectAllFoldersChecked ? 'Deselect All' : 'Select All'}
                   </button>
-                  {#if selectedFolders.size === 1}
-                    <!-- Single folder selected: show action buttons -->
-                    {@const selectedPath = Array.from(selectedFolders)[0]}
-                    {@const selectedFolderObj = folderStructure.root.subfolders.find((f) => {
-                      const fPath = typeof f === 'string' ? f : f.path;
-                      return normalizeFolderPath_(fPath) === normalizeFolderPath_(selectedPath);
-                    })}
-                    {@const canRenameSelectedFolder = canRenameFolder_(selectedFolderObj)}
-                    <div class="folder-action-bar">
-                      <button 
-                        class="folder-action-btn rename"
-                        title={canRenameSelectedFolder ? 'Rename folder' : 'Only the folder owner can rename this folder'}
-                        disabled={isDeleteFoldersProcessing || !canRenameSelectedFolder}
-                        on:click={() => {
-                          if (!canRenameSelectedFolder) {
-                            showActionMessage_('Only the folder owner can rename this folder.', 'error');
-                            return;
-                          }
-                          folderToRename = selectedPath;
-                          renameFolderInputValue = getFolderNameFromPath_(selectedPath);
-                          showRenameFolderModal = true;
-                          selectedFolders.clear();
-                          showFolderBulkActions = false;
-                        }}
-                      >
-                        ✏️ Rename
-                      </button>
-                    </div>
-                  {:else if selectedFolders.size > 1}
-                    <span class="selection-info">Rename is available when one folder is selected.</span>
+                  {#if selectedFolders.size > 1}
+                    <span class="selection-info">Use each row's action buttons to rename folders.</span>
                   {/if}
                   <button 
                     class="select-btn cancel-btn"
@@ -1800,6 +1784,7 @@
                       {@const creatorName = typeof folder === 'string' ? '–' : (folder.createdByName || folder.createdBy || '–')}
                       {@const folderDocs = documents.filter(doc => normalizeFolderPath_(doc.folder) === folderPath)}
                       {@const canDelete = canDeleteFolder_(folder)}
+                      {@const canRename = canRenameFolder_(folder)}
                       <tr 
                         class="table-row"
                         class:active={selectedFolderInTab === folderPath}
@@ -1838,20 +1823,36 @@
                           <span class="files-count">{folderDocs.length}</span>
                         </td>
                         <td class="col-actions">
-                          {#if canDelete}
-                            <button 
-                              class="icon-btn delete-btn"
-                              title="Delete folder"
-                              on:click={(e) => {
-                                e.stopPropagation();
-                                folderToDelete = folder;
-                                showDeleteFolderConfirm = true;
-                              }}
-                            >
-                              <Trash2 size={14} />
-                            </button>
+                          {#if canRename || canDelete}
+                            {#if canRename}
+                              <button 
+                                class="icon-btn rename-btn"
+                                title="Rename folder"
+                                on:click={(e) => {
+                                  e.stopPropagation();
+                                  folderToRename = folderPath;
+                                  renameFolderInputValue = getFolderNameFromPath_(folderPath);
+                                  showRenameFolderModal = true;
+                                }}
+                              >
+                                <Pencil size={14} />
+                              </button>
+                            {/if}
+                            {#if canDelete}
+                              <button 
+                                class="icon-btn delete-btn"
+                                title="Delete folder"
+                                on:click={(e) => {
+                                  e.stopPropagation();
+                                  folderToDelete = folder;
+                                  showDeleteFolderConfirm = true;
+                                }}
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            {/if}
                           {:else}
-                            <span class="permission-denied" title="You don't have permission to delete this folder">
+                            <span class="permission-denied" title="You don't have permission to rename or delete this folder">
                               🔒
                             </span>
                           {/if}
@@ -2385,6 +2386,7 @@
   {#if showDeleteFolderConfirm && folderToDelete}
     {@const folderPath = typeof folderToDelete === 'string' ? folderToDelete : folderToDelete.path}
     {@const folderName = getFolderNameFromPath_(folderPath)}
+    {@const folderDocumentCount = getFolderTreeDocumentCount_(folderPath)}
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div class="modal-overlay" on:click={() => (showDeleteFolderConfirm = false)}>
@@ -2400,7 +2402,10 @@
         <div class="modal-body">
           <div class="confirmation-content">
             <p>Are you sure you want to delete <strong>"{folderName}"</strong>?</p>
-            <p class="warning-text">This folder will be permanently deleted. This action cannot be undone.</p>
+            <p class="warning-text">
+              This folder{folderDocumentCount > 0 ? ` and ${folderDocumentCount} document${folderDocumentCount !== 1 ? 's' : ''} inside it` : ''} will be permanently deleted.
+              Move any documents you want to keep before continuing. This action cannot be undone.
+            </p>
           </div>
         </div>
 
@@ -2561,7 +2566,7 @@
         <div class="modal-body">
           <div class="confirmation-content">
             <p>Are you sure you want to delete <strong>{selectedFolders.size} folder{selectedFolders.size !== 1 ? 's' : ''}</strong>?</p>
-            <p class="warning-text">All documents in these folders will be permanently deleted. This action cannot be undone.</p>
+            <p class="warning-text">All documents in these folders will be permanently deleted. Move any documents you want to keep before continuing. This action cannot be undone.</p>
           </div>
         </div>
 
@@ -5350,6 +5355,32 @@
     text-align: center;
   }
 
+  .folders-table .col-actions {
+    width: 96px;
+    min-width: 96px;
+  }
+
+  .folders-table td.col-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .folders-table td.col-actions .icon-btn {
+    flex: 0 0 28px;
+  }
+
+  .folders-table .icon-btn.rename-btn {
+    color: #60a5fa;
+  }
+
+  .folders-table .icon-btn.rename-btn:hover {
+    background: rgba(59, 130, 246, 0.16);
+    border-color: rgba(96, 165, 250, 0.38);
+    color: #bfdbfe;
+  }
+
   .permission-denied {
     display: inline-block;
     font-size: 16px;
@@ -5392,6 +5423,7 @@
   .icon-btn {
     width: 28px;
     height: 28px;
+    padding: 0;
     border-radius: 7px;
     display: inline-flex;
     align-items: center;
@@ -5728,9 +5760,9 @@
     }
 
     .folders-table .col-actions {
-      width: 68px;
+      width: 78px;
       text-align: right;
-      padding-left: 10px;
+      padding-left: 8px;
       padding-right: 8px;
       border-left: 1px solid rgba(255, 255, 255, 0.08);
     }
@@ -6280,39 +6312,6 @@
     display: flex;
     gap: 0.5rem;
     align-items: center;
-  }
-
-  .folder-action-bar .folder-action-btn {
-    padding: 0.5rem 0.75rem;
-    border: 1px solid var(--ims-ref-border, #e5e7eb);
-    border-radius: 6px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    white-space: nowrap;
-    background: var(--ims-ref-surface, white);
-    color: var(--ims-ref-text3, #6b7280);
-    flex-shrink: 0;
-  }
-
-  .folder-action-bar .folder-action-btn:hover:not(:disabled) {
-    background: var(--ims-ref-surface2, #f3f4f6);
-    border-color: var(--ims-ref-accent2, #2563eb);
-  }
-
-  .folder-action-bar .folder-action-btn.rename {
-    color: #2563eb;
-    border-color: #2563eb;
-  }
-
-  .folder-action-bar .folder-action-btn.rename:hover:not(:disabled) {
-    background: rgba(59, 130, 246, 0.1);
-  }
-
-  .folder-action-bar .folder-action-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
   }
 
   .btn:disabled {
