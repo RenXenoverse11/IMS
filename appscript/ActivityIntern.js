@@ -724,9 +724,9 @@ function getActivityTasks(payload) {
 				checklist: parseActivityJsonArray_(row.checklist),
 				attachments: parseActivityJsonArray_(row.attachments) || [],
 				priority: String(row.priority || 'medium').trim(),
-				created_at: String(row.created_at || '').trim(),
+				created_at: normalizeActivityTaskTimestamp_(row.created_at, ''),
 				created_by: String(row.created_by || '').trim(),
-				updated_at: String(row.updated_at || '').trim(),
+				updated_at: normalizeActivityTaskTimestamp_(row.updated_at, ''),
 				updated_by: String(row.updated_by || '').trim()
 			};
 			tasksMap[taskId] = task;
@@ -814,11 +814,13 @@ function getActivityTasks(payload) {
 			}
 			tasksMap[attTaskId].attachments.push({
 				attachment_id: String(attRow.id || '').trim(),
+				user_id: String(attRow.user_id || '').trim(),
 				file_type: String(attRow.file_type || '').trim(),
 				file_size: String(attRow.file_size || '').trim(),
 				file_name: String(attRow.file_name || '').trim(),
 				link: existingLink,
-				uploaded_at: String(attRow.uploaded_at || '').trim()
+				uploaded_at: String(attRow.uploaded_at || '').trim(),
+				uploaded_by: String(attRow.uploaded_by || '').trim()
 			});
 		}
 	} catch (err) {
@@ -870,11 +872,13 @@ function getActivityTasks(payload) {
 				if (!supAttchByTaskId[sid]) supAttchByTaskId[sid] = [];
 				supAttchByTaskId[sid].push({
 					attachment_id: String(sar.supattch_id || '').trim(),
+					user_id: String(sar.user_id || '').trim(),
 					file_type: String(sar.file_type || '').trim(),
 					file_size: String(sar.file_size || '').trim(),
 					file_name: String(sar.file_name || '').trim(),
 					link: String(sar.link || '').trim(),
-					uploaded_at: String(sar.uploaded_at || '').trim()
+					uploaded_at: String(sar.uploaded_at || '').trim(),
+					uploaded_by: String(sar.uploaded_by || '').trim()
 				});
 			}
 		} catch (e) { /* supervisor_attch sheet may not exist yet */ }
@@ -970,11 +974,123 @@ function getActivityTasks(payload) {
 		// Non-fatal: intern can still view tasks without supervisor attachments
 	}
 
+	for (var ti3 = 0; ti3 < tasks.length; ti3++) {
+		var creatorAccess = activityResolveTaskCreatorAccess_(tasks[ti3].created_by);
+		tasks[ti3].created_by_role = creatorAccess.creatorRole;
+		tasks[ti3].creator_is_supervisor = creatorAccess.creatorIsSupervisor;
+	}
+
 	return {
 		ok: true,
 		tasks: tasks
 	};
 }
+
+function activityResolveTaskCreatorAccess_(creatorKey) {
+	var rawKey = String(creatorKey || '').trim();
+	var record = null;
+	try {
+		record = rawKey && rawKey.indexOf('@') !== -1
+			? findUserRecordByEmail_(rawKey)
+			: findUserRecordByUserId_(rawKey);
+	} catch (e) {
+		record = null;
+	}
+
+	var user = record && record.user ? record.user : null;
+	var creatorId = rawKey;
+	var creatorEmail = rawKey.toLowerCase();
+	var creatorRole = '';
+
+	if (user) {
+		creatorId = String(user.user_id || creatorId || '').trim();
+		creatorEmail = String(user.email || creatorEmail || '').trim().toLowerCase();
+		creatorRole = String(user.role || user.effective_role || user.user_role || user.Role || '').trim();
+	}
+
+	return {
+		creatorId: creatorId,
+		creatorEmail: creatorEmail,
+		creatorRole: creatorRole,
+		creatorIsSupervisor: Boolean(user && isSupervisorUser_(user))
+	};
+}
+
+function activityNormalizeAttachmentNames_(value) {
+	var list = value;
+	if (!Array.isArray(list)) {
+		list = parseActivityJsonArray_(value);
+	}
+	if (!Array.isArray(list)) {
+		list = [];
+	}
+
+	var names = [];
+	for (var i = 0; i < list.length; i++) {
+		var item = list[i];
+		var fileName = '';
+		if (item && typeof item === 'object') {
+			fileName = String(item.file_name || item.name || '').trim();
+		} else {
+			fileName = String(item || '').trim();
+		}
+		if (fileName) {
+			names.push(fileName);
+		}
+	}
+	return names;
+}
+
+function normalizeActivityTaskTimestamp_(value, fallback) {
+	var formatted = formatTimestamp_(value || fallback || new Date());
+	if (formatted) return formatted;
+	return String(value || fallback || '').trim();
+}
+
+function activityPayloadChangesProtectedFields_(payload, existingTask) {
+	var currentTitle = String(existingTask.task_name || existingTask.title || '').trim();
+	var currentDueDate = String(existingTask.due_date || '').trim();
+	var currentDescription = String(existingTask.description || '').trim();
+	var currentAssignedBy = String(existingTask.assigned_by || '').trim();
+	var currentPriority = String(existingTask.priority || 'medium').trim();
+	var currentCreatedBy = String(existingTask.created_by || '').trim();
+
+	if (payload.title !== undefined || payload.task_name !== undefined) {
+		var nextTitle = String(payload.title !== undefined ? payload.title : payload.task_name).trim();
+		if (nextTitle !== currentTitle) return true;
+	}
+
+	if (payload.due_date !== undefined && String(payload.due_date || '').trim() !== currentDueDate) {
+		return true;
+	}
+
+	if (payload.description !== undefined && String(payload.description || '').trim() !== currentDescription) {
+		return true;
+	}
+
+	if (payload.assigned_by !== undefined && String(payload.assigned_by || '').trim() !== currentAssignedBy) {
+		return true;
+	}
+
+	if (payload.priority !== undefined && String(payload.priority || '').trim() !== currentPriority) {
+		return true;
+	}
+
+	if (payload.created_by !== undefined && String(payload.created_by || '').trim() !== currentCreatedBy) {
+		return true;
+	}
+
+	if (payload.attachments !== undefined) {
+		var nextAttachments = activityNormalizeAttachmentNames_(payload.attachments);
+		var currentAttachments = activityNormalizeAttachmentNames_(existingTask.attachments);
+		if (JSON.stringify(nextAttachments) !== JSON.stringify(currentAttachments)) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
 // Update a task by id
 function updateActivityTask(payload) {
 	var sheet = getSheet_('activity_logs');
@@ -1008,6 +1124,7 @@ function updateActivityTask(payload) {
 			var effectiveCreatorEmail = effectiveCreatorId.toLowerCase();
 			var ownerUserId = String(payload.user_id || existingTask.user_id || '').trim();
 			var existingUpdatedBy = String(existingTask.updated_by || '').trim();
+			var progressOnlyUpdate = false;
 			var rowLooksSelfCreated = Boolean(
 				ownerUserId &&
 				effectiveCreatorId &&
@@ -1063,29 +1180,62 @@ function updateActivityTask(payload) {
 				} catch (e) {
 					// ignore supervisor inference errors
 				}
-				var canEdit = false;
-				if (effectiveCreatorId && (effectiveCreatorId === requesterId || (requesterEmail && effectiveCreatorEmail === requesterEmail))) {
-					canEdit = true;
+				var creatorAccess = activityResolveTaskCreatorAccess_(effectiveCreatorId || effectiveCreatorEmail);
+				effectiveCreatorId = creatorAccess.creatorId || effectiveCreatorId;
+				effectiveCreatorEmail = creatorAccess.creatorEmail || effectiveCreatorEmail;
+				var creatorIsSupervisor = creatorAccess.creatorIsSupervisor;
+				var hasFullEditAccess = Boolean(
+					effectiveCreatorId &&
+					(effectiveCreatorId === requesterId || (requesterEmail && effectiveCreatorEmail === requesterEmail))
+				);
+				if (!hasFullEditAccess) {
+					progressOnlyUpdate = Boolean(
+						ownerUserId &&
+						requesterId === ownerUserId &&
+						creatorIsSupervisor &&
+						!activityPayloadChangesProtectedFields_(payload, existingTask)
+					);
 				}
-				if (!canEdit) {
-					return { ok: false, error: 'You can only modify tasks you created unless you are a supervisor.' };
+				if (!hasFullEditAccess && !progressOnlyUpdate) {
+					return {
+						ok: false,
+						error: creatorIsSupervisor
+							? 'This task was created by a supervisor. Interns can only update the task status, checklist, and attachments.'
+							: 'You can only modify tasks you created unless you are a supervisor.'
+					};
 				}
 			}
 			var nextTask = {
 				id: String(existingTask.id || id).trim(),
-				user_id: String(payload.user_id || existingTask.user_id || '').trim(),
-				task_name: String(payload.title || payload.task_name || existingTask.task_name || '').trim(),
-				due_date: String(payload.due_date || existingTask.due_date || '').trim(),
-				status: String(payload.status || existingTask.status || 'Pending').trim(),
-				description: String(payload.description || existingTask.description || '').trim(),
-				assigned_by: String(payload.assigned_by || existingTask.assigned_by || '').trim(),
+				user_id: String(existingTask.user_id || ownerUserId || '').trim(),
+				task_name: progressOnlyUpdate
+					? String(existingTask.task_name || '').trim()
+					: String(payload.title !== undefined ? payload.title : payload.task_name !== undefined ? payload.task_name : existingTask.task_name || '').trim(),
+				due_date: progressOnlyUpdate
+					? String(existingTask.due_date || '').trim()
+					: String(payload.due_date !== undefined ? payload.due_date : existingTask.due_date || '').trim(),
+				status: String(payload.status !== undefined ? payload.status : existingTask.status || 'Pending').trim(),
+				description: progressOnlyUpdate
+					? String(existingTask.description || '').trim()
+					: String(payload.description !== undefined ? payload.description : existingTask.description || '').trim(),
+				assigned_by: progressOnlyUpdate
+					? String(existingTask.assigned_by || '').trim()
+					: String(payload.assigned_by !== undefined ? payload.assigned_by : existingTask.assigned_by || '').trim(),
 				checklist: JSON.stringify(nextChecklist || parseActivityJsonArray_(existingTask.checklist)),
-				attachments: JSON.stringify(nextAttachments || parseActivityJsonArray_(existingTask.attachments)),
-				priority: String(payload.priority || existingTask.priority || 'medium').trim(),
-				owner_email: String(payload.owner_email || existingTask.owner_email || existingTask.email || '').trim(),
-				created_at: String(existingTask.created_at || payload.created_at || isoNow_()).trim(),
+				attachments: JSON.stringify(
+					progressOnlyUpdate
+						? parseActivityJsonArray_(existingTask.attachments)
+						: (nextAttachments || parseActivityJsonArray_(existingTask.attachments))
+				),
+				priority: progressOnlyUpdate
+					? String(existingTask.priority || 'medium').trim()
+					: String(payload.priority !== undefined ? payload.priority : existingTask.priority || 'medium').trim(),
+				owner_email: progressOnlyUpdate
+					? String(existingTask.owner_email || existingTask.email || '').trim()
+					: String(payload.owner_email || existingTask.owner_email || existingTask.email || '').trim(),
+				created_at: normalizeActivityTaskTimestamp_(existingTask.created_at || payload.created_at, new Date()),
 				created_by: String(existingTask.created_by || payload.created_by || '').trim(),
-				updated_at: isoNow_(),
+				updated_at: normalizeActivityTaskTimestamp_(new Date(), ''),
 				updated_by: String(payload.updated_by || existingTask.updated_by || '').trim()
 			};
 
@@ -1100,6 +1250,7 @@ function updateActivityTask(payload) {
 					var taskIdx = supHeaders.indexOf('task');
 					var assignedIdx = supHeaders.indexOf('assigned_to');
 					var dailyChecklistIdx = supHeaders.indexOf('daily_checklist');
+					var createdAtIdx = supHeaders.indexOf('created_at');
 					for (var r = 1; r < supValues.length; r++) {
 						var row = supValues[r] || [];
 						var rowTask = taskIdx !== -1 ? String(row[taskIdx] || '').trim() : '';
@@ -1113,6 +1264,9 @@ function updateActivityTask(payload) {
 									var updateObj = {};
 									if (dailyChecklistIdx !== -1) {
 										updateObj.daily_checklist = JSON.stringify(nextChecklist || []);
+									}
+									if (createdAtIdx !== -1) {
+										updateObj.created_at = formatTimestamp_(row[createdAtIdx]) || String(row[createdAtIdx] || '').trim();
 									}
 									var statusIdx = supHeaders.indexOf('status');
 									if (statusIdx !== -1 && nextTask.status !== undefined) {
@@ -1148,6 +1302,8 @@ function updateActivityTask(payload) {
 					owner_email: nextTask.owner_email,
 					created_at: nextTask.created_at,
 					created_by: nextTask.created_by,
+					created_by_role: activityResolveTaskCreatorAccess_(nextTask.created_by).creatorRole,
+					creator_is_supervisor: activityResolveTaskCreatorAccess_(nextTask.created_by).creatorIsSupervisor,
 					updated_at: nextTask.updated_at,
 					updated_by: nextTask.updated_by
 				}
@@ -1202,10 +1358,11 @@ function setActivityTaskArchiveStatus(payload) {
 			var nextPreviousStatus = shouldArchive && currentStatus.toLowerCase() !== 'archived'
 				? currentStatus
 				: '';
-			var updatedAt = isoNow_();
+			var updatedAt = normalizeActivityTaskTimestamp_(new Date(), '');
 			var updatedBy = String(payload.updated_by || existingTask.updated_by || '').trim();
 
 			updateObjectRow_(sheet, i + 1, {
+				created_at: normalizeActivityTaskTimestamp_(existingTask.created_at, ''),
 				status: nextStatus,
 				archived_previous_status: nextPreviousStatus,
 				updated_at: updatedAt,
@@ -1228,7 +1385,7 @@ function setActivityTaskArchiveStatus(payload) {
 					attachments: parseActivityJsonArray_(existingTask.attachments),
 					priority: String(existingTask.priority || 'medium').trim(),
 					owner_email: String(existingTask.owner_email || existingTask.email || '').trim(),
-					created_at: String(existingTask.created_at || '').trim(),
+					created_at: normalizeActivityTaskTimestamp_(existingTask.created_at, ''),
 					created_by: String(existingTask.created_by || '').trim(),
 					updated_at: updatedAt,
 					updated_by: updatedBy

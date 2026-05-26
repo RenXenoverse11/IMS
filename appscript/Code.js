@@ -5317,6 +5317,97 @@ function addActivityTaskAttachment(payload) {
   }
 }
 
+function deleteActivityTaskAttachment(payload) {
+  try {
+    var attachmentId = String(payload.attachment_id || payload.id || '').trim();
+    var requesterId = String(payload.user_id || payload.requester_id || payload.updated_by || '').trim();
+    if (!attachmentId) return { ok: false, error: 'attachment_id is required.' };
+    if (!requesterId) return { ok: false, error: 'user_id is required.' };
+
+    var sheet = getOrCreateSheetWithHeaders_(ACT_ATTACHMENTS_SHEET_, ACT_ATTACHMENTS_HEADERS_);
+    var values = getSheetValues_(sheet) || [];
+    if (values.length <= 1) return { ok: false, error: 'No rows found.' };
+
+    var requesterRecord = null;
+    try { requesterRecord = findUserRecordByUserId_(requesterId); } catch (e) { requesterRecord = null; }
+    var isSupervisor = Boolean(requesterRecord && requesterRecord.user && isSupervisorUser_(requesterRecord.user));
+
+    var headers = values[0].map(function(h){ return normalizeHeader_(h); });
+    var idIdx = headers.indexOf('id');
+    var taskIdIdx = headers.indexOf('task_id');
+    var fileNameIdx = headers.indexOf('file_name');
+    var userIdIdx = headers.indexOf('user_id');
+    var uploadedByIdx = headers.indexOf('uploaded_by');
+
+    if (idIdx === -1) return { ok: false, error: 'id column not found.' };
+
+    var foundRowIndex = -1;
+    var foundRow = null;
+    for (var r = 1; r < values.length; r++) {
+      if (String(values[r][idIdx] || '').trim() === attachmentId) {
+        foundRowIndex = r + 1;
+        foundRow = values[r];
+        break;
+      }
+    }
+    if (!foundRow) return { ok: false, error: 'Attachment not found.' };
+
+    var ownerId = userIdIdx !== -1 ? String(foundRow[userIdIdx] || '').trim() : '';
+    var uploadedBy = uploadedByIdx !== -1 ? String(foundRow[uploadedByIdx] || '').trim() : '';
+    if (!isSupervisor && requesterId !== ownerId && requesterId !== uploadedBy) {
+      return { ok: false, error: 'You can only remove attachments you uploaded unless you are a supervisor.' };
+    }
+
+    var taskId = taskIdIdx !== -1 ? String(foundRow[taskIdIdx] || '').trim() : '';
+    var fileName = fileNameIdx !== -1 ? String(foundRow[fileNameIdx] || '').trim() : '';
+
+    sheet.deleteRow(foundRowIndex);
+
+    try {
+      if (taskId) {
+        var remainingNames = [];
+        var refreshed = getSheetValues_(sheet) || [];
+        for (var i = 1; i < refreshed.length; i++) {
+          var rowTaskId = taskIdIdx !== -1 ? String(refreshed[i][taskIdIdx] || '').trim() : '';
+          if (rowTaskId !== taskId) continue;
+          var rowFileName = fileNameIdx !== -1 ? String(refreshed[i][fileNameIdx] || '').trim() : '';
+          if (rowFileName && remainingNames.indexOf(rowFileName) === -1) {
+            remainingNames.push(rowFileName);
+          }
+        }
+
+        var activitySheet = getSheet_('activity_logs');
+        if (activitySheet) {
+          var activityValues = getSheetValues_(activitySheet) || [];
+          if (activityValues.length > 0) {
+            var activityHeaders = activityValues[0].map(function(h){ return normalizeHeader_(h); });
+            var activityIdIdx = activityHeaders.indexOf('id');
+            var attachmentsIdx = activityHeaders.indexOf('attachments');
+            if (activityIdIdx !== -1 && attachmentsIdx !== -1) {
+              for (var ar = 1; ar < activityValues.length; ar++) {
+                if (String(activityValues[ar][activityIdIdx] || '').trim() !== taskId) continue;
+                updateObjectRow_(activitySheet, ar + 1, { attachments: JSON.stringify(remainingNames) });
+                break;
+              }
+            }
+          }
+        }
+      }
+    } catch (syncErr) {
+      // Non-fatal: the attachment row was removed even if the summary column couldn't be synced.
+    }
+
+    return {
+      ok: true,
+      attachment_id: attachmentId,
+      task_id: taskId,
+      file_name: fileName
+    };
+  } catch (err) {
+    return { ok: false, error: err && err.message ? String(err.message) : String(err) };
+  }
+}
+
 
 // Migration helper: fix rows in act_attachments where columns got shifted.
 // Heuristics: detects ISO timestamps, user_id patterns (e.g., user_0001 or emails), and task id patterns (ACT_, WL_, ATT_, WLA_)
