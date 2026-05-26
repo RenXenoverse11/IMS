@@ -286,11 +286,12 @@
   $: pendingOvertimeHours = sumPendingRequestHours(pendingRequests);
   $: effectiveCompletedHours = progressMode === PROGRESS_MODES.ALL ? totalCompletedHours + pendingOvertimeHours : totalCompletedHours;
   $: hoursCompleted = effectiveCompletedHours;
-  $: hoursRemaining = Math.max(0, totalOjtHours - hoursCompleted);
+  $: isCompleted = profile?.completed_at ? true : false;
+  $: hoursRemaining = isCompleted ? 0 : Math.max(0, totalOjtHours - hoursCompleted);
   $: avgDailyHours = 8; // You can make this dynamic if needed
   $: totalWorkingDays = Math.ceil(Math.max(0, totalOjtHours) / avgDailyHours);
-  $: remainingWorkingDays = Math.ceil(Math.max(0, hoursRemaining) / avgDailyHours);
-  $: baseCalculatedEstimatedEndDate = (formStartDate && hoursRemaining > 0)
+  $: remainingWorkingDays = isCompleted ? 0 : Math.ceil(Math.max(0, hoursRemaining) / avgDailyHours);
+  $: baseCalculatedEstimatedEndDate = (formStartDate && hoursRemaining > 0 && !isCompleted)
     ? getEstimatedCompletionDate(hoursRemaining, avgDailyHours, internSchedule.days_off)
     : '';
   $: calculatedEstimatedEndDate = baseCalculatedEstimatedEndDate
@@ -301,14 +302,17 @@
     : '';
   $: storedEstimatedEndDateObj = parseDateLoose(profile?.estimated_end_date);
   $: calculatedEstimatedEndDateObj = parseDateLoose(calculatedEstimatedEndDate);
-  $: estimatedEndDateDisplay = storedEstimatedEndDateDisplay
-    ? ((calculatedEstimatedEndDateObj && storedEstimatedEndDateObj && storedEstimatedEndDateObj < calculatedEstimatedEndDateObj)
-      ? formatDateLong(calculatedEstimatedEndDate)
-      : storedEstimatedEndDateDisplay)
-    : (calculatedEstimatedEndDate ? formatDateLong(calculatedEstimatedEndDate) : 'Not available yet');
+  $: estimatedEndDateDisplay = isCompleted
+    ? storedEstimatedEndDateDisplay
+    : (storedEstimatedEndDateDisplay
+      ? ((calculatedEstimatedEndDateObj && storedEstimatedEndDateObj && storedEstimatedEndDateObj < calculatedEstimatedEndDateObj)
+        ? formatDateLong(calculatedEstimatedEndDate)
+        : storedEstimatedEndDateDisplay)
+      : (calculatedEstimatedEndDate ? formatDateLong(calculatedEstimatedEndDate) : 'Not available yet'));
   $: startDateDisplay = formStartDate ? formatDateLong(formStartDate) : 'Not set yet';
-  $: progressPercent = totalOjtHours > 0 ? Math.min(100, Math.round((hoursCompleted / totalOjtHours) * 100)) : 0;
-  $: progressFooterRemaining = `${Number(hoursRemaining || 0).toFixed(1)}h remaining`;
+  $: progressPercent = isCompleted ? 100 : (totalOjtHours > 0 ? Math.min(100, Math.round((hoursCompleted / totalOjtHours) * 100)) : 0);
+  $: progressFooterRemaining = isCompleted ? 'Completed' : `${Number(hoursRemaining || 0).toFixed(1)}h remaining`;
+  $: completionStatusLabel = isCompleted ? 'Completed' : (progressPercent >= 95 ? 'Almost complete' : '');
 
   function normalizeActivityDotKind(item) {
     const type = String(item?.type || item?.action || item?.status || '').toLowerCase();
@@ -771,7 +775,7 @@
         </div>
 
         <div class="dash-card">
-          <div class="dash-section-label">Estimated End Date</div>
+          <div class="dash-section-label">{isCompleted ? 'Completed On' : 'Estimated End Date'}</div>
           <div class="dash-end-value">{estimatedEndDateDisplay}</div>
           <div class="dash-end-meta">Start: {startDateDisplay} · Working days only</div>
         </div>

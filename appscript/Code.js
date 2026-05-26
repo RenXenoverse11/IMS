@@ -16,11 +16,11 @@ var PROFILE_PHOTO_MAX_MB_ = Math.floor(PROFILE_PHOTO_MAX_BYTES_ / (1024 * 1024))
 var PROFILE_PHOTOS_FOLDER_NAME_ = 'IMS Profile Photos';
 var TIME_LOGS_SHEET_ = 'time_logs';
 var ACTIVE_SESSIONS_SHEET_ = 'active_sessions';
-var ACTIVE_SESSIONS_HEADERS_ = ['session_id', 'user_id', 'log_date', 'time_in', 'time_out', 'hours_rendered', 'notes', 'created_at'];
+var ACTIVE_SESSIONS_HEADERS_ = ['session_id', 'user_id', 'log_date', 'time_in', 'time_out', 'hours_rendered', 'actual_rendered_hours', 'notes', 'created_at'];
 var SUPERVISOR_ASSIGNMENTS_SHEET_ = 'supervisor_assignments';
 var SUPERVISOR_ASSIGNMENTS_HEADERS_ = ['assignment_id', 'supervisor_user_id', 'student_user_id', 'company', 'department', 'status', 'created_at'];
 var STUDENT_OJT_PROFILE_SHEET_ = 'student_ojt_profile';
-var STUDENT_OJT_PROFILE_HEADERS_ = ['user_id', 'total_ojt_hours', 'start_date', 'estimated_end_date', 'course', 'school'];
+var STUDENT_OJT_PROFILE_HEADERS_ = ['user_id', 'total_ojt_hours', 'start_date', 'estimated_end_date', 'course', 'school', 'completed_at'];
 var REQUESTS_SHEET_ = 'requests';
 var REQUESTS_HEADERS_ = ['request_id', 'user_id', 'requester_name', 'request_type', 'request_date', 'request_time', 'start_time', 'end_time', 'total_hours', 'reason', 'status', 'rejection_remarks', 'created_at', 'archived_previous_status'];
 var NOTIFICATIONS_SHEET_ = 'notifications';
@@ -1177,6 +1177,47 @@ function handleCreateTimeLog_(payload) {
     if (scheduleError) {
       return { ok: false, error: scheduleError };
     }
+    
+    // Check if internship is already completed - block login if so
+    var profile = getStudentProfileByUserId_(userId);
+    if (profile) {
+      // Self-heal: if completed_at is missing but hours are already at/over target, set it now
+      var completedHoursSoFar = getTotalCompletedHoursByUserId_(userId);
+      var totalOjtHours = Number(profile.total_ojt_hours || 0);
+      
+      if (completedHoursSoFar >= totalOjtHours && !profile.completed_at) {
+        var profileSheet = getStudentOjtProfileSheet_();
+        var profileHeaders = getHeaders_(profileSheet);
+        var profileValues = getSheetValues_(profileSheet);
+        var profileUserIdCol = findColumnIndex_(profileHeaders, 'user_id');
+        var completedAtCol = findColumnIndex_(profileHeaders, 'completed_at');
+        var estimatedEndDateCol = findColumnIndex_(profileHeaders, 'estimated_end_date');
+        
+        for (var pi = 1; pi < profileValues.length; pi++) {
+          if (String(profileValues[pi][profileUserIdCol - 1] || '').trim() === userId) {
+            var profileRowIndex = pi + 1;
+            var completionDate = formatDateYMD_(new Date());
+            if (completedAtCol > 0) {
+              profileSheet.getRange(profileRowIndex, completedAtCol).setValue(completionDate);
+            }
+            if (estimatedEndDateCol > 0) {
+              profileSheet.getRange(profileRowIndex, estimatedEndDateCol).setValue(completionDate);
+            }
+            profile.completed_at = completionDate;
+            break;
+          }
+        }
+      }
+      
+      // Block login if completed
+      if (profile.completed_at) {
+        return {
+          ok: false,
+          error: 'Your internship is already completed. Login is no longer allowed.',
+          completion_reached: true
+        };
+      }
+    }
   }
 
   var sheet = getTimeLogsSheet_();
@@ -1309,6 +1350,16 @@ function handleDeleteTimeLog_(payload) {
     return { ok: false, error: 'user_id and time log details are required.' };
   }
 
+  // Check if internship is completed - block deletion if so
+  var profile = getStudentProfileByUserId_(userId);
+  if (profile && profile.completed_at) {
+    return {
+      ok: false,
+      error: 'Cannot delete time logs after internship completion.',
+      completion_reached: true
+    };
+  }
+
   var sheet = getActiveSessionsSheet_();
   var headers = getHeaders_(sheet);
   var values = getSheetValues_(sheet);
@@ -1401,6 +1452,50 @@ function handleStartSession_(payload) {
     var scheduleError = validateTimeLogSchedule_(userId, logDate, timeIn);
     if (scheduleError) {
       return { ok: false, error: scheduleError };
+    }
+
+    // Check if internship is already completed
+    var profile = getStudentProfileByUserId_(userId);
+    if (profile) {
+      // Self-heal: if completed_at is missing but hours are already at/over target, set it now
+      var completedHoursSoFar = getTotalCompletedHoursByUserId_(userId);
+      var totalOjtHours = Number(profile.total_ojt_hours || 0);
+      
+      if (completedHoursSoFar >= totalOjtHours && !profile.completed_at) {
+        Logger.log('DEBUG handleStartSession_ - Self-healing: setting completed_at for user ' + userId);
+        
+        var profileSheet = getStudentOjtProfileSheet_();
+        var profileHeaders = getHeaders_(profileSheet);
+        var profileValues = getSheetValues_(profileSheet);
+        var profileUserIdCol = findColumnIndex_(profileHeaders, 'user_id');
+        var completedAtCol = findColumnIndex_(profileHeaders, 'completed_at');
+        var estimatedEndDateCol = findColumnIndex_(profileHeaders, 'estimated_end_date');
+        
+        for (var pi = 1; pi < profileValues.length; pi++) {
+          if (String(profileValues[pi][profileUserIdCol - 1] || '').trim() === userId) {
+            var profileRowIndex = pi + 1;
+            var completionDate = formatDateYMD_(new Date());
+            if (completedAtCol > 0) {
+              profileSheet.getRange(profileRowIndex, completedAtCol).setValue(completionDate);
+            }
+            if (estimatedEndDateCol > 0) {
+              profileSheet.getRange(profileRowIndex, estimatedEndDateCol).setValue(completionDate);
+            }
+            profile.completed_at = completionDate;
+            Logger.log('DEBUG handleStartSession_ - Self-heal completed, set completed_at to ' + completionDate);
+            break;
+          }
+        }
+      }
+      
+      // Block login if completed
+      if (profile.completed_at) {
+        return {
+          ok: false,
+          error: 'Your internship is already completed. Login is no longer allowed.',
+          completion_reached: true
+        };
+      }
     }
 
     // Check if user already has active session for this date
@@ -1543,13 +1638,63 @@ function handleEndSession_(payload) {
       return { ok: false, error: 'No active session found. Please log in first.' };
     }
 
-    // Update the SAME row in active_sessions with time_out, hours, and notes
-    Logger.log('DEBUG handleEndSession_ - Updating session row ' + sessionRow + ' with time_out=' + timeOut + ', hours=' + hours);
+    // Get student profile to check completion status and calculate remaining hours
+    var profile = getStudentProfileByUserId_(userId);
+    if (!profile) {
+      return { ok: false, error: 'Student profile not found.' };
+    }
+
+    // Calculate current completed hours (before this logout)
+    var completedHoursSoFar = getTotalCompletedHoursByUserId_(userId);
+    var totalOjtHours = Number(profile.total_ojt_hours || 0);
+    var remainingBeforeLogout = Math.max(0, totalOjtHours - completedHoursSoFar);
+    
+    // Compute actual rendered hours and credited hours
+    var actualRenderedHours = Number(hours || 0);
+    var creditedHours = Math.min(actualRenderedHours, remainingBeforeLogout);
+    
+    Logger.log('DEBUG handleEndSession_ - Hours calculation: actual=' + actualRenderedHours + ', credited=' + creditedHours + ', remaining=' + remainingBeforeLogout);
+
+    // Update the SAME row in active_sessions with time_out, credited hours, and actual hours
+    Logger.log('DEBUG handleEndSession_ - Updating session row ' + sessionRow + ' with time_out=' + timeOut + ', hours=' + creditedHours);
+    
+    var actualRenderedCol = findColumnIndex_(sessHeaders, 'actual_rendered_hours');
     
     sessionsSheet.getRange(sessionRow, timeOutCol).setValue(timeOut);
-    sessionsSheet.getRange(sessionRow, hoursCol).setValue(hours);
+    sessionsSheet.getRange(sessionRow, hoursCol).setValue(creditedHours);
+    if (actualRenderedCol > 0) {
+      sessionsSheet.getRange(sessionRow, actualRenderedCol).setValue(actualRenderedHours);
+    }
     
     Logger.log('DEBUG handleEndSession_ - Session updated successfully');
+
+    // Check if this logout completes the internship
+    var newCompletedTotal = completedHoursSoFar + creditedHours;
+    if (newCompletedTotal >= totalOjtHours && !profile.completed_at) {
+      Logger.log('DEBUG handleEndSession_ - Internship completed! Setting completed_at and overwriting estimated_end_date');
+      
+      // Mark profile as completed and overwrite estimated_end_date with actual completion date
+      var profileSheet = getStudentOjtProfileSheet_();
+      var profileHeaders = getHeaders_(profileSheet);
+      var profileValues = getSheetValues_(profileSheet);
+      var profileUserIdCol = findColumnIndex_(profileHeaders, 'user_id');
+      var completedAtCol = findColumnIndex_(profileHeaders, 'completed_at');
+      var estimatedEndDateCol = findColumnIndex_(profileHeaders, 'estimated_end_date');
+      
+      for (var pi = 1; pi < profileValues.length; pi++) {
+        if (String(profileValues[pi][profileUserIdCol - 1] || '').trim() === userId) {
+          var profileRowIndex = pi + 1;
+          if (completedAtCol > 0) {
+            profileSheet.getRange(profileRowIndex, completedAtCol).setValue(logDate);
+          }
+          if (estimatedEndDateCol > 0) {
+            profileSheet.getRange(profileRowIndex, estimatedEndDateCol).setValue(logDate);
+          }
+          Logger.log('DEBUG handleEndSession_ - Profile marked as completed on ' + logDate);
+          break;
+        }
+      }
+    }
 
     var updatedSession = {
       session_id: sessionId,
@@ -1557,14 +1702,16 @@ function handleEndSession_(payload) {
       log_date: logDate,
       time_in: timeIn,
       time_out: timeOut,
-      hours_rendered: hours,
+      hours_rendered: creditedHours,
+      actual_rendered_hours: actualRenderedHours,
       created_at: String(sessValues[sessionRow - 1][findColumnIndex_(sessHeaders, 'created_at') - 1] || '')
     };
 
     return {
       ok: true,
       message: 'Session ended successfully.',
-      session: updatedSession
+      session: updatedSession,
+      completion_reached: newCompletedTotal >= totalOjtHours
     };
   } catch (e) {
     Logger.log('ERROR in handleEndSession_: ' + e.toString() + ' | Stack: ' + e.stack);
@@ -3946,7 +4093,8 @@ function getStudentProfileByUserId_(userId) {
     start_date: formatDateValue_(startDate),
     estimated_end_date: String(found.estimated_end_date || ''),
     course: String(found.course || ''),
-    school: String(found.school || '')
+    school: String(found.school || ''),
+    completed_at: String(found.completed_at || '')
   };
 }
 

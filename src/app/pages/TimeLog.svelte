@@ -29,6 +29,8 @@
   let requiredHours = DEFAULT_REQUIRED_HOURS;
   let ojtStartDate = '';
   let approvedAbsenceAdjustmentDays = 0;
+  let isCompleted = false;
+  let completedAt = '';
 
   const statusMeta = {
     recorded: {
@@ -548,6 +550,8 @@
     const studentHours = Number(user?.ojt?.total_ojt_hours || 0);
     const rawStartDate = user?.ojt?.start_date || user?.first_login_date || '';
     ojtStartDate = normalizeDateOnly(rawStartDate);
+    completedAt = String(user?.ojt?.completed_at || '').trim();
+    isCompleted = completedAt ? true : false;
     if (user?.role === 'Student' && Number.isFinite(studentHours) && studentHours > 0) {
       requiredHours = studentHours;
     } else {
@@ -561,6 +565,13 @@
       logSyncError = 'Please select a date and enter your login time.';
       return;
     }
+    
+    // Block login if internship is completed
+    if (isCompleted) {
+      logSyncError = 'Your internship is already completed. Login is no longer allowed.';
+      return;
+    }
+    
     isLoggingIn = true;
     logSyncError = '';
     const user = authApi.getCurrentUser();
@@ -615,12 +626,20 @@
         saveLocalActiveSession(user.user_id, response.session?.log_date || date, response.session?.time_in || finalTimeIn);
         logSyncError = '';
       } else {
-        logSyncError = response?.error || 'Failed to start session';
-        if (String(logSyncError || '').toLowerCase().includes('active session')) {
-          await checkForActiveSession();
-          if (isLoggedIn) logSyncError = '';
-        } else {
+        // Check if completion was reached
+        if (response?.completion_reached) {
+          isCompleted = true;
+          completedAt = date;
+          logSyncError = response?.error || 'Your internship is now completed. Login is no longer allowed.';
           isLoggedIn = false;
+        } else {
+          logSyncError = response?.error || 'Failed to start session';
+          if (String(logSyncError || '').toLowerCase().includes('active session')) {
+            await checkForActiveSession();
+            if (isLoggedIn) logSyncError = '';
+          } else {
+            isLoggedIn = false;
+          }
         }
       }
       isLoggingIn = false;
@@ -662,6 +681,26 @@
         timeOut = DEFAULT_TIME_OUT;
         clearLocalActiveSession(user.user_id);
         await loadEntriesFromApi();
+        
+        // Check if completion was reached with this logout
+        if (response.completion_reached) {
+          isCompleted = true;
+          completedAt = date;
+          logSyncError = 'Congratulations! Your internship is now completed.';
+          // Refresh user data to get updated profile
+          if (queuedAuthRefresh === false) {
+            queuedAuthRefresh = true;
+            setTimeout(async () => {
+              try {
+                await authApi.refreshCurrentUser();
+                syncRequiredHoursFromAccount();
+              } catch (e) {
+                // ignore
+              }
+              queuedAuthRefresh = false;
+            }, 500);
+          }
+        }
       } else {
         logSyncError = response?.error || 'Unable to complete session.';
       }
@@ -682,6 +721,15 @@
   async function confirmDelete() {
     if (!deleteConfirmEntry) return;
     if (isDeletingEntry) return;
+    
+    // Block deletion if internship is completed
+    if (isCompleted) {
+      logSyncError = 'Cannot delete time logs after internship completion.';
+      showDeleteConfirm = false;
+      deleteConfirmEntry = null;
+      return;
+    }
+    
     const user = authApi.getCurrentUser();
     if (!user?.user_id) {
       logSyncError = 'Please log in again before deleting a time log.';
@@ -691,14 +739,23 @@
     }
     try {
       isDeletingEntry = true;
-      await authApi.deleteTimeLog(user.user_id, deleteConfirmEntry.id, {
+      const response = await authApi.deleteTimeLog(user.user_id, deleteConfirmEntry.id, {
         session_id: deleteConfirmEntry.sessionId,
         log_date: deleteConfirmEntry.date,
         time_in: deleteConfirmEntry.timeIn,
         time_out: deleteConfirmEntry.timeOut,
       });
-      entries = entries.filter((entry) => String(entry.id) !== String(deleteConfirmEntry.id));
-      logSyncError = '';
+      
+      // Check if deletion was blocked due to completion
+      if (response && !response.ok && response.completion_reached) {
+        isCompleted = true;
+        logSyncError = response.error || 'Cannot delete time logs after internship completion.';
+      } else if (response && response.ok) {
+        entries = entries.filter((entry) => String(entry.id) !== String(deleteConfirmEntry.id));
+        logSyncError = '';
+      } else {
+        logSyncError = response?.error || 'Unable to delete this time log.';
+      }
     } catch (err) {
       logSyncError = err?.message || 'Unable to delete this time log right now.';
     } finally {
@@ -1086,20 +1143,22 @@
 
   // Computed values
   $: formHours = calculateHours(timeIn, timeOut, includeLunch);
-  $: canLogin = Boolean(date && timeIn && !isLoggedIn);
+  $: canLogin = Boolean(date && timeIn && !isLoggedIn && !isCompleted);
   $: canLogout = Boolean(isLoggedIn && date && timeIn && timeOut);
   $: currentUserId = String(authApi.getCurrentUser()?.user_id || '').trim();
   $: completedHoursStorageKey = currentUserId ? `ojt_completed_hours_${currentUserId}` : '';
   $: completedHours = INITIAL_COMPLETED_HOURS + entries.reduce((sum, entry) => sum + entry.hours, 0);
-  $: remainingHours = Math.max(0, requiredHours - completedHours);
-  $: progressPercent = Math.min(100, Math.round((completedHours / requiredHours) * 100));
-  $: progressStatus = progressPercent < 40
-    ? { tone: 'danger', label: 'Getting started' }
-    : progressPercent < 70
-      ? { tone: 'warning', label: 'In progress' }
-      : progressPercent < 90
-        ? { tone: 'success', label: 'On track' }
-        : { tone: 'success', label: 'Almost complete' };
+  $: remainingHours = isCompleted ? 0 : Math.max(0, requiredHours - completedHours);
+  $: progressPercent = isCompleted ? 100 : Math.min(100, Math.round((completedHours / requiredHours) * 100));
+  $: progressStatus = isCompleted
+    ? { tone: 'success', label: 'Completed' }
+    : progressPercent < 40
+      ? { tone: 'danger', label: 'Getting started' }
+      : progressPercent < 70
+        ? { tone: 'warning', label: 'In progress' }
+        : progressPercent < 90
+          ? { tone: 'success', label: 'On track' }
+          : { tone: 'success', label: 'Almost complete' };
   $: completedEntries = entries.filter((entry) => entry.timeOut && Number(entry.hours) > 0);
   $: exportMonth = exportMonth || getMonthInputFromDate(date) || getCurrentMonthInput();
   $: attendanceDayStartDate = normalizeDateOnly(ojtStartDate || '');
@@ -1388,6 +1447,11 @@
             Log In
           {/if}
         </button>
+        {#if isCompleted && !isLoggedIn}
+          <div class="tl-status-pill tl-status-info">
+            <span class="tl-status-dot"></span> Internship completed - Login disabled
+          </div>
+        {/if}
         {#if isInlineLoginError(logSyncError)}
           <div class="tl-login-inline-error">{logSyncError}</div>
         {/if}
