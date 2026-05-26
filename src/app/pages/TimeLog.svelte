@@ -13,7 +13,7 @@
     Loader2
   } from 'lucide-svelte';
   import * as authApi from '../lib/auth.js';
-  import { getEstimatedCompletionDate } from '../lib/getEstimatedCompletionDate.js';
+  import { formatWorkingDuration, getEstimatedCompletionDate } from '../lib/getEstimatedCompletionDate.js';
 
   const DEFAULT_REQUIRED_HOURS = 500;
   const AVERAGE_DAILY_HOURS = 8;
@@ -1131,6 +1131,7 @@
       ? formatDate(computedEstimatedCompletion, { month: 'short', day: '2-digit', year: 'numeric' })
       : formatDate(storedEstimatedEndDate, { month: 'short', day: '2-digit', year: 'numeric' }))
     : formatDate(computedEstimatedCompletion, { month: 'short', day: '2-digit', year: 'numeric' });
+  $: estimatedCompletionDuration = formatWorkingDuration(remainingHours, AVERAGE_DAILY_HOURS);
   
   $: if (typeof window !== 'undefined' && completedHours >= 0 && completedHoursStorageKey) {
     localStorage.setItem(completedHoursStorageKey, String(completedHours));
@@ -1150,7 +1151,7 @@
     { label: 'Total Hours Required', value: `${formatHours(requiredHours || 0)}h`, sub: 'Per internship agreement', icon: Target, tone: 'primary' },
     { label: 'Hours Completed', value: `${formatHours(completedHours || 0)}h`, sub: `${formatHours(remainingHours || 0)}h remaining`, icon: CheckCircle2, tone: 'success' },
     { label: 'Avg. Daily Hours', value: `${AVERAGE_DAILY_HOURS}h`, sub: 'Based on schedule', icon: Clock, tone: 'info' },
-    { label: 'Est. Completion', value: estimatedCompletionValue, sub: new Date().getFullYear(), icon: Calendar, tone: 'forecast' },
+    { label: 'Est. Completion', value: estimatedCompletionValue, sub: estimatedCompletionDuration === 'Completed' ? 'Target reached' : `${estimatedCompletionDuration} left`, icon: Calendar, tone: 'forecast' },
   ];
 </script>
 
@@ -1932,8 +1933,17 @@
     box-shadow: 0 0 0 3px var(--tl-accent-glow);
   }
   .tl-field input:disabled {
-    opacity: 0.5;
+    opacity: 1;
+    color: var(--tl-text);
+    -webkit-text-fill-color: var(--tl-text);
+    background: var(--tl-surface2);
+    border-color: var(--tl-border);
     cursor: not-allowed;
+  }
+
+  .tl-field input[readonly] {
+    color: var(--tl-text);
+    -webkit-text-fill-color: var(--tl-text);
   }
   .tl-btn-primary {
     width: 100%;
@@ -2527,5 +2537,3 @@
     }
   }
 </style>
-
-

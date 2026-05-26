@@ -20,3 +20,48 @@ export function getEstimatedCompletionDate(hoursRemaining, avgDailyHours, daysOf
     year: 'numeric'
   });
 }
+
+export function getWorkingDurationParts(hoursRemaining, avgDailyHours) {
+  const safeHoursRemaining = Math.max(0, Number(hoursRemaining) || 0);
+  const safeAvgDailyHours = Math.max(0, Number(avgDailyHours) || 0);
+
+  if (!safeHoursRemaining || !safeAvgDailyHours) {
+    return {
+      days: 0,
+      hours: 0,
+      wholeHours: 0,
+      hasRemainderHours: false,
+    };
+  }
+
+  const days = Math.floor(safeHoursRemaining / safeAvgDailyHours);
+  const hours = Number((safeHoursRemaining - (days * safeAvgDailyHours)).toFixed(1));
+  const wholeHours = Number.isInteger(hours) ? hours : hours;
+
+  return {
+    days,
+    hours,
+    wholeHours,
+    hasRemainderHours: hours > 0,
+  };
+}
+
+export function formatWorkingDuration(hoursRemaining, avgDailyHours) {
+  const { days, hours, hasRemainderHours } = getWorkingDurationParts(hoursRemaining, avgDailyHours);
+
+  if (days <= 0 && !hasRemainderHours) {
+    return 'Completed';
+  }
+
+  const parts = [];
+
+  if (days > 0) {
+    parts.push(`${days} ${days === 1 ? 'day' : 'days'}`);
+  }
+
+  if (hasRemainderHours) {
+    parts.push(`${hours} ${hours === 1 ? 'hour' : 'hours'}`);
+  }
+
+  return parts.join(' and ');
+}

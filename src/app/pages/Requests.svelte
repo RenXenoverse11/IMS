@@ -13,6 +13,7 @@
     Send,
     Timer,
     Trash2,
+    RotateCcw,
     User,
     XCircle,
     X,
@@ -87,6 +88,12 @@
   let requestToReject = null;
   let rejectionRemarks = "";
   let isRejectingRequest = false;
+
+  // Approved absence retraction modal state
+  let showRetractModal = false;
+  let requestToRetract = null;
+  let retractionReason = "";
+  let isRetractingRequest = false;
 
   // Bulk selection state
   let selectedRequests = new Set();
@@ -173,6 +180,42 @@
 
   function isArchivedStatus(status) {
     return normalizeStatus(status) === "archived";
+  }
+
+  function isAbsenceRetraction(request) {
+    return String(request?.requestType || request?.request_type || "")
+      .trim()
+      .toLowerCase() === "absence retraction";
+  }
+
+  function matchesRequestTypeFilter(request, filter) {
+    const type = String(request?.requestType || request?.request_type || "").trim().toLowerCase();
+    const normalizedFilter = String(filter || "").trim().toLowerCase();
+    if (normalizedFilter === "absence") {
+      return type === "absence" || type === "absence retraction";
+    }
+    return type === normalizedFilter;
+  }
+
+  function hasPendingRetractionFor(request) {
+    const requestId = getRequestId(request);
+    if (!requestId) return false;
+    return requests.some((row) => (
+      isAbsenceRetraction(row) &&
+      normalizeStatus(row?.status) === "pending" &&
+      String(row?.original_request_id || row?.time || row?.request_time || "").trim() === requestId
+    ));
+  }
+
+  function canRetractApprovedAbsence(request) {
+    if (isSupervisor || !request || isAbsenceRetraction(request)) return false;
+    const type = String(request?.requestType || request?.request_type || "").trim().toLowerCase();
+    if (type !== "absence" || normalizeStatus(request?.status) !== "approved") return false;
+    const requestDate = getRequestDateObject(request);
+    if (!requestDate) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return requestDate.getTime() > today.getTime() && !hasPendingRetractionFor(request);
   }
 
   function isArchivableFromList(request) {
@@ -856,6 +899,51 @@
     showRejectModal = false;
   }
 
+  function openRetractModal(request) {
+    requestToRetract = request;
+    retractionReason = "";
+    showRetractModal = true;
+  }
+
+  function closeRetractModal() {
+    requestToRetract = null;
+    retractionReason = "";
+    showRetractModal = false;
+  }
+
+  async function confirmRetractApprovedAbsence() {
+    if (!requestToRetract || isRetractingRequest) return;
+    const reason = String(retractionReason || "").trim();
+    if (!reason) {
+      formError = "Please enter a reason for retracting this approved absence.";
+      setTimeout(() => (formError = ""), 3000);
+      return;
+    }
+
+    isRetractingRequest = true;
+    try {
+      const result = await callBackend("retract_approved_absence", {
+        user_id: String(currentUser?.user_id || "").trim(),
+        request_id: getRequestId(requestToRetract),
+        reason,
+      });
+      if (result && result.ok) {
+        formSuccess = "Retraction request sent to your supervisor.";
+        closeRetractModal();
+        await loadRequests();
+        setTimeout(() => (formSuccess = ""), 3000);
+      } else {
+        formError = result?.error || "Failed to send retraction request.";
+        setTimeout(() => (formError = ""), 3000);
+      }
+    } catch (err) {
+      formError = err?.message || "Failed to send retraction request.";
+      setTimeout(() => (formError = ""), 3000);
+    } finally {
+      isRetractingRequest = false;
+    }
+  }
+
   async function confirmRejectRequest() {
     if (!requestToReject) return;
     isRejectingRequest = true;
@@ -1130,10 +1218,7 @@
         return status === "archived";
       }
       if (requestFilter === "all") return status !== "archived";
-      return (
-        String(r.requestType || "").toLowerCase() ===
-        requestFilter.toLowerCase()
-      ) && status !== "archived";
+      return matchesRequestTypeFilter(r, requestFilter) && status !== "archived";
     })
     .sort((a, b) => {
       const dateA = new Date(a.date || a.request_date || a.applied_date || 0);
@@ -1466,9 +1551,11 @@
               {/if}
 
               <div class="request-card-content">
-                <div class="request-card-header">
+                  <div class="request-card-header">
                   <div class="request-type-badge">
-                    {#if request.requestType === "Overtime"}
+                    {#if isAbsenceRetraction(request)}
+                      <RotateCcw size={14} /> Absence Retraction
+                    {:else if request.requestType === "Overtime"}
                       <Clock3 size={14} /> Overtime
                     {:else}
                       <Calendar size={14} /> Absence
@@ -1542,6 +1629,7 @@
                   <button
                     class="btn-edit"
                     on:click={() => editRequest(request)}
+                    disabled={isAbsenceRetraction(request)}
                   >
                     <Pencil size={12} /> Edit
                   </button>
@@ -1551,6 +1639,15 @@
                   >
                     <Trash2 size={12} /> Delete
                   </button>
+                {:else if !isSupervisor && canRetractApprovedAbsence(request)}
+                  <button
+                    class="btn-edit"
+                    on:click={() => openRetractModal(request)}
+                  >
+                    <RotateCcw size={12} /> Retract
+                  </button>
+                {:else if !isSupervisor && hasPendingRetractionFor(request)}
+                  <span class="inline-muted-note">Retraction pending</span>
                 {/if}
               </div>
             </div>
@@ -1815,6 +1912,57 @@
             {#if isRejectingRequest}<span class="spinning-icon"
                 ><Loader2 size={14} /></span
               > Rejecting...{:else}Confirm Rejection{/if}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Retract Approved Absence Modal -->
+  {#if showRetractModal && requestToRetract}
+    <div class="modal-overlay">
+      <div class="modal-container">
+        <div class="modal-header">
+          <h2>Retract Approved Absence</h2>
+          <button class="modal-close" on:click={closeRetractModal}
+            >&times;</button
+          >
+        </div>
+        <div class="modal-body">
+          <p>This will send a retraction request to your supervisor. The absence will only be removed after approval.</p>
+          <div class="modal-details">
+            <div>
+              <span>Date:</span>
+              {formatDate(requestToRetract.date || requestToRetract.request_date)}
+            </div>
+            <div>
+              <span>Status:</span>
+              Approved
+            </div>
+          </div>
+          <textarea
+            bind:value={retractionReason}
+            rows="4"
+            class="form-textarea"
+            placeholder="Explain why you want to retract this approved absence..."
+            maxlength="500"
+          ></textarea>
+          <p class="char-counter">{retractionReason.length}/500 characters</p>
+        </div>
+        <div class="modal-footer">
+          <button
+            class="btn-secondary"
+            on:click={closeRetractModal}
+            disabled={isRetractingRequest}>Cancel</button
+          >
+          <button
+            class="btn-warning"
+            on:click={confirmRetractApprovedAbsence}
+            disabled={isRetractingRequest || !String(retractionReason || "").trim()}
+          >
+            {#if isRetractingRequest}<span class="spinning-icon"
+                ><Loader2 size={14} /></span
+              > Sending...{:else}Send Retraction{/if}
           </button>
         </div>
       </div>
@@ -2656,6 +2804,21 @@
     background: #6d28d9;
     transform: translateY(-1px);
     box-shadow: 0 4px 10px var(--purple-dim);
+  }
+
+  .btn-edit:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  .inline-muted-note {
+    display: inline-flex;
+    align-items: center;
+    min-height: 30px;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 700;
   }
   
   /* Action buttons base styling */
