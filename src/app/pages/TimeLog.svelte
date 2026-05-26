@@ -391,6 +391,12 @@
     );
   }
 
+  function isCompletionSuccessMessage(message) {
+    const text = String(message || '').trim().toLowerCase();
+    if (!text) return false;
+    return text.includes('congratulations') && text.includes('internship') && text.includes('completed');
+  }
+
   function normalizeTimeValue(value, fallback) {
     const to24HourString = (hours, minutes) => `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
     if (value instanceof Date && !Number.isNaN(value.getTime())) {
@@ -1337,8 +1343,12 @@
 
   {:else}
     {#if logSyncError && !isInlineLoginError(logSyncError)}
-      <div class="tl-error-banner">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      <div class={isCompletionSuccessMessage(logSyncError) ? 'tl-success-banner' : 'tl-error-banner'}>
+        {#if isCompletionSuccessMessage(logSyncError)}
+          <CheckCircle2 size={14} />
+        {:else}
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        {/if}
         {logSyncError}
       </div>
     {/if}
@@ -1745,7 +1755,7 @@
     --tl-shadow:      0 8px 20px rgba(0,0,0,0.35);
   }
 
-  /* Error banner (used in skeleton as well) */
+  /* Top status banners */
   .tl-error-banner {
     display: flex;
     align-items: center;
@@ -1756,6 +1766,19 @@
     border-radius: var(--tl-radius-sm);
     font-size: 13px;
     color: var(--tl-red);
+    font-weight: 500;
+  }
+
+  .tl-success-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background: var(--tl-green-dim);
+    border: 1px solid rgba(34,197,94,0.28);
+    border-radius: var(--tl-radius-sm);
+    font-size: 13px;
+    color: var(--tl-green);
     font-weight: 500;
   }
 
