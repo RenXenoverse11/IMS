@@ -12,7 +12,11 @@ var SUPERVISOR_TASK_HEADERS_ = [
   'daily_checklist',
   'created_at',
   'created_by',
-  'updated_by'
+  'updated_by',
+  'source_type',
+  'source_activity_id',
+  'source_owner_user_id',
+  'source_owner_email'
 ];
 
 function isSupervisorTaskArchivedValue_(value) {
@@ -79,7 +83,8 @@ function createSupervisorTasks(payload) {
           daily_checklist: JSON.stringify(Array.isArray(payload.dailyChecklist) ? payload.dailyChecklist : (payload.daily_checklist || [])),
           created_at: now,
           created_by: supervisorId,
-        updated_by: supervisorId
+        updated_by: supervisorId,
+        source_type: 'supervisor'
       };
       appendObjectRow_(supSheet, supRow);
     } catch (e) {
@@ -152,7 +157,8 @@ function createSupervisorTasks(payload) {
           daily_checklist: JSON.stringify(Array.isArray(payload.dailyChecklist) ? payload.dailyChecklist : (payload.daily_checklist || [])),
           created_at: now,
           created_by: supervisorId,
-          updated_by: supervisorId
+          updated_by: supervisorId,
+          source_type: 'supervisor'
         };
         appendObjectRow_(retrySupSheet, retryRow);
         supRow = retryRow;
@@ -323,9 +329,11 @@ function updateSupervisorTask(payload) {
     var taskIdx = headers.indexOf('task');
     var createdByIdx = headers.indexOf('created_by');
     var createdAtIdx = headers.indexOf('created_at');
+    var sourceActivityIdx = headers.indexOf('source_activity_id');
 
     var currentStatus = statusIdx !== -1 ? String(values[foundRow - 1][statusIdx] || '').trim() : '';
     var currentArchivePreviousStatus = archivePrevIdx !== -1 ? String(values[foundRow - 1][archivePrevIdx] || '').trim() : '';
+    var sourceActivityId = sourceActivityIdx !== -1 ? String(values[foundRow - 1][sourceActivityIdx] || '').trim() : '';
     var archivePayloadProvided = payload.supervisor_archived !== undefined;
     var legacyArchiveRequest = !archivePayloadProvided && payload.status !== undefined && String(payload.status || '').trim().toLowerCase() === 'archived';
     var archiveChangeRequested = archivePayloadProvided || legacyArchiveRequest;
@@ -409,11 +417,28 @@ function updateSupervisorTask(payload) {
         var actValues = getSheetValues_(actSheet) || [];
         if (actValues.length > 0) {
           var actHeaders = actValues[0].map(function(h){ return String(h || '').trim().toLowerCase(); });
+          var actIdIdx = actHeaders.indexOf('id');
           var actTaskIdx = actHeaders.indexOf('task_name');
           if (actTaskIdx === -1) actTaskIdx = actHeaders.indexOf('task');
           var actAssignedByIdx = actHeaders.indexOf('assigned_by');
           var actUserIdIdx = actHeaders.indexOf('user_id');
-          if (actTaskIdx !== -1 && actAssignedByIdx !== -1) {
+          if (sourceActivityId && actIdIdx !== -1) {
+            for (var arExact = 1; arExact < actValues.length; arExact++) {
+              var rowActivityId = String(actValues[arExact][actIdIdx] || '').trim();
+              if (rowActivityId !== sourceActivityId) continue;
+              var updateExact = {};
+              if (obj.task !== undefined) updateExact.task_name = String(obj.task || '').trim();
+              if (obj.description !== undefined) updateExact.description = String(obj.description || '').trim();
+              if (obj.due_date !== undefined) updateExact.due_date = String(obj.due_date || '').trim();
+              if (obj.created_by !== undefined) updateExact.assigned_by = String(obj.created_by || '').trim();
+              if (hasChecklistUpdate) updateExact.checklist = JSON.stringify(newDl);
+              if (newStatus) updateExact.status = String(newStatus);
+              if (Object.keys(updateExact).length > 0) {
+                updateObjectRow_(actSheet, arExact + 1, updateExact);
+              }
+              break;
+            }
+          } else if (actTaskIdx !== -1 && actAssignedByIdx !== -1) {
             var supTitle = obj.task !== undefined ? String(obj.task || '').trim() : String(values[foundRow - 1][taskIdx] || '').trim();
             var supCreatedBy = createdByIdx !== -1 ? String(values[foundRow - 1][createdByIdx] || '').trim() : '';
             for (var ar = 1; ar < actValues.length; ar++) {
@@ -595,6 +620,7 @@ function getSupervisorTaskAttachments(payload) {
         }
       }
       if (supTaskRow) {
+        var sourceActivityId = String(supTaskRow.source_activity_id || '').trim();
         var taskTitle = String(supTaskRow.task || '').trim().toLowerCase();
         var createdBy = String(supTaskRow.created_by || '').trim();
 
@@ -603,12 +629,16 @@ function getSupervisorTaskAttachments(payload) {
           var actSheet = getSheet_('activity_logs');
           var actRows = readSheetObjects_(actSheet) || [];
           var matchingActivityIds = [];
-          for (var ai = 0; ai < actRows.length; ai++) {
-            var ar = actRows[ai] || {};
-            var arTitle = String(ar.task_name || ar.title || '').trim().toLowerCase();
-            var arAssignedBy = String(ar.assigned_by || '').trim();
-            if (arTitle === taskTitle && arAssignedBy === createdBy) {
-              matchingActivityIds.push(String(ar.id || '').trim());
+          if (sourceActivityId) {
+            matchingActivityIds.push(sourceActivityId);
+          } else {
+            for (var ai = 0; ai < actRows.length; ai++) {
+              var ar = actRows[ai] || {};
+              var arTitle = String(ar.task_name || ar.title || '').trim().toLowerCase();
+              var arAssignedBy = String(ar.assigned_by || '').trim();
+              if (arTitle === taskTitle && arAssignedBy === createdBy) {
+                matchingActivityIds.push(String(ar.id || '').trim());
+              }
             }
           }
 
