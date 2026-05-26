@@ -653,7 +653,8 @@ let restoringTaskMap = {};
     Nov: '11',
     Dec: '12',
   };
-  const TASK_EDIT_RESTRICTED_MESSAGE = 'You can only modify tasks you created unless you are a supervisor.';
+  const TASK_EDIT_RESTRICTED_MESSAGE = 'You can only fully edit tasks you created unless you are a supervisor.';
+  const TASK_PROGRESS_ONLY_MESSAGE = 'This task was created by your supervisor. You can update the status, checklist, and attachments, but the task details stay read-only.';
 
   let searchQuery = '';
   let statusFilter = 'All Status';
@@ -662,6 +663,7 @@ let restoringTaskMap = {};
   let expandedListTaskId = '';
   let isViewTaskModalOpen = false;
   let viewedTaskId = '';
+  let viewedTaskStatusOnly = false;
   let isEditingViewedTask = false;
   let isSavingViewedTask = false;
   let taskViewEditForm = {
@@ -672,6 +674,7 @@ let restoringTaskMap = {};
     assignedBy: '',
     dailyChecklist: [],
     attachments: [],
+    removedAttachmentIds: [],
   };
   let trackerMenuOpen = false;
   let isEditingTrackerTask = false;
@@ -694,6 +697,7 @@ let restoringTaskMap = {};
     description: '',
     dailyChecklist: [],
     attachments: [],
+    removedAttachmentIds: [],
   };
   let addTaskFileInput; // Reference to file input for task form
   let trackerFileInput; // Reference to file input for tracker form
@@ -845,6 +849,23 @@ let restoringTaskMap = {};
           reject(new Error(error?.message || String(error)));
         })
         .addActivityTaskAttachment(payload);
+    });
+  }
+
+  function callDeleteActivityTaskAttachment(payload) {
+    return new Promise((resolve, reject) => {
+      const run = globalThis?.google?.script?.run;
+      if (!run) {
+        reject(new Error('Apps Script runtime is not available.'));
+        return;
+      }
+
+      run
+        .withSuccessHandler(resolve)
+        .withFailureHandler((error) => {
+          reject(new Error(error?.message || String(error)));
+        })
+        .deleteActivityTaskAttachment(payload);
     });
   }
 
@@ -1082,14 +1103,16 @@ let restoringTaskMap = {};
           if (a && typeof a === 'object') {
             return {
               attachment_id: String(a.attachment_id || a.id || '').trim(),
+              user_id: String(a.user_id || '').trim(),
               file_name: String(a.file_name || a.name || '').trim(),
               file_type: String(a.file_type || '').trim(),
               file_size: String(a.file_size || '').trim(),
               link: String(a.link || '').trim(),
               uploaded_at: String(a.uploaded_at || '').trim(),
+              uploaded_by: String(a.uploaded_by || '').trim(),
             };
           }
-          return { attachment_id: '', file_name: String(a || '').trim(), file_type: '', file_size: '', link: '', uploaded_at: '' };
+          return { attachment_id: '', user_id: '', file_name: String(a || '').trim(), file_type: '', file_size: '', link: '', uploaded_at: '', uploaded_by: '' };
         }).filter(a => a.file_name)
       : [];
 
@@ -1102,6 +1125,8 @@ let restoringTaskMap = {};
       dueDate: dueDateValue,
       owner: String(source.assigned_by || source.owner || defaultValue.assigned_by || defaultValue.owner || ''),
       createdBy: String(source.created_by || source.createdBy || defaultValue.created_by || defaultValue.createdBy || '').trim(),
+      createdByRole: String(source.created_by_role || source.createdByRole || defaultValue.created_by_role || defaultValue.createdByRole || '').trim(),
+      creatorIsSupervisor: source.creator_is_supervisor === true || source.creatorIsSupervisor === true || String(source.creator_is_supervisor || source.creatorIsSupervisor || '').trim().toLowerCase() === 'true',
       priority: String(source.priority || defaultValue.priority || 'medium'),
       description: String(source.description || defaultValue.description || 'No description provided yet.'),
       attachments,
@@ -1121,6 +1146,17 @@ let restoringTaskMap = {};
     return role === 'supervisor' || role === 'mentor';
   }
 
+  function isSupervisorCreatedTask(task) {
+    if (!task) return false;
+    const explicitFlag = task?.creatorIsSupervisor ?? task?.creator_is_supervisor;
+    if (explicitFlag === true || String(explicitFlag || '').trim().toLowerCase() === 'true') {
+      return true;
+    }
+
+    const creatorRole = String(task?.createdByRole || task?.created_by_role || '').trim().toLowerCase();
+    return creatorRole === 'supervisor' || creatorRole === 'mentor';
+  }
+
   function canModifyTask(task) {
     const currentUser = getCurrentUser();
     const currentUserId = String(currentUser?.user_id || '').trim();
@@ -1132,6 +1168,43 @@ let restoringTaskMap = {};
     if (!creatorUserId) return false;
     const creatorLower = creatorUserId.toLowerCase();
     return creatorUserId === currentUserId || (!!currentUserEmail && creatorLower === currentUserEmail);
+  }
+
+  function isStatusOnlyEditableTask(task) {
+    const currentUser = getCurrentUser();
+    const currentUserId = String(currentUser?.user_id || '').trim();
+    const taskUserId = String(task?.userId || task?.user_id || '').trim();
+    return Boolean(
+      task &&
+      currentUserId &&
+      taskUserId === currentUserId &&
+      !canModifyTask(task) &&
+      isSupervisorCreatedTask(task)
+    );
+  }
+
+  function canUpdateTaskProgress(task) {
+    return canModifyTask(task) || isStatusOnlyEditableTask(task);
+  }
+
+  function getTaskEditRestrictionMessage(task) {
+    if (isStatusOnlyEditableTask(task)) {
+      return TASK_PROGRESS_ONLY_MESSAGE;
+    }
+    return TASK_EDIT_RESTRICTED_MESSAGE;
+  }
+
+  function canRemoveEditableAttachment(attachment, statusOnlyMode = false) {
+    if (!attachment) return false;
+    if (attachment._file instanceof File) return true;
+    if (!attachment.attachment_id) return false;
+    if (!statusOnlyMode) return true;
+
+    const currentUser = getCurrentUser();
+    const currentUserId = String(currentUser?.user_id || '').trim();
+    const uploadedBy = String(attachment.uploaded_by || '').trim();
+    const attachmentUserId = String(attachment.user_id || '').trim();
+    return Boolean(currentUserId && (uploadedBy === currentUserId || attachmentUserId === currentUserId));
   }
 
   function getTaskStatusLabel(task) {
@@ -1404,8 +1477,10 @@ let restoringTaskMap = {};
       status: task.status,
       dueDate: toInputDate(task.dueDate),
       description: task.description,
+      assignedBy: task.owner || assignedSupervisors[0]?.user_id || '',
       dailyChecklist: (task.dailyChecklist || []).map((item) => ({ ...item })),
       attachments: (task.attachments || []).map((a) => (typeof a === 'string' ? { file_name: a, link: '' } : { ...a })),
+      removedAttachmentIds: [],
     };
     isViewTaskModalOpen = true;
   }
@@ -1423,6 +1498,7 @@ let restoringTaskMap = {};
       assignedBy: '',
       dailyChecklist: [],
       attachments: [],
+      removedAttachmentIds: [],
     };
     
     // Reset the file input element
@@ -1441,8 +1517,8 @@ let restoringTaskMap = {};
     if (!viewedTask) {
       return;
     }
-    if (!canModifyTask(viewedTask)) {
-      alert(TASK_EDIT_RESTRICTED_MESSAGE);
+    if (!canUpdateTaskProgress(viewedTask)) {
+      alert(getTaskEditRestrictionMessage(viewedTask));
       return;
     }
 
@@ -1454,6 +1530,7 @@ let restoringTaskMap = {};
       assignedBy: viewedTask.owner || assignedSupervisors[0]?.user_id || '',
       dailyChecklist: viewedTask.dailyChecklist.map((item) => ({ ...item })),
       attachments: (viewedTask.attachments || []).map((a) => (typeof a === 'string' ? { file_name: a, link: '' } : { ...a })),
+      removedAttachmentIds: [],
     };
     isEditingViewedTask = true;
   }
@@ -1468,6 +1545,7 @@ let restoringTaskMap = {};
         assignedBy: viewedTask.owner || assignedSupervisors[0]?.user_id || '',
         dailyChecklist: viewedTask.dailyChecklist.map((item) => ({ ...item })),
         attachments: (viewedTask.attachments || []).map((a) => (typeof a === 'string' ? { file_name: a, link: '' } : { ...a })),
+        removedAttachmentIds: [],
       };
     }
 
@@ -1506,29 +1584,40 @@ let restoringTaskMap = {};
     if (taskIndex === -1) return;
 
     const task = assignedTasks[taskIndex];
-    if (!canModifyTask(task)) {
-      alert(TASK_EDIT_RESTRICTED_MESSAGE);
+    const progressOnly = isStatusOnlyEditableTask(task);
+    if (!canUpdateTaskProgress(task)) {
+      alert(getTaskEditRestrictionMessage(task));
       return;
     }
     const user = getCurrentUser();
-    const payload = {
-      id: taskId || task.id,
-      title: task.title,
-      status: newStatus,
-      due_date: toInputDate(task.dueDate),
-      description: task.description,
-      assigned_by: task.owner,
-      created_by: task.createdBy || task.created_by || '',
-      // Include checklist using multiple keys to be compatible with backend handlers
-      checklist: task.dailyChecklist,
-      dailyChecklist: task.dailyChecklist,
-      daily_checklist: task.dailyChecklist,
-      attachments: task.attachments,
-      priority: task.priority,
-      user_id: task.userId || user?.user_id || '',
-      owner_email: user?.email || '',
-      updated_by: user?.user_id || '',
-    };
+    const payload = progressOnly
+      ? {
+          id: taskId || task.id,
+          status: newStatus,
+          checklist: task.dailyChecklist,
+          dailyChecklist: task.dailyChecklist,
+          daily_checklist: task.dailyChecklist,
+          user_id: task.userId || user?.user_id || '',
+          updated_by: user?.user_id || '',
+        }
+      : {
+          id: taskId || task.id,
+          title: task.title,
+          status: newStatus,
+          due_date: toInputDate(task.dueDate),
+          description: task.description,
+          assigned_by: task.owner,
+          created_by: task.createdBy || task.created_by || '',
+          // Include checklist using multiple keys to be compatible with backend handlers
+          checklist: task.dailyChecklist,
+          dailyChecklist: task.dailyChecklist,
+          daily_checklist: task.dailyChecklist,
+          attachments: task.attachments,
+          priority: task.priority,
+          user_id: task.userId || user?.user_id || '',
+          owner_email: user?.email || '',
+          updated_by: user?.user_id || '',
+        };
     try {
       const result = await callUpdateActivityTask(payload);
       const nextTask = result?.task ? mapCreatedTaskToUi(result.task, payload) : { ...task, status: newStatus };
@@ -1577,37 +1666,52 @@ let restoringTaskMap = {};
   }
 
   function removeTaskViewAttachment(index) {
+    const attachment = taskViewEditForm.attachments[index];
+    const removedAttachmentIds = attachment && attachment.attachment_id && !(attachment._file instanceof File)
+      ? [...new Set([...(taskViewEditForm.removedAttachmentIds || []), String(attachment.attachment_id).trim()])]
+      : (taskViewEditForm.removedAttachmentIds || []);
+
     taskViewEditForm = {
       ...taskViewEditForm,
       attachments: taskViewEditForm.attachments.filter((_, itemIndex) => itemIndex !== index),
+      removedAttachmentIds,
     };
   }
 
-  function buildTaskUpdatePayload(task, formState) {
+  function buildTaskUpdatePayload(task, formState, options = {}) {
     const user = getCurrentUser();
+    const progressOnly = options.progressOnly === true;
     const cleanedChecklist = formState.dailyChecklist
       .filter((item) => item.label.trim())
       .map((item) => ({ label: item.label.trim(), done: !!item.done }));
-    // attachments may be objects or strings; extract filenames for the activity_logs column
-    const cleanedAttachments = getAttachmentNames(formState.attachments);
-
-    return {
+    const payload = {
       id: task.id,
       user_id: task.userId || user?.user_id || '',
-      title: formState.title.trim() || task.title,
       status: formState.status || task.status,
-      due_date: formState.dueDate || toInputDate(task.dueDate),
-      description: formState.description.trim() || task.description,
-      assigned_by: formState.assignedBy || task.owner,
-      created_by: task.createdBy || task.created_by || '',
       // Send checklist under multiple keys for compatibility with backend Apps Script
       checklist: cleanedChecklist,
       dailyChecklist: cleanedChecklist,
       daily_checklist: cleanedChecklist,
+      updated_by: user?.user_id || '',
+    };
+
+    if (progressOnly) {
+      return payload;
+    }
+
+    // attachments may be objects or strings; extract filenames for the activity_logs column
+    const cleanedAttachments = getAttachmentNames(formState.attachments);
+
+    return {
+      ...payload,
+      title: formState.title.trim() || task.title,
+      due_date: formState.dueDate || toInputDate(task.dueDate),
+      description: formState.description.trim() || task.description,
+      assigned_by: formState.assignedBy || task.owner,
+      created_by: task.createdBy || task.created_by || '',
       attachments: cleanedAttachments,
       priority: task.priority || 'medium',
       owner_email: user?.email || '',
-      updated_by: user?.user_id || '',
     };
   }
 
@@ -1632,25 +1736,39 @@ let restoringTaskMap = {};
     if (!viewedTask || isSavingViewedTask) {
       return;
     }
-    if (!canModifyTask(viewedTask)) {
-      alert(TASK_EDIT_RESTRICTED_MESSAGE);
+    const progressOnly = isStatusOnlyEditableTask(viewedTask);
+    if (!canUpdateTaskProgress(viewedTask)) {
+      alert(getTaskEditRestrictionMessage(viewedTask));
       return;
     }
 
     const originalId = getTaskActionKey(viewedTask);
-    const payload = buildTaskUpdatePayload(viewedTask, taskViewEditForm);
+    const payload = buildTaskUpdatePayload(viewedTask, taskViewEditForm, { progressOnly });
     isSavingViewedTask = true;
 
     try {
+      const attachmentChangeErrors = [];
       const result = await callUpdateActivityTask(payload);
       if (!result?.ok) {
         throw new Error(result?.error || 'Unable to save task changes.');
       }
 
       const nextTask = mapCreatedTaskToUi(result.task, payload);
+      const user = getCurrentUser();
+
+      const removedAttachmentIds = (taskViewEditForm.removedAttachmentIds || []).filter(Boolean);
+      for (const attachmentId of removedAttachmentIds) {
+        try {
+          await callDeleteActivityTaskAttachment({
+            attachment_id: attachmentId,
+            user_id: user?.user_id || viewedTask.userId || '',
+          });
+        } catch (error) {
+          attachmentChangeErrors.push(`remove attachment ${attachmentId}: ${error?.message || error}`);
+        }
+      }
 
       // Upload any newly added attachments (those with _file property)
-      const user = getCurrentUser();
       const nowDate = new Date();
       const newAttachments = taskViewEditForm.attachments.filter(a => a && a._file instanceof File);
       for (const entry of newAttachments) {
@@ -1676,7 +1794,7 @@ let restoringTaskMap = {};
             entry.link = attResult.attachment.link;
           }
         } catch (e) {
-          // non-fatal
+          attachmentChangeErrors.push(`upload ${entry?.file_name || 'attachment'}: ${e?.message || e}`);
         }
       }
 
@@ -1685,6 +1803,10 @@ let restoringTaskMap = {};
 
       // Refresh tasks to get updated attachment list from backend
       await fetchAssignedTasks();
+
+      if (attachmentChangeErrors.length > 0) {
+        alert(`Task saved but some attachment changes failed:\n${attachmentChangeErrors.join('\n')}`);
+      }
       
       // Reset the file input element
       if (taskViewFileInput) {
@@ -1729,8 +1851,8 @@ let restoringTaskMap = {};
     if (!selectedOverviewTask) {
       return;
     }
-    if (!canModifyTask(selectedOverviewTask)) {
-      alert(TASK_EDIT_RESTRICTED_MESSAGE);
+    if (!canUpdateTaskProgress(selectedOverviewTask)) {
+      alert(getTaskEditRestrictionMessage(selectedOverviewTask));
       return;
     }
 
@@ -1741,6 +1863,7 @@ let restoringTaskMap = {};
       description: selectedOverviewTask.description,
       dailyChecklist: selectedOverviewTask.dailyChecklist.map((item) => ({ ...item })),
       attachments: (selectedOverviewTask.attachments || []).map((a) => (typeof a === 'string' ? { file_name: a, link: '' } : { ...a })),
+      removedAttachmentIds: [],
     };
     isEditingTrackerTask = true;
     trackerMenuOpen = false;
@@ -1759,15 +1882,17 @@ let restoringTaskMap = {};
     if (!selectedOverviewTask) {
       return;
     }
-    if (!canModifyTask(selectedOverviewTask)) {
-      alert(TASK_EDIT_RESTRICTED_MESSAGE);
+    const progressOnly = isStatusOnlyEditableTask(selectedOverviewTask);
+    if (!canUpdateTaskProgress(selectedOverviewTask)) {
+      alert(getTaskEditRestrictionMessage(selectedOverviewTask));
       return;
     }
 
     const originalId = getTaskActionKey(selectedOverviewTask);
-    const payload = buildTaskUpdatePayload(selectedOverviewTask, trackerEditForm);
+    const payload = buildTaskUpdatePayload(selectedOverviewTask, trackerEditForm, { progressOnly });
 
     try {
+      const attachmentChangeErrors = [];
       const result = await callUpdateActivityTask(payload);
       if (!result?.ok) {
         throw new Error(result?.error || 'Unable to save task changes.');
@@ -1777,9 +1902,21 @@ let restoringTaskMap = {};
       applyTaskUpdateToUi(originalId, nextTask);
       selectedOverviewTaskId = getTaskActionKey(nextTask);
       isEditingTrackerTask = false;
+      const user = getCurrentUser();
+
+      const removedAttachmentIds = (trackerEditForm.removedAttachmentIds || []).filter(Boolean);
+      for (const attachmentId of removedAttachmentIds) {
+        try {
+          await callDeleteActivityTaskAttachment({
+            attachment_id: attachmentId,
+            user_id: user?.user_id || selectedOverviewTask.userId || '',
+          });
+        } catch (error) {
+          attachmentChangeErrors.push(`remove attachment ${attachmentId}: ${error?.message || error}`);
+        }
+      }
 
       // Upload any newly added attachments (those with _file property)
-      const user = getCurrentUser();
       const nowDate = new Date();
       const newAttachments = trackerEditForm.attachments.filter(a => a && a._file instanceof File);
       for (const entry of newAttachments) {
@@ -1802,12 +1939,16 @@ let restoringTaskMap = {};
             uploaded_by: user?.user_id || '',
           });
         } catch (e) {
-          // non-fatal
+          attachmentChangeErrors.push(`upload ${entry?.file_name || 'attachment'}: ${e?.message || e}`);
         }
       }
 
       // Refresh tasks to get updated attachment list from backend
       await fetchAssignedTasks();
+
+      if (attachmentChangeErrors.length > 0) {
+        alert(`Task saved but some attachment changes failed:\n${attachmentChangeErrors.join('\n')}`);
+      }
       
       // Reset the file input element
       if (trackerFileInput) {
@@ -2027,9 +2168,15 @@ let restoringTaskMap = {};
   }
 
   function removeEditTaskAttachment(index) {
+    const attachment = trackerEditForm.attachments[index];
+    const removedAttachmentIds = attachment && attachment.attachment_id && !(attachment._file instanceof File)
+      ? [...new Set([...(trackerEditForm.removedAttachmentIds || []), String(attachment.attachment_id).trim()])]
+      : (trackerEditForm.removedAttachmentIds || []);
+
     trackerEditForm = {
       ...trackerEditForm,
       attachments: trackerEditForm.attachments.filter((_, itemIndex) => itemIndex !== index),
+      removedAttachmentIds,
     };
   }
 
@@ -2098,8 +2245,9 @@ let restoringTaskMap = {};
     dueSoonTasks[0] ||
     null;
   $: viewedTask = assignedTasks.find((task) => getTaskActionKey(task) === viewedTaskId) || null;
+  $: viewedTaskStatusOnly = isStatusOnlyEditableTask(viewedTask);
   $: statsLoading = isLoadingAssignedTasks || isLoadingWorkLogs;
-  $: if (isViewTaskModalOpen && viewedTask && isEditingViewedTask && !canModifyTask(viewedTask)) {
+  $: if (isViewTaskModalOpen && viewedTask && isEditingViewedTask && !canUpdateTaskProgress(viewedTask)) {
     isEditingViewedTask = false;
     isSavingViewedTask = false;
   }
@@ -2838,20 +2986,24 @@ let restoringTaskMap = {};
               type="button"
               class="task-view-action"
               on:click={openTaskEditFromView}
-              disabled={!canModifyTask(viewedTask)}
-              title={!canModifyTask(viewedTask) ? 'Only task creator or supervisor can edit this task' : 'Edit task'}
+              disabled={!canUpdateTaskProgress(viewedTask)}
+              title={!canUpdateTaskProgress(viewedTask) ? 'This task is view-only' : (viewedTaskStatusOnly ? 'Update status, checklist, and attachments' : 'Edit task')}
             >
-              Edit Task
+              {viewedTaskStatusOnly ? 'Update Progress' : 'Edit Task'}
             </button>
             <button type="button" class="task-view-close" on:click={closeTaskViewForm}>Close</button>
           {/if}
         </div>
       </div>
 
+      {#if viewedTaskStatusOnly}
+        <div class="alert-info">{TASK_PROGRESS_ONLY_MESSAGE}</div>
+      {/if}
+
       <div class="task-view-grid">
         <label>
           <span>Task Title</span>
-          <input type="text" bind:value={taskViewEditForm.title} readonly={!isEditingViewedTask} />
+          <input type="text" bind:value={taskViewEditForm.title} readonly={!isEditingViewedTask || viewedTaskStatusOnly} />
         </label>
 
         <label>
@@ -2876,7 +3028,7 @@ let restoringTaskMap = {};
 
         <label>
           <span>Due Date</span>
-          {#if isEditingViewedTask}
+          {#if isEditingViewedTask && !viewedTaskStatusOnly}
             <input type="date" bind:value={taskViewEditForm.dueDate} />
           {:else}
             <input type="text" value={formatDueDate(viewedTask.dueDate)} readonly />
@@ -2885,7 +3037,7 @@ let restoringTaskMap = {};
 
         <label>
           <span>Assigned by</span>
-          {#if isEditingViewedTask}
+          {#if isEditingViewedTask && !viewedTaskStatusOnly}
             <select bind:value={taskViewEditForm.assignedBy} disabled={isLoadingAssignedSupervisors || assignedSupervisors.length === 0}>
               {#if isLoadingAssignedSupervisors}
                 <option value="">Loading supervisors...</option>
@@ -2908,13 +3060,13 @@ let restoringTaskMap = {};
 
       <label class="task-view-description">
         <span>Description</span>
-        <textarea rows="3" bind:value={taskViewEditForm.description} readonly={!isEditingViewedTask}></textarea>
+        <textarea rows="3" bind:value={taskViewEditForm.description} readonly={!isEditingViewedTask || viewedTaskStatusOnly}></textarea>
       </label>
 
       <div class="task-view-section">
         <span>Checklist</span>
         {#if isEditingViewedTask}
-            <div class="tracker-checklist-editor">
+          <div class="tracker-checklist-editor">
             <div class="tracker-checklist-editor-head">
               <button type="button" class="attachment-upload-btn" on:click={addTaskViewChecklistItem}>+ Add item</button>
             </div>
@@ -2980,12 +3132,25 @@ let restoringTaskMap = {};
                   <li>
                     <div class="attachment-row">
                       <div class="attachment-main">
-                        <span>{(att && (att.file_name || att.name)) || att}</span>
+                        {#if att && att.link}
+                          <a href={att.link} target="_blank" rel="noopener noreferrer">{att.file_name || att.name || att}</a>
+                        {:else}
+                          <span>{(att && (att.file_name || att.name)) || att}</span>
+                        {/if}
                       </div>
                       <div class="attachment-actions">
-                        <button type="button" class="remove-item" on:click={() => removeTaskViewAttachment(index)}>
-                          Remove
-                        </button>
+                        {#if canRemoveEditableAttachment(att, viewedTaskStatusOnly)}
+                          <button type="button" class="remove-item" on:click={() => removeTaskViewAttachment(index)}>
+                            Remove
+                          </button>
+                        {:else if att && att.link}
+                          <a class="attachment-action" href={att.link} target="_blank" rel="noopener noreferrer" aria-label="View attachment" title="View">
+                            <Eye size={14} />
+                          </a>
+                          <a class="attachment-action" href={getDriveDownloadUrl(att.link)} target="_blank" rel="noopener noreferrer" aria-label="Download attachment" title="Download">
+                            <Download size={14} />
+                          </a>
+                        {/if}
                       </div>
                     </div>
                   </li>
@@ -4499,6 +4664,24 @@ let restoringTaskMap = {};
   .task-view-action:disabled {
     opacity: 0.7;
     cursor: not-allowed;
+  }
+
+  .alert-info {
+    margin-top: 0.85rem;
+    border: 1px solid rgba(14, 116, 144, 0.2);
+    background: rgba(14, 116, 144, 0.08);
+    color: #0f5f79;
+    border-radius: 0.9rem;
+    padding: 0.8rem 0.95rem;
+    font-size: 0.84rem;
+    line-height: 1.45;
+  }
+
+  :global(html.dark) .alert-info,
+  :global(body.dark) .alert-info {
+    background: rgba(8, 145, 178, 0.16);
+    border-color: rgba(103, 232, 249, 0.22);
+    color: #bae6fd;
   }
 
   .task-view-action.danger {
