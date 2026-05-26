@@ -571,7 +571,7 @@ function getSupervisorActivityOverview(payload) {
 					id: String(row.sup_taskid || '').trim(),
 					title: String(row.task || '').trim(),
 					description: String(row.description || '').trim(),
-					due_date: String(row.due_date || '').trim(),
+					due_date: normalizeActivityTaskDueDate_(row.due_date, ''),
 					assigned_student_ids: Array.isArray(assignedIds) ? assignedIds : []
 				};
 			});
@@ -716,7 +716,7 @@ function getActivityTasks(payload) {
 				id: taskId,
 				user_id: String(row.user_id || '').trim(),
 				task_name: String(row.task_name || row.title || '').trim(),
-				due_date: String(row.due_date || '').trim(),
+				due_date: normalizeActivityTaskDueDate_(row.due_date, ''),
 				status: String(row.status || 'Pending').trim(),
 				archived_previous_status: String(row.archived_previous_status || '').trim(),
 				description: String(row.description || '').trim(),
@@ -769,7 +769,7 @@ function getActivityTasks(payload) {
 				id: taskId,
 				user_id: String(row.user_id || '').trim(),
 				task_name: String(row.task_name || row.title || '').trim(),
-				due_date: String(row.due_date || '').trim(),
+				due_date: normalizeActivityTaskDueDate_(row.due_date, ''),
 				status: String(row.status || 'Pending').trim(),
 				archived_previous_status: String(row.archived_previous_status || '').trim(),
 				description: String(row.description || '').trim(),
@@ -1047,9 +1047,15 @@ function normalizeActivityTaskTimestamp_(value, fallback) {
 	return String(value || fallback || '').trim();
 }
 
+function normalizeActivityTaskDueDate_(value, fallback) {
+	var formatted = formatDateYMD_(value || fallback || '');
+	if (formatted) return formatted;
+	return String(value || fallback || '').trim();
+}
+
 function activityPayloadChangesProtectedFields_(payload, existingTask) {
 	var currentTitle = String(existingTask.task_name || existingTask.title || '').trim();
-	var currentDueDate = String(existingTask.due_date || '').trim();
+	var currentDueDate = normalizeActivityTaskDueDate_(existingTask.due_date, '');
 	var currentDescription = String(existingTask.description || '').trim();
 	var currentAssignedBy = String(existingTask.assigned_by || '').trim();
 	var currentPriority = String(existingTask.priority || 'medium').trim();
@@ -1060,7 +1066,7 @@ function activityPayloadChangesProtectedFields_(payload, existingTask) {
 		if (nextTitle !== currentTitle) return true;
 	}
 
-	if (payload.due_date !== undefined && String(payload.due_date || '').trim() !== currentDueDate) {
+	if (payload.due_date !== undefined && normalizeActivityTaskDueDate_(payload.due_date, '') !== currentDueDate) {
 		return true;
 	}
 
@@ -1212,8 +1218,8 @@ function updateActivityTask(payload) {
 					? String(existingTask.task_name || '').trim()
 					: String(payload.title !== undefined ? payload.title : payload.task_name !== undefined ? payload.task_name : existingTask.task_name || '').trim(),
 				due_date: progressOnlyUpdate
-					? String(existingTask.due_date || '').trim()
-					: String(payload.due_date !== undefined ? payload.due_date : existingTask.due_date || '').trim(),
+					? normalizeActivityTaskDueDate_(existingTask.due_date, '')
+					: normalizeActivityTaskDueDate_(payload.due_date !== undefined ? payload.due_date : existingTask.due_date, ''),
 				status: String(payload.status !== undefined ? payload.status : existingTask.status || 'Pending').trim(),
 				description: progressOnlyUpdate
 					? String(existingTask.description || '').trim()
@@ -1376,7 +1382,7 @@ function setActivityTaskArchiveStatus(payload) {
 					id: String(existingTask.id || id).trim(),
 					user_id: existingUserId,
 					task_name: String(existingTask.task_name || existingTask.title || '').trim(),
-					due_date: String(existingTask.due_date || '').trim(),
+					due_date: normalizeActivityTaskDueDate_(existingTask.due_date, ''),
 					status: nextStatus,
 					archived_previous_status: nextPreviousStatus,
 					description: String(existingTask.description || '').trim(),
