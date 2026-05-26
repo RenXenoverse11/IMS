@@ -1736,9 +1736,6 @@
                   >
                     {selectAllFoldersChecked ? 'Deselect All' : 'Select All'}
                   </button>
-                  {#if selectedFolders.size > 1}
-                    <span class="selection-info">Use each row's action buttons to rename folders.</span>
-                  {/if}
                   <button 
                     class="select-btn cancel-btn"
                     on:click={toggleFolderBulkActions}
@@ -1874,6 +1871,7 @@
                       {/if}
                       <th class="col-name-header">Name</th>
                       <th class="col-uploader-header">Uploaded By</th>
+                      <th class="col-folder-header">Folder</th>
                       <th class="col-type-header">Type</th>
                       <th class="col-size-header">Size</th>
                       <th class="col-date-header">Uploaded</th>
@@ -1935,6 +1933,9 @@
                         </td>
                         <td class="col-uploader">
                           <span class="uploader-name">{doc.created_by_name || 'â€”'}</span>
+                        </td>
+                        <td class="col-folder">
+                          <span class="folder-path-badge">{doc.folder || '/'}</span>
                         </td>
                         <td class="col-type">
                           <span class="type-badge">{doc.isLink ? 'Link' : 'File'}</span>
@@ -3208,7 +3209,7 @@
     background: var(--doc-surface);
     border-radius: 12px;
     border: 1px solid var(--doc-border);
-    overflow: hidden;
+    overflow: visible;
   }
 
   .table-header {
@@ -3226,6 +3227,7 @@
 
   .table-wrapper {
     overflow-x: auto;
+    overflow-y: visible;
   }
 
   .documents-table {
@@ -5151,7 +5153,7 @@
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 12px;
-    overflow: hidden;
+    overflow: visible;
   }
 
   .folders-table tbody tr.active {
@@ -5369,6 +5371,51 @@
 
   .folders-table td.col-actions .icon-btn {
     flex: 0 0 28px;
+  }
+
+  .folder-actions-menu {
+    position: relative;
+    display: inline-flex;
+    justify-content: flex-end;
+  }
+
+  .folder-menu-btn {
+    color: #60a5fa;
+  }
+
+  .folder-actions-popover {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    min-width: 160px;
+    padding: 6px;
+    border-radius: 12px;
+    background: #0f1c2f;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.24);
+    z-index: 25;
+  }
+
+  .folder-action-item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: #dbeafe;
+    font-size: 12px;
+    text-align: left;
+  }
+
+  .folder-action-item:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .folder-action-item.danger {
+    color: #fca5a5;
   }
 
   .folders-table .icon-btn.rename-btn {
@@ -6006,6 +6053,9 @@
   :global(html:not(.dark)) .folder-name,
   :global(html:not(.dark)) .docs-panel-title,
   :global(html:not(.dark)) .file-name,
+  :global(html:not(.dark)) .uploader-name,
+  :global(html:not(.dark)) .folder-path-badge,
+  :global(html:not(.dark)) .type-badge,
   :global(html:not(.dark)) .documents-table td,
   :global(html:not(.dark)) .modal-header h2,
   :global(html:not(.dark)) .form-group label,
@@ -6079,6 +6129,29 @@
 
   :global(html:not(.dark)) .selected-folder-text {
     color: #5f7188;
+  }
+
+  :global(html:not(.dark)) .folder-actions-popover {
+    background: #ffffff;
+    border-color: #d8e2ef;
+  }
+
+  :global(html:not(.dark)) .folder-action-item {
+    color: #0f172a;
+  }
+
+  :global(html:not(.dark)) .folder-action-item:hover {
+    background: #eef5fc;
+  }
+
+  :global(html:not(.dark)) .folder-action-item.danger {
+    color: #dc2626;
+  }
+
+  :global(html:not(.dark)) .uploader-name,
+  :global(html:not(.dark)) .folder-path-badge,
+  :global(html:not(.dark)) .type-badge {
+    color: #334155;
   }
 
   /* Delete Modal Styles */

@@ -14,6 +14,7 @@
     Timer,
     Trash2,
     RotateCcw,
+    Undo2,
     User,
     XCircle,
     X,
@@ -198,13 +199,16 @@
   }
 
   function hasPendingRetractionFor(request) {
-    const requestId = getRequestId(request);
-    if (!requestId) return false;
-    return requests.some((row) => (
-      isAbsenceRetraction(row) &&
-      normalizeStatus(row?.status) === "pending" &&
-      String(row?.original_request_id || row?.time || row?.request_time || "").trim() === requestId
-    ));
+    return isPendingRetraction(request);
+  }
+
+  function isPendingRetraction(request) {
+    const type = String(request?.requestType || request?.request_type || "")
+      .trim()
+      .toLowerCase();
+    return (type === "absence" || type === "absence retraction") &&
+      normalizeStatus(request?.status) === "pending" &&
+      String(request?.archived_previous_status || request?.archivedPreviousStatus || "").trim().toLowerCase() === "approved";
   }
 
   function canRetractApprovedAbsence(request) {
@@ -975,6 +979,7 @@
     try {
       const result = await callBackend("delete_request", {
         request_id: requestToDelete.id || requestToDelete.request_id,
+        user_id: String(currentUser?.user_id || "").trim(),
       });
       if (result && result.ok) {
         await loadRequests();
@@ -1555,6 +1560,8 @@
                   <div class="request-type-badge">
                     {#if isAbsenceRetraction(request)}
                       <RotateCcw size={14} /> Absence Retraction
+                    {:else if isPendingRetraction(request)}
+                      <RotateCcw size={14} /> Retraction Pending
                     {:else if request.requestType === "Overtime"}
                       <Clock3 size={14} /> Overtime
                     {:else}
@@ -1606,7 +1613,26 @@
               </div>
 
               <div class="req-card-footer">
-                {#if isSupervisor && statusTone === "pending"}
+                {#if isSupervisor && isPendingRetraction(request)}
+                  <button
+                    class="action-btn approve"
+                    disabled={approvingRequestId === request.id}
+                    on:click={() =>
+                      updateRequestStatus(request.id, "Approved")}
+                  >
+                    {#if approvingRequestId === request.id}
+                      <span class="spin"><Loader2 size={13} /></span> Approving...
+                    {:else}
+                      <CheckCircle size={13} /> Approve Retraction
+                    {/if}
+                  </button>
+                  <button
+                    class="btn-reject"
+                    on:click={() => openRejectModal(request)}
+                  >
+                    <XCircle size={12} /> Reject
+                  </button>
+                {:else if isSupervisor && statusTone === "pending"}
                   <button
                     class="action-btn approve"
                     disabled={approvingRequestId === request.id}
@@ -1625,6 +1651,20 @@
                   >
                     <XCircle size={12} /> Reject
                   </button>
+                {:else if !isSupervisor && isPendingRetraction(request)}
+                  <button
+                    class="btn-edit"
+                    disabled
+                    title="Retraction requests cannot be edited"
+                  >
+                    <Pencil size={12} /> Edit
+                  </button>
+                  <button
+                    class="btn-delete"
+                    on:click={() => openDeleteModal(request)}
+                  >
+                    <Trash2 size={12} /> Delete
+                  </button>
                 {:else if !isSupervisor && statusTone === "pending"}
                   <button
                     class="btn-edit"
@@ -1641,7 +1681,7 @@
                   </button>
                 {:else if !isSupervisor && canRetractApprovedAbsence(request)}
                   <button
-                    class="btn-edit"
+                    class="btn-retract"
                     on:click={() => openRetractModal(request)}
                   >
                     <RotateCcw size={12} /> Retract
@@ -1811,13 +1851,18 @@
     <div class="modal-overlay">
       <div class="modal-container">
         <div class="modal-header">
-          <h2>Delete Request</h2>
           <button class="modal-close" on:click={closeDeleteModal}
             >&times;</button
           >
         </div>
         <div class="modal-body">
-          <p>Are you sure you want to permanently delete this request?</p>
+          <div class="delete-modal-hero">
+            <div class="delete-modal-icon" aria-hidden="true">
+              <Trash2 size={20} />
+            </div>
+            <h2>Delete Request</h2>
+          </div>
+          <p class="delete-modal-copy">Are you sure you want to permanently delete this request?</p>
           <div class="modal-details">
             <div>
               <span>Type:</span>
@@ -1838,9 +1883,6 @@
                 {requestToDelete.reason}
               </div>{/if}
           </div>
-          <p class="modal-id">
-            Request ID: <code>{requestToDelete.request_id}</code>
-          </p>
         </div>
         <div class="modal-footer">
           <button
@@ -1922,14 +1964,19 @@
   {#if showRetractModal && requestToRetract}
     <div class="modal-overlay">
       <div class="modal-container">
-        <div class="modal-header">
-          <h2>Retract Approved Absence</h2>
+        <div class="modal-header retract-modal-header">
           <button class="modal-close" on:click={closeRetractModal}
             >&times;</button
           >
         </div>
         <div class="modal-body">
-          <p>This will send a retraction request to your supervisor. The absence will only be removed after approval.</p>
+          <div class="delete-modal-hero retract-modal-hero">
+            <div class="delete-modal-icon retract-modal-icon" aria-hidden="true">
+              <Undo2 size={20} />
+            </div>
+            <h2>Retract Approved Absence</h2>
+          </div>
+          <p class="retract-modal-copy">This will send a retraction request to your supervisor. The absence will only be removed after approval.</p>
           <div class="modal-details">
             <div>
               <span>Date:</span>
@@ -1956,7 +2003,7 @@
             disabled={isRetractingRequest}>Cancel</button
           >
           <button
-            class="btn-warning"
+            class="btn-retract"
             on:click={confirmRetractApprovedAbsence}
             disabled={isRetractingRequest || !String(retractionReason || "").trim()}
           >
@@ -2754,6 +2801,7 @@
 
   .btn-edit,
   .btn-delete,
+  .btn-retract,
   .btn-approve,
   .btn-reject,
   .btn-archive {
@@ -2779,6 +2827,16 @@
     background: var(--red);
     color: #fff;
     box-shadow: 0 2px 6px var(--red-dim);
+  }
+  .btn-retract {
+    background: linear-gradient(135deg, #f59e0b, #f97316);
+    color: #fff;
+    box-shadow: 0 2px 6px rgba(249, 115, 22, 0.22);
+  }
+  .btn-retract:hover:not(:disabled) {
+    background: linear-gradient(135deg, #ea580c, #f43f5e);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px rgba(249, 115, 22, 0.26);
   }
   .btn-delete:hover:not(:disabled) {
     background: #b91c1c;
@@ -2807,6 +2865,11 @@
   }
 
   .btn-edit:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    transform: none;
+  }
+  .btn-retract:disabled {
     opacity: 0.45;
     cursor: not-allowed;
     transform: none;
@@ -3153,6 +3216,11 @@
     padding: 16px 20px;
     border-bottom: 1px solid var(--border);
   }
+
+  .retract-modal-header {
+    justify-content: flex-end;
+  }
+
   .modal-header h2 {
     font-size: 18px;
     font-weight: 700;
@@ -3168,6 +3236,60 @@
   .modal-body {
     padding: 20px;
   }
+
+  .delete-modal-hero {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    text-align: center;
+    margin-bottom: 16px;
+  }
+
+  .delete-modal-icon {
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.12);
+    border: 1px solid rgba(239, 68, 68, 0.24);
+    box-shadow: 0 0 0 6px rgba(239, 68, 68, 0.06);
+  }
+
+  .delete-modal-hero h2 {
+    font-size: 19px;
+    font-weight: 800;
+    line-height: 1.1;
+  }
+
+  .retract-modal-hero {
+    margin-bottom: 14px;
+  }
+
+  .retract-modal-icon {
+    color: #f59e0b;
+    background: rgba(245, 158, 11, 0.12);
+    border-color: rgba(245, 158, 11, 0.22);
+    box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.06);
+  }
+
+  .retract-modal-copy {
+    text-align: center;
+    max-width: 36ch;
+    margin: 0 auto;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .delete-modal-copy {
+    font-weight: 600;
+    color: var(--text);
+    text-align: center;
+  }
+
   .modal-details {
     background: var(--surface2);
     border-radius: var(--radius-sm);
@@ -3183,17 +3305,19 @@
     color: var(--text2);
     margin-right: 8px;
   }
-  .modal-id {
-    font-size: 11px;
-    color: var(--text3);
-    margin-top: 12px;
-  }
   .modal-footer {
     display: flex;
-    justify-content: flex-end;
+    justify-content: center;
     gap: 12px;
     padding: 16px 20px;
     border-top: 1px solid var(--border);
+  }
+  .modal-footer .btn-secondary,
+  .modal-footer .btn-danger,
+  .modal-footer .btn-warning,
+  .modal-footer .btn-retract {
+    min-width: 98px;
+    justify-content: center;
   }
   .btn-secondary {
     display: inline-flex;
@@ -3237,6 +3361,24 @@
     font-weight: 600;
   }
 
+  .btn-retract {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .btn-retract:hover:not(:disabled) {
+    background: linear-gradient(135deg, #d97706, #b45309);
+  }
+
   .btn-primary {
     display: inline-flex;
     align-items: center;
@@ -3263,6 +3405,7 @@
 
   .btn-danger:disabled,
   .btn-warning:disabled,
+  .btn-retract:disabled,
   .btn-secondary:disabled {
     opacity: 0.6;
     cursor: not-allowed;

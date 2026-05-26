@@ -963,6 +963,7 @@
     padding: 18px 20px;
     background: #ffffff;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
+    transition: background 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
   }
 
   .stl-card-success {
@@ -1167,28 +1168,28 @@
     flex-shrink: 0;
   }
 
-  .icon-blue {
-    background: rgba(59, 130, 246, 0.14);
-    color: #3b82f6;
-    border: 1px solid rgba(59, 130, 246, 0.22);
+  :global(.dark) .icon-blue {
+    background: rgba(59, 130, 246, 0.18);
+    border-color: rgba(96, 165, 250, 0.28);
+    color: #60a5fa;
   }
 
-  .icon-violet {
-    background: rgba(99, 102, 241, 0.14);
-    color: #4f46e5;
-    border: 1px solid rgba(99, 102, 241, 0.24);
+  :global(.dark) .icon-violet {
+    background: rgba(99, 102, 241, 0.18);
+    border-color: rgba(129, 140, 248, 0.28);
+    color: #818cf8;
   }
 
-  .icon-green {
-    background: rgba(34, 197, 94, 0.14);
-    color: #16a34a;
-    border: 1px solid rgba(34, 197, 94, 0.22);
+  :global(.dark) .icon-green {
+    background: rgba(34, 197, 94, 0.18);
+    border-color: rgba(74, 222, 128, 0.28);
+    color: #4ade80;
   }
 
-  .icon-amber {
-    background: rgba(245, 158, 11, 0.14);
-    color: #d97706;
-    border: 1px solid rgba(245, 158, 11, 0.24);
+  :global(.dark) .icon-amber {
+    background: rgba(245, 158, 11, 0.18);
+    border-color: rgba(253, 191, 36, 0.28);
+    color: #fbbf24;
   }
 
   .stat-value {
@@ -1241,6 +1242,11 @@
     border: 1px solid rgba(148, 163, 184, 0.18);
     background: rgba(148, 163, 184, 0.2);
     overflow: hidden;
+  }
+
+  :global(.dark) .progress-track {
+    border-color: rgba(148, 163, 184, 0.25);
+    background: rgba(71, 85, 105, 0.3);
   }
 
   .progress-fill {
@@ -1626,6 +1632,10 @@
     animation: shimmer 1.35s ease-in-out infinite;
   }
 
+  :global(.dark) .sk-shimmer::after {
+    background: linear-gradient(90deg, transparent, rgba(148, 163, 184, 0.25), transparent);
+  }
+
   .sk-line,
   .sk-block,
   .sk-pill {
@@ -1903,8 +1913,8 @@
 
   :global(.dark) .stl-card {
     border-color: rgba(255, 255, 255, 0.08);
-    background: #161c27;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+    background: linear-gradient(180deg, #1d2a3a 0%, #161c27 100%);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28), 0 4px 12px rgba(0, 0, 0, 0.15);
   }
 
   :global(.dark) .stl-table-header {
@@ -2009,21 +2019,23 @@
   }
 
   :global(.dark) .stl-table {
-    color: #cbd5e1;
+    color: #e2e8f0;
   }
 
   :global(.dark) .stl-table thead th {
-    background: rgba(29, 42, 64, 0.88);
-    color: #e2e8f0;
-    border-bottom-color: rgba(148, 163, 184, 0.2);
+    background: linear-gradient(180deg, rgba(30, 48, 72, 0.95), rgba(25, 40, 62, 0.88));
+    color: #f8fafc;
+    border-bottom-color: rgba(148, 163, 184, 0.22);
+    font-weight: 700;
   }
 
   :global(.dark) .stl-table td {
-    border-top-color: rgba(148, 163, 184, 0.14);
+    border-top-color: rgba(148, 163, 184, 0.12);
+    color: #cbd5e1;
   }
 
   :global(.dark) .stl-table tbody tr:hover {
-    background: rgba(59, 130, 246, 0.08);
+    background: linear-gradient(90deg, rgba(59, 130, 246, 0.06), rgba(37, 99, 235, 0.04));
   }
 
   :global(.dark) .log-date-day {
@@ -2032,10 +2044,26 @@
     color: #93c5fd;
   }
 
+  .hours-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 48px;
+    height: 34px;
+    padding: 0 10px;
+    border-radius: 999px;
+    background: rgba(37, 99, 235, 0.12);
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    color: #1d4ed8;
+    font-size: 13px;
+    font-weight: 700;
+    transition: all 0.2s ease;
+  }
+
   :global(.dark) .hours-badge {
-    background: rgba(59, 130, 246, 0.16);
-    border-color: rgba(96, 165, 250, 0.2);
-    color: #dbeafe;
+    background: rgba(59, 130, 246, 0.18);
+    border-color: rgba(96, 165, 250, 0.28);
+    color: #a5f3fc;
   }
 
   :global(.dark) .btn-delete,

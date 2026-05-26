@@ -831,7 +831,7 @@
             </div>
             <div class="dash-stat-sub">
               {#if remainingDurationParts.days > 0 && remainingDurationParts.hours > 0}
-                plus {remainingDurationParts.hours} {remainingDurationParts.hours === 1 ? 'hour' : 'hours'}
+                and {remainingDurationParts.hours} {remainingDurationParts.hours === 1 ? 'hour' : 'hours'}
               {:else if remainingDurationLabel === 'Completed'}
                 OJT completed
               {:else}
@@ -862,14 +862,7 @@
         <div class="dash-card">
           <div class="dash-section-label">{isCompleted ? 'Completed On' : 'Estimated End Date'}</div>
           <div class="dash-end-value">{estimatedEndDateDisplay}</div>
-          <div class="dash-end-meta">
-            Start: {startDateDisplay} ·
-            {#if remainingDurationLabel === 'Completed'}
-              Completed
-            {:else}
-              {remainingDurationLabel} left
-            {/if}
-          </div>
+          <div class="dash-end-meta">Start: {startDateDisplay}</div>
         </div>
       </div>
 

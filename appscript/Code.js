@@ -3007,6 +3007,8 @@ function handleRetractApprovedAbsence_(payload) {
   var dateCol = findColumnIndex_(headers, 'request_date');
   var statusCol = findColumnIndex_(headers, 'status');
   var requestTimeCol = findColumnIndex_(headers, 'request_time');
+  var rejectionRemarksCol = findColumnIndex_(headers, 'rejection_remarks');
+  var archivedPreviousStatusCol = findColumnIndex_(headers, 'archived_previous_status');
 
   var originalRowIndex = -1;
   var originalDate = '';
@@ -3038,55 +3040,43 @@ function handleRetractApprovedAbsence_(payload) {
     return { ok: false, error: 'Only future approved absences can be retracted.' };
   }
 
-  for (var r = 1; r < rows.length; r++) {
-    var type = String(rows[r][typeCol - 1] || '').trim().toLowerCase();
-    var status = String(rows[r][statusCol - 1] || '').trim().toLowerCase();
-    var linkedId = requestTimeCol > 0 ? String(rows[r][requestTimeCol - 1] || '').trim() : '';
-    if (type === 'absence retraction' && status === 'pending' && linkedId === originalRequestId) {
-      return { ok: false, error: 'A retraction request is already pending for this absence.' };
-    }
+  if (rejectionRemarksCol > 0) {
+    sheet.getRange(originalRowIndex + 1, rejectionRemarksCol).setValue(reason);
   }
+  if (archivedPreviousStatusCol > 0) {
+    sheet.getRange(originalRowIndex + 1, archivedPreviousStatusCol).setValue('approved');
+  }
+  if (requestTimeCol > 0) {
+    sheet.getRange(originalRowIndex + 1, requestTimeCol).setValue(originalRequestId);
+  }
+  if (typeCol > 0) {
+    sheet.getRange(originalRowIndex + 1, typeCol).setValue('Absence Retraction');
+  }
+  sheet.getRange(originalRowIndex + 1, statusCol).setValue('Pending');
 
-  var requestId = 'REQ-' + Date.now();
-  var createdAt = formatTimestamp_(new Date());
   var requesterName = String(requesterRecord.user.full_name || '').trim() || 'Student';
-  var row = [];
-  for (var h = 0; h < headers.length; h++) {
-    var header = headers[h];
-    if (header === 'request_id') row.push(requestId);
-    else if (header === 'user_id') row.push(userId);
-    else if (header === 'requester_name') row.push(requesterName);
-    else if (header === 'request_type') row.push('Absence Retraction');
-    else if (header === 'request_date') row.push(originalDate);
-    else if (header === 'request_time') row.push(originalRequestId);
-    else if (header === 'reason') row.push(reason);
-    else if (header === 'status') row.push('Pending');
-    else if (header === 'created_at') row.push(createdAt);
-    else row.push('');
-  }
-  sheet.appendRow(row);
-
   var supervisorUserIds = findSupervisorsForStudent_(userId);
   for (var s = 0; s < supervisorUserIds.length; s++) {
     createNotification_(
       supervisorUserIds[s],
-      'Approved Absence Retraction Request',
+      'Absence Retraction Pending',
       requesterName + ' requested to retract an approved absence for ' + originalDate + '.',
       'request',
-      requestId
+      originalRequestId
     );
   }
 
   return {
     ok: true,
     request: {
-      id: requestId,
+      id: originalRequestId,
       requestType: 'Absence Retraction',
       date: originalDate,
       reason: reason,
       status: 'Pending',
       requester_name: requesterName,
-      original_request_id: originalRequestId
+      original_request_id: originalRequestId,
+      is_retraction_pending: true
     }
   };
 }
@@ -3119,6 +3109,7 @@ function handleUpdateRequestStatus_(payload) {
   var requestTypeColIndex = findColumnIndex_(headers, 'request_type');
   var requesterNameColIndex = findColumnIndex_(headers, 'requester_name');
   var requestDateColIndex = findColumnIndex_(headers, 'request_date');
+  var requestTimeColIndex = findColumnIndex_(headers, 'request_time');
   var archivedPreviousStatusColIndex = findColumnIndex_(headers, 'archived_previous_status');
 
   // Find the request
@@ -3142,6 +3133,10 @@ function handleUpdateRequestStatus_(payload) {
   var currentArchivedPreviousStatus = archivedPreviousStatusColIndex > 0
     ? String(rows[requestRowIndex][archivedPreviousStatusColIndex - 1] || '').trim()
     : '';
+  var isPendingRetraction = (currentRequestTypeLower === 'absence retraction' || currentRequestTypeLower === 'absence') &&
+    currentStatusLower === 'pending' &&
+    String(currentArchivedPreviousStatus || '').toLowerCase() === 'approved' &&
+    String(rows[requestRowIndex][requestTimeColIndex - 1] || '').trim() !== '';
   var isArchiveTransition = String(newStatus || '').toLowerCase() === 'archived';
   var isRecoverTransition = String(newStatus || '').toLowerCase() === 'pending' && currentStatusLower === 'archived';
   var effectiveStatus = newStatus;
@@ -3179,50 +3174,14 @@ function handleUpdateRequestStatus_(payload) {
     }
   }
 
-  if (currentRequestTypeLower === 'absence retraction' && effectiveStatus === 'Approved') {
-    if (currentStatusLower !== 'pending') {
-      return { ok: false, error: 'Only pending retraction requests can be approved.' };
-    }
-
-    var requestTimeColIndex = findColumnIndex_(headers, 'request_time');
-    var linkedOriginalRequestId = requestTimeColIndex > 0
-      ? String(rows[requestRowIndex][requestTimeColIndex - 1] || '').trim()
-      : '';
-    if (!linkedOriginalRequestId) {
-      return { ok: false, error: 'This retraction request is missing the original absence reference.' };
-    }
-
-    var originalRequestRowIndex = -1;
-    for (var originalIndex = 1; originalIndex < rows.length; originalIndex++) {
-      if (String(rows[originalIndex][requestIdColIndex - 1] || '').trim() === linkedOriginalRequestId) {
-        originalRequestRowIndex = originalIndex;
-        break;
-      }
-    }
-
-    if (originalRequestRowIndex < 1) {
-      return { ok: false, error: 'Original approved absence request not found.' };
-    }
-
-    if (String(rows[originalRequestRowIndex][userIdColIndex - 1] || '').trim() !== studentUserId) {
-      return { ok: false, error: 'Retraction request does not match the original absence owner.' };
-    }
-
-    if (String(rows[originalRequestRowIndex][requestTypeColIndex - 1] || '').trim().toLowerCase() !== 'absence' ||
-        String(rows[originalRequestRowIndex][updateColIndex - 1] || '').trim().toLowerCase() !== 'approved') {
-      return { ok: false, error: 'Original request is no longer an approved absence.' };
-    }
-
-    var originalRequestDate = requestDateColIndex > 0 ? formatDateValue_(rows[originalRequestRowIndex][requestDateColIndex - 1]) : '';
+  if (isPendingRetraction && effectiveStatus === 'Approved') {
+    var requestDateValue = requestDateColIndex > 0 ? formatDateValue_(rows[requestRowIndex][requestDateColIndex - 1]) : '';
     var todayDate = formatDateYMD_(new Date());
-    if (!originalRequestDate || originalRequestDate <= todayDate) {
+    if (!requestDateValue || requestDateValue <= todayDate) {
       return { ok: false, error: 'Only future approved absences can be retracted.' };
     }
 
-    var deleteRows = [originalRequestRowIndex + 1, requestRowIndex + 1].sort(function(a, b) { return b - a; });
-    for (var dr = 0; dr < deleteRows.length; dr++) {
-      sheet.deleteRow(deleteRows[dr]);
-    }
+    sheet.deleteRow(requestRowIndex + 1);
 
     try {
       shiftEstimatedEndDateByWorkingDays_(studentUserId, -1);
@@ -3234,13 +3193,39 @@ function handleUpdateRequestStatus_(payload) {
       createNotification_(
         studentUserId,
         'Absence Retraction Approved',
-        'Your approved absence for ' + originalRequestDate + ' has been retracted.',
+        'Your approved absence for ' + requestDateValue + ' has been retracted.',
         'approval',
-        linkedOriginalRequestId
+        requestId
       );
     }
 
     return { ok: true, message: 'Approved absence retraction. The absence request was removed.', status: 'Approved', deleted: true };
+  }
+
+  if (isPendingRetraction && effectiveStatus === 'Rejected') {
+    if (archivedPreviousStatusColIndex > 0) {
+      sheet.getRange(requestRowIndex + 1, archivedPreviousStatusColIndex).setValue('');
+    }
+    if (requestTypeColIndex > 0) {
+      sheet.getRange(requestRowIndex + 1, requestTypeColIndex).setValue('Absence');
+    }
+    if (rejectionRemarksColIndex > 0) {
+      sheet.getRange(requestRowIndex + 1, rejectionRemarksColIndex).setValue('');
+    }
+    if (requestTimeColIndex > 0) {
+      sheet.getRange(requestRowIndex + 1, requestTimeColIndex).setValue('');
+    }
+    sheet.getRange(requestRowIndex + 1, updateColIndex).setValue('Approved');
+    if (studentUserId) {
+      createNotification_(
+        studentUserId,
+        'Absence Retraction Rejected',
+        'Your retraction request for ' + (requestDateColIndex > 0 ? formatDateValue_(rows[requestRowIndex][requestDateColIndex - 1]) : '') + ' was rejected.',
+        'rejection',
+        requestId
+      );
+    }
+    return { ok: true, message: 'Retraction request rejected and original absence restored.', status: 'Rejected' };
   }
 
   if (isRecoverTransition) {
@@ -3361,24 +3346,80 @@ function handleUpdateRequestStatus_(payload) {
 
 function handleDeleteRequest_(payload) {
   var requestId = String(payload.request_id || '').trim();
+  var userId = String(payload.user_id || '').trim();
 
-  if (!requestId) {
-    return { ok: false, error: 'request_id is required.' };
+  if (!requestId || !userId) {
+    return { ok: false, error: 'request_id and user_id are required.' };
   }
 
   try {
     var sheet = getRequestsSheet_();
-    var rows = getSheetValues_(sheet);
     var headers = getHeaders_(sheet);
+    var values = getSheetValues_(sheet);
     var requestIdColIndex = findColumnIndex_(headers, 'request_id');
+    var userIdColIndex = findColumnIndex_(headers, 'user_id');
+    var statusColIndex = findColumnIndex_(headers, 'status');
+    var requestTypeColIndex = findColumnIndex_(headers, 'request_type');
+    var rejectionRemarksColIndex = findColumnIndex_(headers, 'rejection_remarks');
+    var requestTimeColIndex = findColumnIndex_(headers, 'request_time');
+    var archivedPreviousStatusColIndex = findColumnIndex_(headers, 'archived_previous_status');
 
-    // Find the row with matching request_id
-    for (var i = 1; i < rows.length; i++) {
-      if (String(rows[i][requestIdColIndex - 1] || '').trim() === requestId) {
-        // Delete the row (row numbers are 1-indexed)
-        sheet.deleteRow(i + 1);
-        return { ok: true, message: 'Request deleted permanently.' };
+    if (requestIdColIndex === 0 || userIdColIndex === 0 || statusColIndex === 0) {
+      return { ok: false, error: 'requests sheet is missing required columns.' };
+    }
+
+    for (var i = 1; i < values.length; i++) {
+      var rowRequestId = String(values[i][requestIdColIndex - 1] || '').trim();
+      var rowUserId = String(values[i][userIdColIndex - 1] || '').trim();
+      if (rowRequestId !== requestId || rowUserId !== userId) {
+        continue;
       }
+
+      var requestStatus = String(values[i][statusColIndex - 1] || '').trim();
+      var requestType = String(values[i][requestTypeColIndex - 1] || '').trim().toLowerCase();
+      var currentArchivedPreviousStatus = archivedPreviousStatusColIndex > 0
+        ? String(values[i][archivedPreviousStatusColIndex - 1] || '').trim().toLowerCase()
+        : '';
+      var currentRequestTime = requestTimeColIndex > 0
+        ? String(values[i][requestTimeColIndex - 1] || '').trim()
+        : '';
+      var isPendingRetraction = (requestType === 'absence' || requestType === 'absence retraction') &&
+        requestStatus.toLowerCase() === 'pending' &&
+        currentArchivedPreviousStatus === 'approved' &&
+        currentRequestTime !== '';
+
+      if (isPendingRetraction) {
+        if (archivedPreviousStatusColIndex > 0) {
+          sheet.getRange(i + 1, archivedPreviousStatusColIndex).setValue('');
+        }
+        if (requestTypeColIndex > 0) {
+          sheet.getRange(i + 1, requestTypeColIndex).setValue('Absence');
+        }
+        if (rejectionRemarksColIndex > 0) {
+          sheet.getRange(i + 1, rejectionRemarksColIndex).setValue('');
+        }
+        if (requestTimeColIndex > 0) {
+          sheet.getRange(i + 1, requestTimeColIndex).setValue('');
+        }
+        sheet.getRange(i + 1, statusColIndex).setValue('Approved');
+        if (userId) {
+          createNotification_(
+            userId,
+            'Absence Retraction Canceled',
+            'Your retraction request for ' + (values[i][findColumnIndex_(headers, 'request_date') - 1] ? formatDateValue_(values[i][findColumnIndex_(headers, 'request_date') - 1]) : '') + ' was canceled.',
+            'info',
+            requestId
+          );
+        }
+        return { ok: true, message: 'Retraction request canceled and original absence restored.' };
+      }
+
+      if (requestStatus.toLowerCase() !== 'pending') {
+        return { ok: false, error: 'Only pending requests can be deleted.' };
+      }
+
+      sheet.deleteRow(i + 1);
+      return { ok: true, message: 'Request deleted successfully.' };
     }
 
     return { ok: false, error: 'Request not found.' };
@@ -3386,56 +3427,6 @@ function handleDeleteRequest_(payload) {
     Logger.log('ERROR in handleDeleteRequest_: ' + e.toString());
     return { ok: false, error: 'Error deleting request: ' + e.toString() };
   }
-  var userId = String(payload.user_id || '').trim();
-
-  if (!requestId || !userId) {
-    return { ok: false, error: 'request_id and user_id are required.' };
-  }
-
-  var requesterRecord = findUserRecordByUserId_(userId);
-  if (!requesterRecord) {
-    return { ok: false, error: 'User not found.' };
-  }
-
-  if (isSupervisorUser_(requesterRecord.user)) {
-    return { ok: false, error: 'Supervisor accounts cannot delete requests.' };
-  }
-
-  var sheet = getRequestsSheet_();
-  var headers = getHeaders_(sheet);
-  var values = getSheetValues_(sheet);
-  var requestIdColIndex = findColumnIndex_(headers, 'request_id');
-  var userIdColIndex = findColumnIndex_(headers, 'user_id');
-  var statusColIndex = findColumnIndex_(headers, 'status');
-
-  if (requestIdColIndex === 0 || userIdColIndex === 0 || statusColIndex === 0) {
-    throw new Error('requests sheet must include request_id, user_id, and status columns.');
-  }
-
-  var rowIndex = -1;
-  var requestStatus = '';
-
-  for (var i = 1; i < values.length; i++) {
-    var rowRequestId = String(values[i][requestIdColIndex - 1] || '').trim();
-    var rowUserId = String(values[i][userIdColIndex - 1] || '').trim();
-
-    if (rowRequestId === requestId && rowUserId === userId) {
-      rowIndex = i + 1;
-      requestStatus = String(values[i][statusColIndex - 1] || '').trim();
-      break;
-    }
-  }
-
-  if (rowIndex <= 0) {
-    return { ok: false, error: 'Request not found.' };
-  }
-
-  if (requestStatus.toLowerCase() !== 'pending') {
-    return { ok: false, error: 'Only pending requests can be deleted.' };
-  }
-
-  sheet.deleteRow(rowIndex);
-  return { ok: true, message: 'Request deleted successfully.' };
 }
 
 function handleArchiveRequest_(payload) {
@@ -6009,6 +6000,7 @@ function handleDuplicateDocument_(payload) {
     return { ok: false, error: err.message || String(err) };
   }
 }
+
 function handleShareDocument_(payload) {
   try {
     var docId = String(payload.doc_id || '').trim();
