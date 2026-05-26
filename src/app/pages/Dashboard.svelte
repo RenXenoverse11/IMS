@@ -20,6 +20,7 @@
   const VISIBILITY_RELOAD_DELAY = 200;
   let lastLoadTime = 0;
   const RELOAD_COOLDOWN = 5 * 60 * 1000;
+  let dashboardLoadToken = 0;
 
   let currentUser = getCurrentUser();
   let unsubscribeAuth = null;
@@ -308,10 +309,17 @@
   $: projectedOvertimeHours = sumRequestHours(requestRows, 'overtime', ['pending', 'approved']);
   $: projectedAdditionalHours = activeSessionElapsedHours + projectedOvertimeHours;
   $: effectiveCompletedHours = progressMode === PROGRESS_MODES.PROJECTED ? totalCompletedHours + projectedAdditionalHours : totalCompletedHours;
+  $: absenceAdjustmentDays = progressMode === PROGRESS_MODES.PROJECTED
+    ? pendingAbsenceAdjustmentDays
+    : approvedAbsenceAdjustmentDays;
   $: hoursCompleted = effectiveCompletedHours;
   $: isCompleted = profile?.completed_at ? true : false;
   $: hoursRemaining = isCompleted ? 0 : Math.max(0, totalOjtHours - hoursCompleted);
   $: avgDailyHours = 8; // You can make this dynamic if needed
+  $: remainingDurationParts = getWorkingDurationParts(hoursRemaining, avgDailyHours);
+  $: remainingDurationLabel = isCompleted
+    ? 'Completed'
+    : formatWorkingDuration(hoursRemaining, avgDailyHours);
   $: totalWorkingDays = Math.ceil(Math.max(0, totalOjtHours) / avgDailyHours);
   $: remainingWorkingDays = isCompleted ? 0 : Math.ceil(Math.max(0, hoursRemaining) / avgDailyHours);
   $: baseCalculatedEstimatedEndDate = (formStartDate && hoursRemaining > 0 && !isCompleted)
@@ -430,6 +438,92 @@
       });
   }
 
+  function buildTimeLogActivities(logRows) {
+    const rows = [];
+    if (!Array.isArray(logRows)) return rows;
+
+    for (const log of logRows) {
+      const logDate = normalizeDateOnly(log?.log_date);
+      const timeOutLabel = formatTime12Hour(log?.time_out);
+      const timeInLabel = formatTime12Hour(log?.time_in);
+
+      if (timeOutLabel) {
+        rows.push({
+          id: `logout-${String(log?.timelog_id || '') || `${logDate}-${String(log?.time_out || '').trim()}`}`,
+          type: 'logout',
+          title: `Logged Out: ${timeOutLabel}`,
+          created_at: buildActivityDateTime(logDate, log?.time_out),
+        });
+      }
+
+      if (timeInLabel) {
+        rows.push({
+          id: `login-${String(log?.timelog_id || '') || `${logDate}-${String(log?.time_in || '').trim()}`}`,
+          type: 'login',
+          title: `Logged In: ${timeInLabel}`,
+          created_at: buildActivityDateTime(logDate, log?.time_in),
+        });
+      }
+    }
+
+    return rows;
+  }
+
+  function mergeAndSortActivities(baseActivities, extraActivities) {
+    const allActivities = [
+      ...(Array.isArray(baseActivities) ? baseActivities : []),
+      ...(Array.isArray(extraActivities) ? extraActivities : []),
+    ];
+    allActivities.sort((a, b) => {
+      const dateA = String(a?.created_at || '').trim();
+      const dateB = String(b?.created_at || '').trim();
+      return dateB.localeCompare(dateA);
+    });
+    return allActivities;
+  }
+
+  async function loadDashboardRequestContext(userId, baseActivities, loadToken) {
+    try {
+      let allRequestRows = [];
+      let requestNotifications = [];
+
+      const [requestsResult, notificationsResult] = await Promise.allSettled([
+        callApiAction('list_requests_by_user', { user_id: userId }),
+        callApiAction('list_notifications', { user_id: userId }),
+      ]);
+
+      if (loadToken !== dashboardLoadToken) return;
+
+      requestRows = [];
+      approvedAbsenceAdjustmentDays = 0;
+      pendingAbsenceAdjustmentDays = 0;
+
+      if (requestsResult.status === 'fulfilled' && requestsResult.value?.ok && Array.isArray(requestsResult.value.requests)) {
+        allRequestRows = requestsResult.value.requests;
+        requestRows = allRequestRows;
+        const todayDateOnly = toLocalIsoDate(new Date());
+        approvedAbsenceAdjustmentDays = countAbsenceAdjustments(allRequestRows, todayDateOnly, ['approved']);
+        pendingAbsenceAdjustmentDays = countAbsenceAdjustments(allRequestRows, todayDateOnly, ['pending']);
+      } else if (requestsResult.status === 'rejected') {
+        console.error('Failed to load approved absence adjustments:', requestsResult.reason);
+      }
+
+      if (notificationsResult.status === 'fulfilled') {
+        requestNotifications = Array.isArray(notificationsResult.value?.notifications)
+          ? notificationsResult.value.notifications
+          : [];
+      } else if (notificationsResult.status === 'rejected') {
+        console.error('Failed to load request notifications:', notificationsResult.reason);
+      }
+
+      const requestLookup = buildRequestLookup(allRequestRows);
+      const requestDecisionActivities = buildRequestDecisionActivities(requestNotifications, requestLookup);
+      activityLogs = mergeAndSortActivities(baseActivities, requestDecisionActivities).slice(0, 10);
+    } catch (err) {
+      console.error('Failed to enrich dashboard request context:', err);
+    }
+  }
+
   async function loadDashboard() {
     clearMessages();
 
@@ -439,54 +533,66 @@
       // ignore
     }
 
-    if (!currentUser?.user_id) {
+    const userId = String(currentUser?.user_id || '').trim();
+    if (!userId) {
       loading = false;
       errorMessage = 'Please sign in to view your dashboard.';
       return;
     }
 
+    const loadToken = ++dashboardLoadToken;
     loading = true;
     try {
-      const data = await getStudentDashboard(currentUser.user_id, { limit: 10 });
-      try {
-        const scheduleResult = await callApiAction('get_intern_schedule', {
-          intern_user_id: currentUser.user_id,
-        });
-        if (scheduleResult && scheduleResult.ok && scheduleResult.schedule) {
-          const schedule = scheduleResult.schedule;
-          let parsedDaysOff = schedule.days_off;
-          if (typeof parsedDaysOff === 'string') {
-            try {
-              parsedDaysOff = JSON.parse(parsedDaysOff);
-            } catch {
-              parsedDaysOff = [0, 6];
-            }
-          }
+      const [dashboardResult, scheduleResult, activeSessionResult] = await Promise.allSettled([
+        getStudentDashboard(userId, { limit: 10 }),
+        callApiAction('get_intern_schedule', {
+          intern_user_id: userId,
+        }),
+        callApiAction('get_active_session', {
+          user_id: userId,
+        }),
+      ]);
 
-          internSchedule = {
-            shift_start: String(schedule.shift_start || '09:00'),
-            shift_end: String(schedule.shift_end || '17:00'),
-            days_off: normalizeDaysOff(parsedDaysOff),
-          };
-        }
-      } catch (scheduleErr) {
-        console.error('Failed to load intern schedule:', scheduleErr);
+      if (loadToken !== dashboardLoadToken) return;
+      if (dashboardResult.status !== 'fulfilled') {
+        throw dashboardResult.reason;
       }
 
-      try {
-        const activeSessionResult = await callApiAction('get_active_session', {
-          user_id: currentUser.user_id,
-        });
-        activeSession = activeSessionResult?.ok && activeSessionResult.session ? activeSessionResult.session : null;
-      } catch (activeSessionErr) {
-        console.error('Failed to load active session:', activeSessionErr);
+      const data = dashboardResult.value;
+
+      if (scheduleResult.status === 'fulfilled' && scheduleResult.value?.ok && scheduleResult.value?.schedule) {
+        const schedule = scheduleResult.value.schedule;
+        let parsedDaysOff = schedule.days_off;
+        if (typeof parsedDaysOff === 'string') {
+          try {
+            parsedDaysOff = JSON.parse(parsedDaysOff);
+          } catch {
+            parsedDaysOff = [0, 6];
+          }
+        }
+
+        internSchedule = {
+          shift_start: String(schedule.shift_start || '09:00'),
+          shift_end: String(schedule.shift_end || '17:00'),
+          days_off: normalizeDaysOff(parsedDaysOff),
+        };
+      } else if (scheduleResult.status === 'rejected') {
+        console.error('Failed to load intern schedule:', scheduleResult.reason);
+      }
+
+      if (activeSessionResult.status === 'fulfilled') {
+        activeSession = activeSessionResult.value?.ok && activeSessionResult.value.session
+          ? activeSessionResult.value.session
+          : null;
+      } else {
+        console.error('Failed to load active session:', activeSessionResult.reason);
         activeSession = null;
       }
 
       profile = data.profile;
-      timeLogs = data.time_logs;
+      timeLogs = Array.isArray(data.time_logs) ? data.time_logs : [];
       const serverCompletedHours = Number(data.total_completed_hours || 0);
-      const storageKey = `ojt_completed_hours_${String(currentUser.user_id || '').trim()}`;
+      const storageKey = `ojt_completed_hours_${userId}`;
       const cachedHoursRaw = storageKey ? localStorage.getItem(storageKey) : null;
       const cachedHours = cachedHoursRaw === null ? NaN : Number(cachedHoursRaw);
 
@@ -516,85 +622,13 @@
           return bCreated.localeCompare(aCreated);
         })
         .slice(0, 10);
-      pendingRequests = data.pending_requests || [];
-      let allRequestRows = [];
-      requestRows = [];
+      pendingRequests = Array.isArray(data.pending_requests) ? data.pending_requests : [];
+      requestRows = pendingRequests;
       approvedAbsenceAdjustmentDays = 0;
-      pendingAbsenceAdjustmentDays = 0;
-      try {
-        const allRequestsResult = await callApiAction('list_requests_by_user', {
-          user_id: currentUser.user_id,
-        });
-        if (allRequestsResult && allRequestsResult.ok && Array.isArray(allRequestsResult.requests)) {
-          allRequestRows = allRequestsResult.requests;
-          requestRows = allRequestRows;
-          const todayDateOnly = toLocalIsoDate(new Date());
-          approvedAbsenceAdjustmentDays = countAbsenceAdjustments(
-            allRequestRows,
-            todayDateOnly,
-            ['approved']
-          );
-          pendingAbsenceAdjustmentDays = countAbsenceAdjustments(
-            allRequestRows,
-            todayDateOnly,
-            ['pending']
-          );
-        }
-      } catch (requestErr) {
-        console.error('Failed to load approved absence adjustments:', requestErr);
-      }
+      pendingAbsenceAdjustmentDays = countAbsenceAdjustments(requestRows, toLocalIsoDate(new Date()), ['pending']);
 
-      let requestNotifications = [];
-      try {
-        const notificationsResult = await callApiAction('list_notifications', {
-          user_id: currentUser.user_id,
-        });
-        requestNotifications = Array.isArray(notificationsResult?.notifications)
-          ? notificationsResult.notifications
-          : [];
-      } catch (notificationErr) {
-        console.error('Failed to load request notifications:', notificationErr);
-      }
-
-      const timeLogActivities = [];
-      if (Array.isArray(data.time_logs)) {
-        for (const log of data.time_logs) {
-          const logDate = normalizeDateOnly(log?.log_date);
-          const timeOutLabel = formatTime12Hour(log?.time_out);
-          const timeInLabel = formatTime12Hour(log?.time_in);
-
-          if (timeOutLabel) {
-            timeLogActivities.push({
-              id: `logout-${String(log?.timelog_id || '') || `${logDate}-${String(log?.time_out || '').trim()}`}`,
-              type: 'logout',
-              title: `Logged Out: ${timeOutLabel}`,
-              created_at: buildActivityDateTime(logDate, log?.time_out),
-            });
-          }
-
-          if (timeInLabel) {
-            timeLogActivities.push({
-              id: `login-${String(log?.timelog_id || '') || `${logDate}-${String(log?.time_in || '').trim()}`}`,
-              type: 'login',
-              title: `Logged In: ${timeInLabel}`,
-              created_at: buildActivityDateTime(logDate, log?.time_in),
-            });
-          }
-        }
-      }
-
-      const requestLookup = buildRequestLookup(allRequestRows);
-      const requestDecisionActivities = buildRequestDecisionActivities(requestNotifications, requestLookup);
-      const allActivities = [
-        ...timeLogActivities,
-        ...requestDecisionActivities,
-      ];
-      allActivities.sort((a, b) => {
-        const dateA = String(a?.created_at || '').trim();
-        const dateB = String(b?.created_at || '').trim();
-        return dateB.localeCompare(dateA);
-      });
-      activityLogs = allActivities.slice(0, 10);
+      const timeLogActivities = buildTimeLogActivities(timeLogs);
+      activityLogs = mergeAndSortActivities(timeLogActivities, []).slice(0, 10);
 
       const rawStartDate = profile?.start_date || currentUser?.ojt?.start_date || currentUser?.first_login_date || '';
       formStartDate = normalizeDateOnly(rawStartDate) || '';
@@ -602,9 +636,13 @@
       readonlyDepartment = String(currentUser?.department || '').trim();
       readonlyCourse = String(profile?.course || currentUser?.ojt?.course || '').trim();
       readonlySchool = String(profile?.school || currentUser?.ojt?.school || '').trim();
+
+      if (loadToken !== dashboardLoadToken) return;
+      loading = false;
+      void loadDashboardRequestContext(userId, timeLogActivities, loadToken);
     } catch (err) {
+      if (loadToken !== dashboardLoadToken) return;
       errorMessage = err?.message || 'Failed to load dashboard.';
-    } finally {
       loading = false;
     }
   }
@@ -628,13 +666,12 @@
       currentUser = user;
       if (user?.user_id) {
         loadDashboard();
+      } else {
+        loading = false;
       }
     });
 
     document.addEventListener('visibilitychange', onVisibilityChange);
-    if (currentUser?.user_id) {
-      loadDashboard();
-    }
     activeSessionTicker = setInterval(() => {
       now = new Date();
     }, 30000);

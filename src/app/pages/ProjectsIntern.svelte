@@ -2251,8 +2251,27 @@
               </div>
 
               {#if isViewing}
-                    <div class="proj-inline-overlay" on:click={closeProjectModal}></div>
-                    <div class="proj-detail-card proj-detail-card-modal" on:click|stopPropagation>
+                    <div
+                      class="proj-inline-overlay"
+                      role="button"
+                      tabindex="0"
+                      aria-label="Close project details"
+                      on:click={closeProjectModal}
+                      on:keydown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          closeProjectModal();
+                        }
+                      }}
+                    ></div>
+                    <div
+                      class="proj-detail-card proj-detail-card-modal"
+                      role="dialog"
+                      aria-modal="true"
+                      tabindex="-1"
+                      on:click|stopPropagation
+                      on:keydown|stopPropagation={() => {}}
+                    >
                       <div class="proj-view-head">
                         <div>
                           <div class="proj-view-kicker">Project Details</div>

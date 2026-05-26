@@ -209,6 +209,32 @@ export async function restoreAuthSession() {
   return currentUser;
 }
 
+export async function refreshCurrentUser() {
+  const existingUser = getCurrentUser();
+  const userId = String(existingUser?.user_id || '').trim();
+  if (!userId) {
+    return null;
+  }
+
+  try {
+    const result = await postAction('get_user_by_id', { user_id: userId });
+    if (!result?.user) {
+      return currentUser;
+    }
+
+    const mergedUser = normalizeStoredUser({
+      ...existingUser,
+      ...result.user,
+    });
+    currentUser = normalizeStoredUser(await resolveSessionRoleFromBackend(mergedUser));
+    persistCurrentUser();
+    notifyCurrentUserChanged();
+    return currentUser;
+  } catch {
+    return currentUser;
+  }
+}
+
 function notifyCurrentUserChanged() {
   if (typeof window === 'undefined') {
     return;

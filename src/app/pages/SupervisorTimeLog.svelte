@@ -916,8 +916,27 @@
   </section>
 
   {#if showDeleteConfirm}
-    <div class="modal-overlay" on:click={closeDeleteConfirm}>
-      <div class="delete-modal" on:click|stopPropagation>
+    <div
+      class="modal-overlay"
+      role="button"
+      tabindex="0"
+      aria-label="Close delete confirmation"
+      on:click={closeDeleteConfirm}
+      on:keydown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          closeDeleteConfirm();
+        }
+      }}
+    >
+      <div
+        class="delete-modal"
+        role="dialog"
+        aria-modal="true"
+        tabindex="-1"
+        on:click|stopPropagation
+        on:keydown|stopPropagation={() => {}}
+      >
         <div class="delete-modal-head">
           <div class="delete-modal-icon"><Trash2 size={18} /></div>
           <h3>Delete time log</h3>

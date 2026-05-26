@@ -2335,8 +2335,27 @@
 {#if selectedViewingProject}
   {@const p = selectedViewingProject}
   {@const canManage = canManageProject(p)}
-  <div class="modal-overlay proj-view-overlay" on:click={closeProjectModal}>
-    <div class="proj-view-modal" on:click|stopPropagation>
+  <div
+    class="modal-overlay proj-view-overlay"
+    role="button"
+    tabindex="0"
+    aria-label="Close project details"
+    on:click={closeProjectModal}
+    on:keydown={(e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        closeProjectModal();
+      }
+    }}
+  >
+    <div
+      class="proj-view-modal"
+      role="dialog"
+      aria-modal="true"
+      tabindex="-1"
+      on:click|stopPropagation
+      on:keydown|stopPropagation={() => {}}
+    >
       <div class="proj-view-head">
         <div>
           <div class="proj-view-kicker">Project Details</div>
@@ -4027,7 +4046,6 @@
     font-size: 0.63rem;
     font-weight: 700;
   }
-  .pdr-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .pdr-avatar-supervisor { background: #f0fdf4; border-color: #86efac; color: #16a34a; }
   :global(body.dark) .pdr-avatar { background: #1e2540; border-color: #3b82f6; color: #60a5fa; }
   :global(body.dark) .pdr-avatar-supervisor { background: #1e2a1e; border-color: #22c55e; color: #22c55e; }
