@@ -198,6 +198,10 @@ function dispatchAction_(payload) {
     return handleShareDocument_(payload);
   }
 
+  if (action === 'update_document_visibility') {
+    return handleUpdateDocumentVisibility_(payload);
+  }
+
   if (action === 'remove_share') {
     return handleRemoveShare_(payload);
   }
@@ -6024,9 +6028,9 @@ function handleShareDocument_(payload) {
       var rowUserId = String(row[1] || '').trim();
       if (rowDocId === docId && rowUserId === userId) {
         var sharedWith = [];
-        if (row[11]) {
+        if (row[10]) {
           try {
-            sharedWith = JSON.parse(String(row[11]));
+            sharedWith = JSON.parse(String(row[10]));
           } catch (e) {
             sharedWith = [];
           }
@@ -6042,10 +6046,44 @@ function handleShareDocument_(payload) {
           });
         }
 
-        sheet.getRange(i + 1, 12).setValue(JSON.stringify(sharedWith));
-        sheet.getRange(i + 1, 11).setValue('shared');
+        sheet.getRange(i + 1, 11).setValue(JSON.stringify(sharedWith));
+        sheet.getRange(i + 1, 10).setValue('specific');
 
         return { ok: true, message: 'Document shared.' };
+      }
+    }
+
+    return { ok: false, error: 'Document not found.' };
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) };
+  }
+}
+
+function handleUpdateDocumentVisibility_(payload) {
+  try {
+    var docId = String(payload.doc_id || '').trim();
+    var userId = String(payload.user_id || '').trim();
+    var accessLevel = String(payload.access_level || 'private').trim().toLowerCase() || 'private';
+    var sharedWith = Array.isArray(payload.shared_with) ? payload.shared_with : [];
+
+    if (!docId || !userId) {
+      return { ok: false, error: 'Missing docId or userId.' };
+    }
+
+    var sheet = getSheet_(DOCUMENTS_SHEET_);
+    if (!sheet) {
+      return { ok: false, error: 'Documents sheet not found.' };
+    }
+
+    var data = sheet.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      var row = data[i];
+      var rowDocId = String(row[0] || '').trim();
+      var rowUserId = String(row[1] || '').trim();
+      if (rowDocId === docId && rowUserId === userId) {
+        sheet.getRange(i + 1, 10).setValue(accessLevel);
+        sheet.getRange(i + 1, 11).setValue(JSON.stringify(sharedWith));
+        return { ok: true, message: 'Document visibility updated.' };
       }
     }
 
@@ -6086,9 +6124,11 @@ function handleRemoveShare_(payload) {
         }
         sharedWith = sharedWith.filter(function(s) { return s.email !== email; });
 
-        sheet.getRange(i + 1, 12).setValue(JSON.stringify(sharedWith));
+        sheet.getRange(i + 1, 11).setValue(JSON.stringify(sharedWith));
         if (sharedWith.length === 0) {
-          sheet.getRange(i + 1, 11).setValue('private');
+          sheet.getRange(i + 1, 10).setValue('private');
+        } else {
+          sheet.getRange(i + 1, 10).setValue('specific');
         }
 
         return { ok: true, message: 'Share removed.' };

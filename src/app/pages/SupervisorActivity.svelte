@@ -1027,12 +1027,15 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
     ? students.filter(s => String(s.full_name || '').toLowerCase().includes(editAssigneeSearch.trim().toLowerCase()))
     : students;
 
-function editAssigneeLabel() {
+  function editAssigneeLabel() {
   if (!editTaskAssignees || editTaskAssignees.length === 0) return 'Select interns';
   const names = students.filter(s => editTaskAssignees.includes(s.user_id)).map(s => s.full_name);
   if (names.length === 1) return names[0];
   return names.length + ' selected';
 }
+
+  $: selectedNewTaskAssigneeChips = students.filter((s) => Array.isArray(newTaskAssignees) && newTaskAssignees.includes(s.user_id));
+  $: selectedEditTaskAssigneeChips = students.filter((s) => Array.isArray(editTaskAssignees) && editTaskAssignees.includes(s.user_id));
 
 function toggleEditAssigneeDropdown() {
   showEditAssigneeDropdown = !showEditAssigneeDropdown;
@@ -1054,7 +1057,6 @@ function toggleEditAssigneeDropdown() {
         showEditAssigneeDropdown = false;
       }
     }
-    // intern dropdown removed; nothing to close here
   }
 
   onMount(() => {
@@ -1291,12 +1293,19 @@ function toggleEditAssigneeDropdown() {
           <label class="assigned-field">
             <span>Assigned To</span>
             <div style="position:relative;">
+              {#if selectedNewTaskAssigneeChips.length > 0}
+                <div class="assignee-chip-row">
+                  {#each selectedNewTaskAssigneeChips as person (person.user_id)}
+                    <span class="assignee-chip">{person.full_name}</span>
+                  {/each}
+                </div>
+              {/if}
               <button bind:this={assigneeButtonEl} type="button" class="ghost btn-compact" on:click={toggleAssigneeDropdown} aria-haspopup="listbox" aria-expanded={showAssigneeDropdown} style="width:100%; text-align:left; display:flex; justify-content:space-between; align-items:center; border-radius:0.5rem; padding:0.45rem 0.6rem;">
                 <span>{assigneeLabel()}</span>
                 <span style="opacity:0.7">▾</span>
               </button>
               {#if showAssigneeDropdown}
-                <div bind:this={assigneeDropdownEl} role="listbox" tabindex="-1" style="position:absolute; z-index:70; left:0; right:0; max-height:220px; overflow:auto; background:var(--surface); border:1px solid var(--border); border-radius:0.5rem; margin-top:0.4rem; padding:0.4rem;">
+                <div bind:this={assigneeDropdownEl} role="listbox" tabindex="-1" style="position:absolute; z-index:70; left:0; right:0; max-height:180px; overflow:auto; background:var(--surface); border:1px solid var(--border); border-radius:0.5rem; margin-top:0.4rem; padding:0.4rem;">
                   {#if filteredAssignees.length === 0}
                     <div style="padding:0.5rem; color:var(--muted);">No interns found.</div>
                   {:else}
@@ -1899,13 +1908,20 @@ function toggleEditAssigneeDropdown() {
               <label>
                 <span>Assigned To</span>
                 <div style="position:relative;">
+                  {#if selectedEditTaskAssigneeChips.length > 0}
+                    <div class="assignee-chip-row">
+                      {#each selectedEditTaskAssigneeChips as person (person.user_id)}
+                        <span class="assignee-chip">{person.full_name}</span>
+                      {/each}
+                    </div>
+                  {/if}
                   <button bind:this={editAssigneeButtonEl} type="button" class="ghost btn-compact" on:click={toggleEditAssigneeDropdown} aria-haspopup="listbox" aria-expanded={showEditAssigneeDropdown} style="width:100%; text-align:left; display:flex; justify-content:space-between; align-items:center; border-radius:0.5rem; padding:0.45rem 0.6rem;">
                     <span>{editAssigneeLabel()}</span>
                     <span style="opacity:0.7">▾</span>
                   </button>
 
                   {#if showEditAssigneeDropdown}
-                    <div bind:this={editAssigneeDropdownEl} role="listbox" tabindex="-1" style="position:absolute; z-index:70; left:0; right:0; max-height:240px; overflow:auto; background:var(--surface); border:1px solid var(--border); border-radius:0.5rem; margin-top:0.4rem; padding:0.4rem; box-shadow: none;">
+                    <div bind:this={editAssigneeDropdownEl} role="listbox" tabindex="-1" style="position:absolute; z-index:70; left:0; right:0; max-height:180px; overflow:auto; background:var(--surface); border:1px solid var(--border); border-radius:0.5rem; margin-top:0.4rem; padding:0.4rem; box-shadow: none;">
                       {#if filteredEditAssignees.length === 0}
                         <div style="padding:0.5rem; color:var(--muted);">No interns found.</div>
                       {:else}
@@ -3199,6 +3215,27 @@ function toggleEditAssigneeDropdown() {
     font-family: inherit;
     display: block;
     margin-bottom: 0.25rem;
+  }
+
+  .assignee-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin: 0 0 0.45rem;
+  }
+
+  .assignee-chip {
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+    padding: 0.24rem 0.55rem;
+    border-radius: 999px;
+    border: 1px solid rgba(59, 130, 246, 0.35);
+    background: rgba(59, 130, 246, 0.16);
+    color: #dbeafe;
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1.2;
   }
 
   .task-view-modal.task-add-modal .task-view-grid input,

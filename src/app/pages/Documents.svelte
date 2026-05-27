@@ -30,7 +30,9 @@
   let shareRole = 'Viewer';
   let shareVisibilityMode = 'private'; // private | everyone | specific | everyone_except
   let shareCandidates = [];
+  let shareCandidateSearch = '';
   let selectedShareUserIds = new Set();
+  let isApplyingShareVisibility = false;
   let copiedId = null;
   let uploadToFolder = '/';
   let folderSearchQuery = '';
@@ -619,12 +621,12 @@
     selectedDocForShare = doc;
     showShareModal = true;
     shareEmail = '';
+    shareCandidateSearch = '';
     selectedShareUserIds = new Set();
     shareVisibilityMode = 'private';
-    if (doc?.accessLevel === 'shared') {
-      shareVisibilityMode = 'specific';
-    }
-    loadShareCandidates_();
+    loadShareCandidates_().then(() => {
+      restoreShareModalStateFromDoc_();
+    });
   }
 
   async function loadShareCandidates_() {
@@ -643,6 +645,34 @@
     }
   }
 
+  function restoreShareModalStateFromDoc_() {
+    if (!selectedDocForShare) return;
+    const mode = String(selectedDocForShare.accessLevel || selectedDocForShare.access_level || 'private').trim().toLowerCase();
+    const sharedEntries = Array.isArray(selectedDocForShare.sharedWith) ? selectedDocForShare.sharedWith : [];
+    const selectedEmails = new Set(sharedEntries.map((entry) => String(entry.email || '').trim().toLowerCase()).filter(Boolean));
+
+    if (mode === 'everyone' || mode === 'private') {
+      shareVisibilityMode = mode;
+      selectedShareUserIds = new Set();
+      return;
+    }
+
+    if (mode === 'everyone_except') {
+      shareVisibilityMode = 'everyone_except';
+    } else {
+      shareVisibilityMode = 'specific';
+    }
+
+    const selectedIds = new Set();
+    for (const candidate of shareCandidates) {
+      const candidateEmail = String(candidate.email || '').trim().toLowerCase();
+      if (selectedEmails.has(candidateEmail)) {
+        selectedIds.add(candidate.user_id);
+      }
+    }
+    selectedShareUserIds = selectedIds;
+  }
+
   function toggleShareCandidate_(candidateUserId) {
     if (selectedShareUserIds.has(candidateUserId)) {
       selectedShareUserIds.delete(candidateUserId);
@@ -652,70 +682,108 @@
     selectedShareUserIds = selectedShareUserIds;
   }
 
+  $: filteredShareCandidates = shareCandidates.filter((candidate) => {
+    const query = String(shareCandidateSearch || '').trim().toLowerCase();
+    if (!query) return true;
+    const name = String(candidate.full_name || '').toLowerCase();
+    const role = String(candidate.role || '').toLowerCase();
+    const email = String(candidate.email || '').toLowerCase();
+    return name.includes(query) || role.includes(query) || email.includes(query);
+  });
+
+  $: selectedSharePreview = shareCandidates.filter((candidate) => selectedShareUserIds.has(candidate.user_id));
+
   async function applyShareVisibility() {
     if (!selectedDocForShare) return;
     if (!canManageShare_(selectedDocForShare)) {
       showActionMessage_('Only the document owner or supervisor can manage visibility.', 'error');
       return;
     }
-    const docId = selectedDocForShare.id;
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    const selectedUsers = shareCandidates.filter((u) => selectedShareUserIds.has(u.user_id));
-    const selectedEmails = selectedUsers.map((u) => String(u.email || '').trim()).filter(Boolean).filter((email) => emailRegex.test(email));
+    if (isApplyingShareVisibility) return;
+    isApplyingShareVisibility = true;
+    try {
+      const docId = selectedDocForShare.id;
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const selectedUsers = shareCandidates.filter((u) => selectedShareUserIds.has(u.user_id));
+      const selectedEmails = selectedUsers.map((u) => String(u.email || '').trim()).filter(Boolean).filter((email) => emailRegex.test(email));
+      const allCandidateEmails = shareCandidates
+        .map((u) => String(u.email || '').trim())
+        .filter(Boolean)
+        .filter((email) => emailRegex.test(email));
 
-    if (shareVisibilityMode === 'private') {
-      const existing = Array.isArray(selectedDocForShare.sharedWith) ? selectedDocForShare.sharedWith : [];
-      for (const entry of existing) {
-        await removeShare(docId, entry.email);
-      }
-      const docIndex = documents.findIndex((d) => d.id === docId);
-      if (docIndex !== -1) {
-        const currentDoc = mapDocumentFromApi_(documents[docIndex]);
-        const updatedDoc = { ...currentDoc, sharedWith: [], shared_with: [], accessLevel: 'private', access_level: 'private' };
-        documents = [...documents.slice(0, docIndex), updatedDoc, ...documents.slice(docIndex + 1)];
-        selectedDocForShare = updatedDoc;
-      }
-      showActionMessage_('Visibility set to Only me.');
-      showShareModal = false;
-      return;
-    }
-
-    if (shareVisibilityMode === 'specific') {
-      if (selectedEmails.length === 0) {
-        showActionMessage_('Select at least one user for specific people.', 'error');
-        return;
-      }
-      for (const email of selectedEmails) {
-        const response = await callBackend_('share_document', {
+      if (shareVisibilityMode === 'private') {
+        await callBackend_('update_document_visibility', {
           user_id: userId,
           doc_id: docId,
-          email,
-          role: 'Viewer'
+          access_level: 'private',
+          shared_with: []
         });
-        if (!response?.ok) {
-          showActionMessage_(`Failed sharing to ${email}`, 'error');
-        }
-      }
-      await loadDocuments_();
-      selectedDocForShare = documents.find((d) => d.id === docId) || selectedDocForShare;
-      showActionMessage_('Visibility updated for specific people.');
-      showShareModal = false;
-      return;
-    }
-
-    if (shareVisibilityMode === 'everyone') {
-      showActionMessage_('Everyone visibility selected. Please confirm backend policy support for full-group visibility.', 'success');
-      showShareModal = false;
-      return;
-    }
-
-    if (shareVisibilityMode === 'everyone_except') {
-      if (selectedEmails.length === 0) {
-        showActionMessage_('Select at least one user to exclude.', 'error');
+        await loadDocuments_();
+        selectedDocForShare = documents.find((d) => d.id === docId) || selectedDocForShare;
+        showActionMessage_('Visibility set to Only me.');
+        showShareModal = false;
         return;
       }
-      showActionMessage_('Everyone except selected. Exclusion rules need backend enforcement.', 'success');
-      showShareModal = false;
+
+      if (shareVisibilityMode === 'specific') {
+        if (selectedEmails.length === 0) {
+          showActionMessage_('Select at least one user for specific people.', 'error');
+          return;
+        }
+        await callBackend_('update_document_visibility', {
+          user_id: userId,
+          doc_id: docId,
+          access_level: 'specific',
+          shared_with: selectedUsers.map((u) => ({
+            email: String(u.email || '').trim(),
+            role: 'Viewer',
+            sharedDate: new Date().toISOString().slice(0, 10)
+          }))
+        });
+        await loadDocuments_();
+        selectedDocForShare = documents.find((d) => d.id === docId) || selectedDocForShare;
+        showActionMessage_('Visibility updated for specific people.');
+        showShareModal = false;
+        return;
+      }
+
+      if (shareVisibilityMode === 'everyone') {
+        await callBackend_('update_document_visibility', {
+          user_id: userId,
+          doc_id: docId,
+          access_level: 'everyone',
+          shared_with: []
+        });
+        await loadDocuments_();
+        selectedDocForShare = documents.find((d) => d.id === docId) || selectedDocForShare;
+        showActionMessage_('Visibility updated for everyone.');
+        showShareModal = false;
+        return;
+      }
+
+      if (shareVisibilityMode === 'everyone_except') {
+        if (selectedEmails.length === 0) {
+          showActionMessage_('Select at least one user to exclude.', 'error');
+          return;
+        }
+        await callBackend_('update_document_visibility', {
+          user_id: userId,
+          doc_id: docId,
+          access_level: 'everyone_except',
+          shared_with: selectedUsers.map((u) => ({
+            email: String(u.email || '').trim(),
+            role: 'Viewer',
+            sharedDate: new Date().toISOString().slice(0, 10)
+          }))
+        });
+        await loadDocuments_();
+        selectedDocForShare = documents.find((d) => d.id === docId) || selectedDocForShare;
+        showActionMessage_('Visibility updated for everyone except selected people.');
+        showShareModal = false;
+        return;
+      }
+    } finally {
+      isApplyingShareVisibility = false;
     }
   }
 
@@ -1024,7 +1092,7 @@
 
   async function confirmBulkMove() {
     const targetFolder = normalizeFolderPath_(bulkMoveTargetFolder);
-    if (!normalizedFolders.includes(targetFolder)) {
+    if (targetFolder !== '/' && !normalizedFolders.includes(targetFolder)) {
       showActionMessage_('Invalid target folder selected.', 'error');
       return;
     }
@@ -1063,6 +1131,47 @@
       showActionMessage_(`Moved ${successCount} document${successCount !== 1 ? 's' : ''}.`);
     } else {
       showActionMessage_(`Moved ${successCount}. Failed to move ${errorCount}.`, 'error');
+    }
+  }
+
+  async function removeSelectedFromCurrentFolder() {
+    if (selectedDocuments.size === 0) return;
+    if (!isFolderOpen || currentFolder === '/') return;
+
+    isBulkMoveProcessing = true;
+    const targetFolder = '/';
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (const docId of selectedDocuments) {
+      try {
+        const response = await callBackend_('move_document', {
+          user_id: userId,
+          doc_id: docId,
+          folder: targetFolder,
+        });
+
+        if (response?.ok) {
+          successCount++;
+          documents = documents.map((doc) => doc.id === docId ? { ...doc, folder: targetFolder } : doc);
+        } else {
+          errorCount++;
+        }
+      } catch (err) {
+        console.error('Remove from folder error:', docId, err);
+        errorCount++;
+      }
+    }
+
+    selectedDocuments.clear();
+    selectedDocuments = selectedDocuments;
+    selectAllChecked = false;
+    isBulkMoveProcessing = false;
+
+    if (errorCount === 0) {
+      showActionMessage_(`Removed ${successCount} document${successCount !== 1 ? 's' : ''} from folder.`);
+    } else {
+      showActionMessage_(`Removed ${successCount}. Failed to remove ${errorCount}.`, 'error');
     }
   }
 
@@ -1506,6 +1615,7 @@
 
       // Load group-based data in a single optimized bootstrap trip
       await loadInitialData_();
+      loadShareCandidates_();
     } catch (err) {
       console.error('Error initializing documents:', err);
       showActionMessage_('Unable to load documents. Please refresh.', 'error');
@@ -1703,6 +1813,12 @@
                     {selectAllChecked ? 'Deselect All' : 'Select All'}
                   </button>
                   {#if selectedDocuments.size > 0}
+                    {#if documentFilter === 'folders' && isFolderOpen && currentFolder !== '/'}
+                      <button class="btn btn-secondary" on:click={removeSelectedFromCurrentFolder} title="Remove selected documents from this folder">
+                        <FolderOpen size={14} />
+                        <span>Remove from Folder</span>
+                      </button>
+                    {/if}
                     <button class="btn btn-secondary" on:click={moveBulkDocuments} title="Move selected documents">
                       <FolderOpen size={14} />
                       <span>Move</span>
@@ -1754,7 +1870,7 @@
                   </button>
                   <button 
                     class="select-btn"
-                    on:click={() => documentFilter === 'folders' ? toggleFolderBulkActions() : toggleBulkActions()}
+                    on:click={() => (documentFilter === 'folders' && !isFolderOpen) ? toggleFolderBulkActions() : toggleBulkActions()}
                   >
                     Select
                   </button>
@@ -2136,37 +2252,27 @@
         </div>
 
         <div class="modal-body">
-          <div class="preview-content">
-            <div class="preview-icon">
-              {#if pendingFilePreview.type === 'pdf' || pendingFilePreview.type.includes('pdf')}
-                <div class="icon-pdf">ðŸ“„</div>
-              {:else}
-                <div class="icon-file">ðŸ“‹</div>
-              {/if}
+            <div class="preview-details preview-details--solo">
+            <div class="preview-section">
+              <label for="preview-name">File Name</label>
+              <p class="preview-value" id="preview-name">{pendingFilePreview.name}</p>
             </div>
 
-            <div class="preview-details">
-              <div class="preview-section">
-                <label for="preview-name">File Name</label>
-                <p class="preview-value" id="preview-name">{pendingFilePreview.name}</p>
-              </div>
+            <div class="preview-section">
+              <label for="preview-size">File Size</label>
+              <p class="preview-value" id="preview-size">{pendingFilePreview.size}</p>
+            </div>
 
-              <div class="preview-section">
-                <label for="preview-size">File Size</label>
-                <p class="preview-value" id="preview-size">{pendingFilePreview.size}</p>
-              </div>
-
-              <div class="preview-section">
-                <label for="preview-folder">Upload Folder</label>
-                <p class="preview-value" id="preview-folder">
-                  {pendingFilePreview.folder === '/' ? 'No Folder' : pendingFilePreview.folder.substring(1)}
-                </p>
-              </div>
+            <div class="preview-section">
+              <label for="preview-folder">Upload Folder</label>
+              <p class="preview-value" id="preview-folder">
+                {pendingFilePreview.folder === '/' ? 'No Folder' : pendingFilePreview.folder.substring(1)}
+              </p>
             </div>
           </div>
         </div>
 
-        <div class="modal-footer">
+        <div class="modal-footer modal-footer-centered">
           <button class="btn btn-secondary" on:click={() => cancelUpload()} disabled={isUploading}>Delete</button>
           <button class="btn btn-primary" on:click={() => confirmUpload()} disabled={isUploading}>
             {#if isUploading}
@@ -2517,6 +2623,15 @@
             <div class="form-group">
               <div id="bulk-move-destination-label" class="form-label">Destination Folder</div>
               <div class="folder-picker-list" role="listbox" aria-labelledby="bulk-move-destination-label">
+                <button
+                  type="button"
+                  class="folder-picker-option"
+                  class:active={bulkMoveTargetFolder === '/'}
+                  on:click={() => (bulkMoveTargetFolder = '/')}
+                  disabled={isBulkMoveProcessing}
+                >
+                  None
+                </button>
                 {#each normalizedFolders as folderPath (folderPath)}
                   <button
                     type="button"
@@ -2530,7 +2645,9 @@
                 {/each}
               </div>
             </div>
-            <p class="warning-text">This will move the selected shared documents for everyone who can access them.</p>
+            <p class="warning-text">
+              Choosing None will remove the selected documents from any folder and place them at the root level.
+            </p>
           </div>
         </div>
 
@@ -2592,36 +2709,15 @@
     <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div class="modal-overlay" on:click={() => (showShareModal = false)}>
       <div class="modal" on:click={(e) => e.stopPropagation()}>
-        <div class="modal-header">
+        <div class="modal-header share-modal-header">
+          <div class="delete-icon-container">
+            <Share2 size={24} />
+          </div>
           <h2>Share "{selectedDocForShare.name}"</h2>
           <button class="close-btn" on:click={() => (showShareModal = false)}>×</button>
         </div>
 
         <div class="modal-body">
-          <!-- Shareable Link -->
-          <div class="form-group">
-            <label for="shareLinkInput">Shareable Link</label>
-            <div class="share-link-box">
-              <input
-                id="shareLinkInput"
-                type="text"
-                readonly
-                value={`${window.location.origin}/#/documents/${selectedDocForShare.id}`}
-              />
-              <button
-                class="copy-btn"
-                on:click={() => copyShareLink(selectedDocForShare.id)}
-                title="Copy link"
-              >
-                {#if copiedId === selectedDocForShare.id}
-                  <Check size={18} />
-                {:else}
-                  <Copy size={18} />
-                {/if}
-              </button>
-            </div>
-          </div>
-
           <div class="share-form">
             <div class="form-group">
               <div id="share-visibility-label" class="form-label">Visibility</div>
@@ -2636,9 +2732,26 @@
             {#if shareVisibilityMode === 'specific' || shareVisibilityMode === 'everyone_except'}
               <div class="form-group">
                 <div id="share-candidates-label" class="form-label">{shareVisibilityMode === 'specific' ? 'Allowed people' : 'Excluded people'}</div>
+                <div class="share-candidates-search">
+                  <Search size={14} />
+                  <input
+                    type="text"
+                    placeholder="Search people..."
+                    bind:value={shareCandidateSearch}
+                  />
+                </div>
+                {#if selectedSharePreview.length > 0}
+                  <div class="selected-share-preview" aria-label="Selected people">
+                    {#each selectedSharePreview as candidate (candidate.user_id)}
+                      <span class="selected-share-pill">
+                        {candidate.full_name}
+                      </span>
+                    {/each}
+                  </div>
+                {/if}
                 <div class="share-candidates-list" role="group" aria-labelledby="share-candidates-label">
-                  {#if shareCandidates.length > 0}
-                    {#each shareCandidates as candidate (candidate.user_id)}
+                  {#if filteredShareCandidates.length > 0}
+                    {#each filteredShareCandidates as candidate (candidate.user_id)}
                       <label class="share-candidate-item">
                         <input
                           type="checkbox"
@@ -2657,10 +2770,6 @@
               </div>
             {/if}
 
-            <button class="btn btn-primary" on:click={applyShareVisibility} style="width: 100%;">
-              <Check size={18} />
-              <span>Apply Visibility</span>
-            </button>
           </div>
 
           <!-- Current Shares -->
@@ -2669,8 +2778,7 @@
               <h3>Currently Shared With</h3>
               {#each selectedDocForShare.sharedWith as share (share.email)}
                 <div class="share-item">
-                  <div class="share-info">
-                    <div class="share-email">{share.email}</div>
+                <div class="share-info">
                     <div class="share-email">{share.email}</div>
                     <div class="share-role">{share.role} â€¢ Shared {formatDate(share.sharedDate)}</div>
                   </div>
@@ -2684,16 +2792,21 @@
                 </div>
               {/each}
             </div>
-          {:else}
-            <div class="empty-shares">
-              <p>Not shared yet. Share with others using the form above.</p>
-            </div>
           {/if}
         </div>
 
         <div class="modal-footer">
           <button class="btn btn-secondary" on:click={() => (showShareModal = false)}>Close</button>
-        </div>
+            <button class="btn btn-primary" on:click={applyShareVisibility} disabled={isApplyingShareVisibility}>
+            {#if isApplyingShareVisibility}
+              <span class="spinning-icon" style="margin-right: 0.4rem; display: inline-flex;"><Loader2 size={16} /></span>
+              <span>Applying...</span>
+            {:else}
+              <Check size={18} />
+              <span>Apply</span>
+            {/if}
+            </button>
+          </div>
       </div>
     </div>
   {/if}
@@ -2925,7 +3038,7 @@
   }
 
   .share-candidates-list {
-    max-height: 180px;
+    max-height: 7.1rem;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
@@ -2936,12 +3049,118 @@
     background: rgba(15, 23, 42, 0.3);
   }
 
+  .selected-share-preview {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin: 0.2rem 0 0.35rem;
+  }
+
+  .selected-share-pill {
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+    padding: 0.28rem 0.6rem;
+    border-radius: 999px;
+    background: rgba(59, 130, 246, 0.16);
+    border: 1px solid rgba(59, 130, 246, 0.35);
+    color: #dbeafe;
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+
   .share-candidate-item {
     display: flex;
     align-items: center;
     gap: 0.55rem;
     font-size: 0.9rem;
     color: #d6e2f6;
+  }
+
+  .share-modal-header {
+    flex-direction: column;
+    align-items: center;
+    gap: 0.8rem;
+    text-align: center;
+    position: relative;
+  }
+
+  .share-modal-header h2 {
+    max-width: 100%;
+    line-height: 1.15;
+    text-wrap: balance;
+    word-break: break-word;
+  }
+
+  .share-modal-header .close-btn {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+  }
+
+  .share-candidates-search {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.4rem 0.65rem;
+    margin: 0.55rem 0 0.35rem;
+    border-radius: 8px;
+    border: 1px solid rgba(96, 165, 250, 0.25);
+    background: rgba(15, 23, 42, 0.32);
+  }
+
+  .share-candidates-search input {
+    flex: 1;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: #e2e8f0;
+    font-size: 0.85rem;
+  }
+
+  .share-candidates-search input::placeholder {
+    color: #94a3b8;
+  }
+
+  .share-candidates-list::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .share-candidates-list::-webkit-scrollbar-track {
+    background: rgba(15, 23, 42, 0.35);
+    border-radius: 999px;
+  }
+
+  .share-candidates-list::-webkit-scrollbar-thumb {
+    background: rgba(96, 165, 250, 0.55);
+    border-radius: 999px;
+  }
+
+  :global(html:not(.dark)) .share-modal-header .close-btn {
+    top: 1rem;
+    right: 1rem;
+  }
+
+  :global(html:not(.dark)) .share-candidates-search {
+    background: #f2f7ff;
+    border-color: #bfd4f3;
+  }
+
+  :global(html:not(.dark)) .share-candidates-search input {
+    color: #0f172a;
+  }
+
+  :global(html:not(.dark)) .share-candidates-search input::placeholder {
+    color: #64748b;
+  }
+
+  :global(html:not(.dark)) .share-candidate-item {
+    color: #0f172a;
+    background: #ffffff;
+    border: 1px solid #d8e2ef;
+    padding: 0.55rem 0.65rem;
+    border-radius: 8px;
   }
 
   .visibility-mode-grid {
@@ -3591,6 +3810,13 @@
     margin-top: 1.5rem;
     padding-top: 1.5rem;
     border-top: 1px solid var(--doc-border);
+    max-height: 10rem;
+    overflow-y: auto;
+  }
+
+  .modal-footer {
+    justify-content: center;
+    gap: 0.75rem;
   }
 
   .shares-list h3 {
@@ -3796,6 +4022,10 @@
     align-items: flex-start;
   }
 
+  .preview-details--solo {
+    width: 100%;
+  }
+
   .preview-details {
     flex: 1;
   }
@@ -3835,6 +4065,15 @@
     justify-content: flex-end;
     padding: 1rem 1.4rem;
     border-top: 1px solid var(--doc-border);
+  }
+
+  .modal-footer-centered {
+    justify-content: center !important;
+    align-items: center;
+  }
+
+  .modal-footer-centered .btn {
+    min-width: 7rem;
   }
 
   .confirmation-content {
