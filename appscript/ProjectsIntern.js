@@ -3,7 +3,7 @@ var PROJ_INTERN_SHEET_  = 'proj_intern';
 var PROJ_INTERN_HEADERS_ = [
   'proj_id', 'proj_name', 'priority', 'status', 'members', 'supervisor',
   'start_date', 'end_date', 'description',
-  'created_at', 'created_by', 'updated_by'
+  'created_at', 'created_by', 'updated_by', 'archived_previous_status'
 ];
 
 var MILESTONE_SHEET_ = 'milestone_intern';
@@ -181,7 +181,8 @@ function projRowToObj_(row) {
     description: String(row[8]  || ''),
     created_at:  row[9]  ? String(row[9])  : '',
     created_by:  String(row[10] || ''),
-    updated_by:  String(row[11] || '')
+    updated_by:  String(row[11] || ''),
+    archived_previous_status: String(row[12] || '')
   };
 }
 
@@ -207,6 +208,24 @@ function projCreatorRole_(userId, cache) {
 
   memo[key] = role;
   return role;
+}
+
+function projEffectiveUserRole_(userId) {
+  var key = String(userId || '').trim();
+  if (!key) return '';
+
+  try {
+    var record = findUserRecordByUserId_(key);
+    if (record && record.user) {
+      return String(
+        (typeof getEffectiveUserRole_ === 'function' ? getEffectiveUserRole_(record.user) : record.user.role) || ''
+      ).trim();
+    }
+  } catch (e) {
+    return '';
+  }
+
+  return '';
 }
 
 function projIsStatusOnlyUpdatePayload_(payload) {
@@ -426,7 +445,8 @@ function handleCreateProjIntern_(payload) {
     String(payload.description || '').trim(),
     formatTimestamp_(now),
     userId,
-    userId
+    userId,
+    ''
   ];
 
   sheet.appendRow(row);
@@ -486,18 +506,18 @@ function handleUpdateProjIntern_(payload) {
       var rowIndex = i + 1;
       var originalRow = data[i].slice();
       var existingProject = projRowToObj_(data[i]);
-      var creatorRole = projCreatorRole_(existingProject.created_by, {});
-      var isSupervisorCreated = projAssignmentNormalizeText_(creatorRole) === 'supervisor';
+      var currentUserRole = projAssignmentNormalizeText_(projEffectiveUserRole_(userId));
+      var isCurrentUserSupervisor = currentUserRole === 'supervisor' || currentUserRole === 'mentor';
       var isAssignedMember = projAssignmentIdsFromValue_(existingProject.members).indexOf(userId) !== -1;
       var isCreator = String(existingProject.created_by || '').trim() === userId;
       var statusOnlyUpdate = projIsStatusOnlyUpdatePayload_(payload);
 
-      if (!isCreator && isSupervisorCreated) {
+      if (!isCreator && !isCurrentUserSupervisor) {
         if (!isAssignedMember) {
           return { ok: false, error: 'You do not have permission to edit this project.' };
         }
         if (!statusOnlyUpdate) {
-          return { ok: false, error: 'This project was created by a supervisor. Interns can only update the project status.' };
+          return { ok: false, error: 'You can only update the project status unless you are the creator or a supervisor.' };
         }
       }
 
@@ -527,8 +547,22 @@ function handleUpdateProjIntern_(payload) {
         end_date: String(payload.end_date !== undefined ? payload.end_date : existingProject.end_date).trim(),
         description: String(payload.description !== undefined ? payload.description : existingProject.description).trim(),
         created_at: String(existingProject.created_at || '').trim(),
-        created_by: String(existingProject.created_by || '').trim()
+        created_by: String(existingProject.created_by || '').trim(),
+        archived_previous_status: String(existingProject.archived_previous_status || '').trim()
       };
+
+      var existingStatusLower = String(existingProject.status || '').trim().toLowerCase();
+      var nextStatusLower = String(nextProject.status || '').trim().toLowerCase();
+      if (nextStatusLower === 'archived') {
+        if (existingStatusLower !== 'completed' && existingStatusLower !== 'archived') {
+          return { ok: false, error: 'Only completed projects can be archived.' };
+        }
+        if (existingStatusLower !== 'archived') {
+          nextProject.archived_previous_status = String(existingProject.status || '').trim() || 'Not Started';
+        }
+      } else if (existingStatusLower === 'archived') {
+        nextProject.archived_previous_status = '';
+      }
 
       sheet.getRange(i + 1, 2).setValue(nextProject.proj_name);
       sheet.getRange(i + 1, 3).setValue(nextProject.priority);
@@ -539,6 +573,7 @@ function handleUpdateProjIntern_(payload) {
       sheet.getRange(i + 1, 8).setValue(nextProject.end_date);
       sheet.getRange(i + 1, 9).setValue(nextProject.description);
       sheet.getRange(i + 1, 12).setValue(userId);
+      sheet.getRange(i + 1, 13).setValue(nextProject.archived_previous_status);
       try {
         var mirrorResult = syncSupervisorProjectMirror_({
           proj_id: projId,
@@ -584,7 +619,7 @@ function handleUpdateProjIntern_(payload) {
   return { ok: false, error: 'Project not found: ' + projId };
 }
 
-// ── Restore an archived project (set status back to Not Started) ─────────────
+// ── Restore an archived project (set status back to its previous status) ─────
 
 function handleRestoreProjIntern_(payload) {
   var projId = String(payload.proj_id || '').trim();
@@ -599,9 +634,13 @@ function handleRestoreProjIntern_(payload) {
     if (String(data[i][0] || '').trim() === projId) {
       var rowIndex = i + 1;
       var originalRow = data[i].slice();
-      var restoredStatus = 'Not Started';
+      var previousStatus = String(data[i][12] || '').trim();
+      var restoredStatus = previousStatus && previousStatus.toLowerCase() !== 'archived'
+        ? previousStatus
+        : 'Not Started';
       sheet.getRange(i + 1, 4).setValue(restoredStatus);
       sheet.getRange(i + 1, 12).setValue(userId);
+      sheet.getRange(i + 1, 13).setValue('');
       try {
         var mirrorResult = syncSupervisorProjectMirror_({
           proj_id: projId,

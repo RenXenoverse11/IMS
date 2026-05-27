@@ -1037,9 +1037,14 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
   $: selectedNewTaskAssigneeChips = students.filter((s) => Array.isArray(newTaskAssignees) && newTaskAssignees.includes(s.user_id));
   $: selectedEditTaskAssigneeChips = students.filter((s) => Array.isArray(editTaskAssignees) && editTaskAssignees.includes(s.user_id));
 
-function toggleEditAssigneeDropdown() {
+  function toggleEditAssigneeDropdown() {
   showEditAssigneeDropdown = !showEditAssigneeDropdown;
 }
+
+  function closeAssigneeDropdowns() {
+    showAssigneeDropdown = false;
+    showEditAssigneeDropdown = false;
+  }
 
   $: filteredInterns = (internSearch && internSearch.trim())
     ? students.filter(s => String(s.full_name || '').toLowerCase().includes(internSearch.trim().toLowerCase()))
@@ -1870,7 +1875,7 @@ function toggleEditAssigneeDropdown() {
 
       {#if showEditTask}
         <div class="task-view-modal-overlay" role="presentation" on:click={() => { if (!isSavingEdit) showEditTask = false; }}>
-          <div class="task-view-modal" role="dialog" aria-modal="true" aria-label="Edit Task" tabindex="-1" on:click|stopPropagation on:keydown|stopPropagation>
+      <div class="task-view-modal" role="dialog" aria-modal="true" aria-label="Edit Task" tabindex="-1" on:click|stopPropagation on:keydown|stopPropagation>
             <div class="task-view-modal-head">
               <h4>Edit Task</h4>
               <div class="task-view-head-actions">

@@ -120,6 +120,11 @@
       return fallback;
     }
 
+    const parsedDate = new Date(text);
+    if (!Number.isNaN(parsedDate.getTime())) {
+      return to24HourString(parsedDate.getHours(), parsedDate.getMinutes());
+    }
+
     const isoTime = text.match(/T(\d{2}):(\d{2})/);
     if (isoTime) {
       return `${isoTime[1]}:${isoTime[2]}`;
@@ -241,6 +246,45 @@
     const num = Number(value);
     if (!Number.isFinite(num)) return '0';
     return Number(num.toFixed(2)).toString();
+  }
+
+  function normalizeDaysOff(value) {
+    if (Array.isArray(value)) {
+      return value
+        .map((item) => Number(item))
+        .filter((item) => Number.isInteger(item) && item >= 0 && item <= 6);
+    }
+
+    const text = String(value || '').trim();
+    if (!text) return [];
+
+    try {
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((item) => Number(item))
+          .filter((item) => Number.isInteger(item) && item >= 0 && item <= 6);
+      }
+    } catch (err) {
+      // Ignore malformed values and fall back to an empty list.
+    }
+
+    return [];
+  }
+
+  function formatScheduleDays(daysOff, mode = 'working') {
+    const normalizedDaysOff = normalizeDaysOff(daysOff);
+    const shortDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const longDays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+    if (mode === 'off') {
+      return normalizedDaysOff.length
+        ? normalizedDaysOff.map((dayIndex) => longDays[dayIndex]).join(', ')
+        : 'None';
+    }
+
+    const workingDays = shortDays.filter((_, index) => !normalizedDaysOff.includes(index));
+    return workingDays.length ? workingDays.join(', ') : 'No working days';
   }
 
   function toSafeFilenameSegment(value, fallback) {
@@ -545,6 +589,9 @@
   $: selectedCompletedHours = toNumber(selectedStudent?.completed_hours);
   $: selectedRemainingHours = Math.max(0, selectedRequiredHours - selectedCompletedHours);
   $: selectedProgress = selectedRequiredHours > 0 ? Math.min(100, Math.round((selectedCompletedHours / selectedRequiredHours) * 100)) : 0;
+  $: selectedStudentDaysOff = normalizeDaysOff(selectedStudent?.days_off);
+  $: selectedStudentShiftStart = normalizeTimeValue(selectedStudent?.shift_start, '09:00');
+  $: selectedStudentShiftEnd = normalizeTimeValue(selectedStudent?.shift_end, '17:00');
   $: exportMonth = exportMonth || getCurrentMonthInput();
   $: attendanceEntriesForExport = logs
     .filter((entry) => entry.time_out && toNumber(entry.hours_rendered) > 0 && getMonthInputFromDate(entry.log_date) === exportMonth)
@@ -707,6 +754,30 @@
           </div>
         </article>
       </div>
+
+      <section class="stl-card stl-schedule-card">
+        <div class="section-head stl-schedule-head">
+          <div class="section-icon icon-violet"><CalendarRange size={18} /></div>
+          <div>
+            <h3 class="section-title">Intern Schedule</h3>
+            <p class="section-sub">Reference schedule for attendance review and late/absence context.</p>
+          </div>
+        </div>
+        <div class="stl-schedule-content">
+          <div class="stl-schedule-item">
+            <div class="stl-schedule-label">Shift Hours</div>
+            <div class="stl-schedule-value">{toTimeText(selectedStudentShiftStart)} - {toTimeText(selectedStudentShiftEnd)}</div>
+          </div>
+          <div class="stl-schedule-item">
+            <div class="stl-schedule-label">Working Days</div>
+            <div class="stl-schedule-value">{formatScheduleDays(selectedStudentDaysOff, 'working')}</div>
+          </div>
+          <div class="stl-schedule-item">
+            <div class="stl-schedule-label">Days Off</div>
+            <div class="stl-schedule-value">{formatScheduleDays(selectedStudentDaysOff, 'off')}</div>
+          </div>
+        </div>
+      </section>
 
       <div class="control-head">
         <div class="control-actions">
@@ -988,6 +1059,44 @@
   .stl-card-success {
     border-color: rgba(16, 185, 129, 0.35);
     background: rgba(16, 185, 129, 0.08);
+  }
+
+  .stl-schedule-card {
+    padding-top: 16px;
+  }
+
+  .stl-schedule-head {
+    margin-bottom: 14px;
+  }
+
+  .stl-schedule-content {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .stl-schedule-item {
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 12px;
+    padding: 14px 15px;
+    background: linear-gradient(180deg, rgba(248, 250, 252, 0.92), rgba(241, 245, 249, 0.82));
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .stl-schedule-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: #64748b;
+  }
+
+  .stl-schedule-value {
+    font-size: 13.5px;
+    font-weight: 700;
+    color: #0f172a;
   }
 
   .section-head {
@@ -1425,6 +1534,7 @@
     border-collapse: collapse;
     font-size: 14px;
     color: #334155;
+    background: transparent;
   }
 
   .stl-table thead th {
@@ -1447,10 +1557,15 @@
     padding: 16px 18px;
     border-top: 1px solid rgba(148, 163, 184, 0.14);
     vertical-align: middle;
+    background: transparent;
   }
 
   .stl-table tbody tr:hover {
     background: rgba(255, 255, 255, 0.46);
+  }
+
+  .stl-table tbody tr {
+    background: transparent;
   }
 
   .text-right {
@@ -1936,13 +2051,28 @@
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28), 0 4px 12px rgba(0, 0, 0, 0.15);
   }
 
-  :global(.dark) .stl-table-header {
+  :global(.dark) .stl-table-header,
+  :global(html.dark) .stl-table-header,
+  :global(body.dark) .stl-table-header {
     border-bottom-color: rgba(148, 163, 184, 0.2);
   }
 
   :global(.dark) .stl-card-success {
     border-color: rgba(16, 185, 129, 0.3);
     background: rgba(16, 185, 129, 0.12);
+  }
+
+  :global(.dark) .stl-schedule-item {
+    border-color: rgba(148, 163, 184, 0.2);
+    background: linear-gradient(180deg, rgba(24, 34, 52, 0.92), rgba(20, 28, 42, 0.82));
+  }
+
+  :global(.dark) .stl-schedule-label {
+    color: #8da2c0;
+  }
+
+  :global(.dark) .stl-schedule-value {
+    color: #f1f5f9;
   }
 
   :global(.dark) .section-title,
@@ -1972,16 +2102,27 @@
     background: rgba(16, 185, 129, 0.08);
   }
 
-  :global(.dark) .sk-shimmer {
+  :global(.dark) .sk-shimmer,
+  :global(html.dark) .sk-shimmer,
+  :global(body.dark) .sk-shimmer {
     background: rgba(71, 85, 105, 0.5);
   }
 
-  :global(.dark) .sk-shimmer::after {
+  :global(.dark) .sk-shimmer::after,
+  :global(html.dark) .sk-shimmer::after,
+  :global(body.dark) .sk-shimmer::after {
     background: linear-gradient(90deg, transparent, rgba(148, 163, 184, 0.2), transparent);
   }
 
   :global(.dark) .stl-input,
-  :global(.dark) .btn-secondary {
+  :global(html.dark) .stl-input,
+  :global(body.dark) .stl-input,
+  :global(.dark) .btn-secondary,
+  :global(html.dark) .btn-secondary,
+  :global(body.dark) .btn-secondary,
+  :global(.dark) .btn-secondary-skeleton,
+  :global(html.dark) .btn-secondary-skeleton,
+  :global(body.dark) .btn-secondary-skeleton {
     background: #182234;
     border-color: rgba(148, 163, 184, 0.24);
     color: #e2e8f0;
@@ -1999,7 +2140,11 @@
   }
 
   :global(.dark) .stl-entry-count,
-  :global(.dark) .stl-export-month {
+  :global(html.dark) .stl-entry-count,
+  :global(body.dark) .stl-entry-count,
+  :global(.dark) .stl-export-month,
+  :global(html.dark) .stl-export-month,
+  :global(body.dark) .stl-export-month {
     color: #94a3b8;
   }
 
@@ -2030,30 +2175,54 @@
     border-color: rgba(96, 165, 250, 0.5);
   }
 
-  :global(.dark) .table-scroll-y {
+  :global(.dark) .table-scroll-y,
+  :global(html.dark) .table-scroll-y,
+  :global(body.dark) .table-scroll-y {
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+
+  :global(.dark) .table-wrap,
+  :global(html.dark) .table-wrap,
+  :global(body.dark) .table-wrap {
     border-color: rgba(255, 255, 255, 0.1);
     background:
       linear-gradient(180deg, rgba(24, 34, 52, 0.98), rgba(20, 28, 42, 0.96));
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
   }
 
-  :global(.dark) .stl-table {
+  :global(.dark) .stl-table,
+  :global(html.dark) .stl-table,
+  :global(body.dark) .stl-table {
     color: #e2e8f0;
+    background: transparent;
   }
 
-  :global(.dark) .stl-table thead th {
+  :global(.dark) .stl-table thead th,
+  :global(html.dark) .stl-table thead th,
+  :global(body.dark) .stl-table thead th {
     background: linear-gradient(180deg, rgba(30, 48, 72, 0.95), rgba(25, 40, 62, 0.88));
     color: #f8fafc;
     border-bottom-color: rgba(148, 163, 184, 0.22);
     font-weight: 700;
   }
 
-  :global(.dark) .stl-table td {
+  :global(.dark) .stl-table td,
+  :global(html.dark) .stl-table td,
+  :global(body.dark) .stl-table td {
     border-top-color: rgba(148, 163, 184, 0.12);
     color: #cbd5e1;
+    background: transparent;
   }
 
-  :global(.dark) .stl-table tbody tr:hover {
+  :global(.dark) .stl-table tbody tr,
+  :global(html.dark) .stl-table tbody tr,
+  :global(body.dark) .stl-table tbody tr {
+    background: transparent;
+  }
+
+  :global(.dark) .stl-table tbody tr:hover,
+  :global(html.dark) .stl-table tbody tr:hover,
+  :global(body.dark) .stl-table tbody tr:hover {
     background: linear-gradient(90deg, rgba(59, 130, 246, 0.06), rgba(37, 99, 235, 0.04));
   }
 
@@ -2137,6 +2306,10 @@
   }
 
   @media (max-width: 900px) {
+    .stl-schedule-content {
+      grid-template-columns: 1fr;
+    }
+
     .control-head {
       flex-direction: column;
       align-items: stretch;

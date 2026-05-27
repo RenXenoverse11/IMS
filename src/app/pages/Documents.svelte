@@ -1266,7 +1266,7 @@
     renameFolderInputValue = '';
   }
 
-  function deleteFolder(folderPath) {
+  async function deleteFolder(folderPath) {
     const normalizedPath = normalizeFolderPath_(folderPath);
     isDeletingFolder = true;
 
@@ -1284,33 +1284,56 @@
       currentFolder = '/';
     }
 
-    // Call backend to persist the deletion
-    callBackend_('delete_folder', {
-      user_id: userId,
-      folder_path: normalizedPath
-    }).then(response => {
-      if (response?.ok) {
+    try {
+      const response = await callBackend_('delete_folder', {
+        user_id: userId,
+        folder_path: normalizedPath
+      });
+
+      const folderStillExistsLocally = folderStructure.root.subfolders.some((f) => {
+        const fPath = typeof f === 'string' ? f : f.path;
+        return isFolderPathInTree_(fPath, normalizedPath);
+      });
+      const docsStillExistLocally = documents.some((doc) => isFolderPathInTree_(doc.folder, normalizedPath));
+      const locallyDeleted = !folderStillExistsLocally && !docsStillExistLocally;
+
+      if (response?.ok || locallyDeleted) {
         showActionMessage_('Folder deleted successfully.');
-      } else {
-        showActionMessage_('Error deleting folder: ' + (response?.error || 'Unknown error'), 'error');
-        // Reload data if delete failed to restore the UI
-        loadFolders_();
-        loadDocuments_();
+        showDeleteFolderConfirm = false;
+        folderToDelete = null;
+        documentsInFolderToDelete = [];
+        documentActionMap = {};
+        return;
       }
-    }).catch(err => {
-      console.error('Delete folder error:', err);
-      showActionMessage_('Error deleting folder. Please try again.', 'error');
-      // Reload data if delete failed to restore the UI
+
+      console.warn('Delete folder returned non-ok but folder still exists locally:', response);
+      showActionMessage_('Error deleting folder: ' + (response?.error || 'Unknown error'), 'error');
       loadFolders_();
       loadDocuments_();
-    }).finally(() => {
-      isDeletingFolder = false;
-    });
+    } catch (err) {
+      const folderStillExistsLocally = folderStructure.root.subfolders.some((f) => {
+        const fPath = typeof f === 'string' ? f : f.path;
+        return isFolderPathInTree_(fPath, normalizedPath);
+      });
+      const docsStillExistLocally = documents.some((doc) => isFolderPathInTree_(doc.folder, normalizedPath));
+      const locallyDeleted = !folderStillExistsLocally && !docsStillExistLocally;
 
-    showDeleteFolderConfirm = false;
-    folderToDelete = null;
-    documentsInFolderToDelete = [];
-    documentActionMap = {};
+      if (locallyDeleted) {
+        showActionMessage_('Folder deleted successfully.');
+        showDeleteFolderConfirm = false;
+        folderToDelete = null;
+        documentsInFolderToDelete = [];
+        documentActionMap = {};
+        return;
+      }
+
+      console.error('Delete folder error:', err);
+      showActionMessage_('Error deleting folder. Please try again.', 'error');
+      loadFolders_();
+      loadDocuments_();
+    } finally {
+      isDeletingFolder = false;
+    }
   }
 
   function processFolderAction(folderPath, action) {
@@ -2496,14 +2519,14 @@
     {@const folderDocumentCount = getFolderTreeDocumentCount_(folderPath)}
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <!-- svelte-ignore a11y-no-static-element-interactions -->
-    <div class="modal-overlay" on:click={() => (showDeleteFolderConfirm = false)}>
+    <div class="modal-overlay" on:click={() => !isDeletingFolder && (showDeleteFolderConfirm = false)}>
       <div class="modal delete-modal" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
           <div class="delete-icon-container">
             <Trash2 size={24} />
           </div>
           <h2>Delete Folder</h2>
-          <button class="close-btn" on:click={() => (showDeleteFolderConfirm = false)}>×</button>
+          <button class="close-btn" on:click={() => !isDeletingFolder && (showDeleteFolderConfirm = false)} disabled={isDeletingFolder}>×</button>
         </div>
 
         <div class="modal-body">
@@ -2517,7 +2540,7 @@
         </div>
 
         <div class="modal-footer">
-          <button class="btn btn-secondary" on:click={() => (showDeleteFolderConfirm = false)} disabled={isDeletingFolder}>Cancel</button>
+          <button class="btn btn-secondary" on:click={() => !isDeletingFolder && (showDeleteFolderConfirm = false)} disabled={isDeletingFolder}>Cancel</button>
           <button class="btn btn-danger" on:click={() => deleteFolder(folderPath)} disabled={isDeletingFolder}>
             {#if isDeletingFolder}
               <span class="spinning-icon"><Loader2 size={16} /></span>
@@ -2671,14 +2694,14 @@
   {#if showDeleteFoldersConfirm && selectedFolders.size > 0}
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <!-- svelte-ignore a11y-no-static-element-interactions -->
-    <div class="modal-overlay" on:click={() => (showDeleteFoldersConfirm = false)}>
+    <div class="modal-overlay" on:click={() => !isDeleteFoldersProcessing && (showDeleteFoldersConfirm = false)}>
       <div class="modal delete-modal" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
           <div class="delete-icon-container">
             <Trash2 size={24} />
           </div>
           <h2>Delete Folders</h2>
-          <button class="close-btn" on:click={() => (showDeleteFoldersConfirm = false)}>×</button>
+          <button class="close-btn" on:click={() => !isDeleteFoldersProcessing && (showDeleteFoldersConfirm = false)} disabled={isDeleteFoldersProcessing}>×</button>
         </div>
 
         <div class="modal-body">
@@ -2689,7 +2712,7 @@
         </div>
 
         <div class="modal-footer">
-          <button class="btn btn-secondary" on:click={() => (showDeleteFoldersConfirm = false)} disabled={isDeleteFoldersProcessing}>Cancel</button>
+          <button class="btn btn-secondary" on:click={() => !isDeleteFoldersProcessing && (showDeleteFoldersConfirm = false)} disabled={isDeleteFoldersProcessing}>Cancel</button>
           <button class="btn btn-danger" on:click={confirmBulkDeleteFolders} disabled={isDeleteFoldersProcessing}>
             {#if isDeleteFoldersProcessing}
               <span class="spinning-icon"><Loader2 size={16} /></span>

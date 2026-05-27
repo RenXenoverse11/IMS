@@ -195,6 +195,60 @@
     return [0, 6];
   }
 
+  function normalizeTimeForInput(value, fallback = '') {
+    const to24HourString = (hours, minutes) =>
+      `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+      return to24HourString(value.getHours(), value.getMinutes());
+    }
+
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric >= 0) {
+      const fraction = ((numeric % 1) + 1) % 1;
+      const totalMinutes = Math.round(fraction * 24 * 60) % (24 * 60);
+      const hours = Math.floor(totalMinutes / 60);
+      const minutes = totalMinutes % 60;
+      return to24HourString(hours, minutes);
+    }
+
+    const text = String(value || '').trim();
+    if (!text) return fallback;
+
+    const parsedDate = new Date(text);
+    if (!Number.isNaN(parsedDate.getTime())) {
+      return to24HourString(parsedDate.getHours(), parsedDate.getMinutes());
+    }
+
+    const isoTime = text.match(/T(\d{2}):(\d{2})/);
+    if (isoTime) {
+      return `${isoTime[1]}:${isoTime[2]}`;
+    }
+
+    const amPmTime = text.match(/(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)/i);
+    if (amPmTime) {
+      let hours = Number(amPmTime[1]);
+      const minutes = Number(amPmTime[2]);
+      const marker = String(amPmTime[3] || '').toUpperCase();
+
+      if (marker === 'PM' && hours < 12) hours += 12;
+      if (marker === 'AM' && hours === 12) hours = 0;
+
+      return to24HourString(hours, minutes);
+    }
+
+    const h24Time = text.match(/\b(\d{1,2}):(\d{2})(?::\d{2})?\b/);
+    if (h24Time) {
+      const hours = Number(h24Time[1]);
+      const minutes = Number(h24Time[2]);
+      if (Number.isFinite(hours) && Number.isFinite(minutes) && hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
+        return to24HourString(hours, minutes);
+      }
+    }
+
+    return fallback;
+  }
+
   function addWorkingDaysFrom(baseDateInput, workingDaysToAdd, daysOff = [0, 6]) {
     const baseDate = toDateOnly(baseDateInput);
     if (!baseDate) return null;
@@ -227,6 +281,25 @@
 
   function getStudentDaysOff(student) {
     return normalizeDaysOff(student?.days_off);
+  }
+
+  function getSavedSchedule(student) {
+    if (!student) return null;
+
+    const rawDaysOff = student?.schedule?.days_off ?? student?.days_off ?? '';
+    const shiftStart = normalizeTimeForInput(student?.schedule?.shift_start ?? student?.shift_start ?? '', '');
+    const shiftEnd = normalizeTimeForInput(student?.schedule?.shift_end ?? student?.shift_end ?? '', '');
+    const createdBy = String(student?.schedule?.created_by || '').trim();
+    const hasSchedule = Boolean(rawDaysOff || shiftStart || shiftEnd);
+
+    if (!hasSchedule) return null;
+
+    return {
+      days_off: normalizeDaysOff(rawDaysOff || DEFAULT_DAYS_OFF),
+      shift_start: shiftStart || '09:00',
+      shift_end: shiftEnd || '17:00',
+      created_by: createdBy,
+    };
   }
 
   function formatDateObject(dateValue) {
@@ -349,12 +422,15 @@
       return;
     }
 
-    // Check if intern already has a schedule (is already assigned to another supervisor)
-    const internHasSchedule = assignedStudents.some(s => String(s.user_id || '') === String(studentId || ''));
+    const selectedStudent = availableStudents.find(
+      (student) => String(student?.user_id || '').trim() === String(studentId || '').trim()
+    );
+    const savedSchedule = getSavedSchedule(selectedStudent);
+    const internHasSchedule = Boolean(savedSchedule);
     
     selectedInternForSetup = studentId;
     
-    // If intern doesn't have a schedule yet, ask to set one
+    // Only allow schedule setup from the add flow when the intern has no saved schedule yet.
     if (!internHasSchedule) {
       modalStep = 'schedule';
       internDaysOff = [...DEFAULT_DAYS_OFF];
@@ -437,9 +513,10 @@
   }
 
   function openEditScheduleModal(student) {
-    const daysOff = normalizeDaysOff(student?.schedule?.days_off || student?.days_off || DEFAULT_DAYS_OFF);
-    const shiftStart = student?.schedule?.shift_start || '09:00';
-    const shiftEnd = student?.schedule?.shift_end || '17:00';
+    const savedSchedule = getSavedSchedule(student);
+    const daysOff = savedSchedule?.days_off || [...DEFAULT_DAYS_OFF];
+    const shiftStart = savedSchedule?.shift_start || '09:00';
+    const shiftEnd = savedSchedule?.shift_end || '17:00';
 
     editingScheduleInternId = student.user_id;
     editingScheduleInternName = student.full_name;
@@ -788,9 +865,6 @@
             {@const estimatedCompletionRaw = firstNonEmptyText(student?.estimated_end_date, student?.estimated_completion_date, student?.estimated_completion, student?.projected_completion_date, student?.expected_completion_date)}
             {@const statusText = getCurrentStatusLabel(student, remaining, projectedEndDate, daysLeft)}
             {@const hasSchedule = !!(student?.schedule?.days_off || student?.days_off)}
-            {@const createdBy = String(student?.schedule?.created_by || '')}
-            {@const currentUserId = String(currentUser?.user_id || '')}
-            {@const isPrimary = !createdBy || createdBy === currentUserId}
             <article class="assigned-card">
               <div class="card-header-row">
                 <div class="assigned-info">
@@ -808,21 +882,13 @@
                         <span class="schedule-badge schedule-badge-unscheduled" title="This intern doesn't have a schedule yet">
                           ⚙️ Unscheduled
                         </span>
-                      {:else if isPrimary}
-                        <span class="schedule-badge schedule-badge-primary" title="You set up this intern's schedule">
-                          ✓ Primary
-                        </span>
-                      {:else}
-                        <span class="schedule-badge schedule-badge-secondary" title="Another supervisor set up this schedule">
-                          👥 Secondary
-                        </span>
                       {/if}
                     </div>
                     <p class="text-xs text-muted">{internMetaLabel}</p>
                   </div>
                 </div>
                 <div class="card-actions">
-                  {#if hasSchedule && isPrimary}
+                  {#if hasSchedule}
                     <button
                       class="btn-action"
                       type="button"

@@ -270,24 +270,23 @@
     return raw;
   }
 
-  function isSupervisorCreatedProject(project) {
-    const explicitFlag = project?.creator_is_supervisor;
-    if (explicitFlag === true || String(explicitFlag || '').trim().toLowerCase() === 'true') {
-      return true;
-    }
+  function currentUserRoleLabel() {
+    return normalizeRoleLabel(
+      currentUser?.role ||
+      currentUser?.Role ||
+      currentUser?.user_role ||
+      currentUser?.userRole ||
+      ''
+    );
+  }
 
-    const creatorRole = normalizeRoleLabel(project?.created_by_role || project?.creator_role || '');
-    if (creatorRole) return creatorRole === 'Supervisor';
-
-    const creatorId = String(project?.created_by || '').trim();
-    if (!creatorId) return false;
-    const creator = (Array.isArray(users) ? users : []).find((user) => getUserId(user) === creatorId);
-    return normalizeRoleLabel(creator?.role || creator?.Role || '') === 'Supervisor';
+  function currentUserIsSupervisor() {
+    return currentUserRoleLabel() === 'Supervisor';
   }
 
   function isStatusOnlyEditableProject(project) {
     const creatorId = String(project?.created_by || '').trim();
-    return Boolean(project && creatorId && creatorId !== getCurrentUserId() && isSupervisorCreatedProject(project));
+    return Boolean(project && creatorId && creatorId !== getCurrentUserId() && !currentUserIsSupervisor());
   }
 
   function inferSingleDepartmentFromUsers(list) {
@@ -666,6 +665,20 @@
         loadProjectMilestones(p.id);
       }
     }
+  }
+
+  function canArchiveProject(project) {
+    const status = canonicalStatusLabel(project?.status || '').toLowerCase();
+    return Boolean(
+      project &&
+      !project.archived &&
+      String(project.id || project.proj_id || '').trim() &&
+      status === 'completed'
+    );
+  }
+
+  function showArchiveProject(project) {
+    return Boolean(project && !project.archived && String(project.id || project.proj_id || '').trim());
   }
 
   function closeProjectModal() {
@@ -2039,18 +2052,20 @@
         </div>
 
         <div class="quick-actions">
-          <select class="quick-status" bind:value={filterStatus} aria-label="Filter by status">
-            <option value="all">All Status</option>
-            {#each STATUS_OPTIONS as s}
-              <option value={s}>{s}</option>
-            {/each}
-          </select>
-          <select class="quick-priority" bind:value={filterPriority} aria-label="Filter by priority">
-            <option value="all">All Priority</option>
-            {#each PRIORITY_OPTIONS as p}
-              <option value={p}>{p}</option>
-            {/each}
-          </select>
+          {#if activeView === 'Projects'}
+            <select class="quick-status" bind:value={filterStatus} aria-label="Filter by status">
+              <option value="all">All Status</option>
+              {#each STATUS_OPTIONS as s}
+                <option value={s}>{s}</option>
+              {/each}
+            </select>
+            <select class="quick-priority" bind:value={filterPriority} aria-label="Filter by priority">
+              <option value="all">All Priority</option>
+              {#each PRIORITY_OPTIONS as p}
+                <option value={p}>{p}</option>
+              {/each}
+            </select>
+          {/if}
           <button class="primary" on:click={openAddProjectModal}>+ Add Project</button>
         </div>
       </div>
@@ -2105,7 +2120,19 @@
                 {@const pl  = getPriorityLabel(p.priority_level)}
                 {@const pct = p.progress_percent != null ? p.progress_percent : statusToProgress(p.status)}
                 {@const past = isDeadlinePast(p.timeline_end || p.deadline)}
-                <div class="ov-snippet-card">
+                <div
+                  class="ov-snippet-card"
+                  role="button"
+                  tabindex="0"
+                  aria-label={`Open project ${p.title}`}
+                  on:click={() => viewProject(p)}
+                  on:keydown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      viewProject(p);
+                    }
+                  }}
+                >
                   <div class="ov-snippet-top">
                     <div class="ov-snippet-name">{p.title}</div>
                     <div class="ov-snippet-top-right">
@@ -2125,15 +2152,12 @@
                     </div>
                   {/if}
                   <div class="ov-snippet-actions">
-                    <button class="sub-action-btn" on:click={() => { activeView = 'Projects'; viewProject(p); }}>
-                      <Eye size={12} /> Open
-                    </button>
                     <button
                       class="sub-action-btn"
                       class:sub-action-btn-busy={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
-                      title="Archive project"
-                      disabled={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
-                      on:click={() => archiveProject(p)}
+                      title={canArchiveProject(p) ? 'Archive project' : 'Archive available when project is completed'}
+                      disabled={archivingProjectIds.has(String(p.id || p.proj_id || '').trim()) || !canArchiveProject(p)}
+                      on:click|stopPropagation={() => archiveProject(p)}
                     >
                       {#if archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
                         <Loader2 size={12} class="spin" /> Archiving...
@@ -2292,7 +2316,20 @@
               {@const past = isDeadlinePast(p.timeline_end || p.deadline)}
               {@const pl = getPriorityLabel(p.priority_level) || ''}
               {@const isViewing = viewingProjectId === p.id}
-              <div class="proj-table-row" class:proj-row-active={isViewing}>
+              <div
+                class="proj-table-row"
+                class:proj-row-active={isViewing}
+                role="button"
+                tabindex="0"
+                aria-label={`Open project ${p.title}`}
+                on:click={() => viewProject(p)}
+                on:keydown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    viewProject(p);
+                  }
+                }}
+              >
                 <span class="proj-col-name proj-name-cell">{p.title}</span>
                 <span class="proj-col-priority" data-label="Priority">
                   <span class={"proj-priority-pill priority-" + pl.toLowerCase()}>{pl || '—'}</span>
@@ -2308,23 +2345,23 @@
                     : (p.deadline ? formatDate(p.deadline) : '—')}
                 </span>
                 <span class="proj-col-actions proj-actions-cell" data-label="Actions">
-                  <button class="icon-btn" class:icon-btn-active={isViewing} title="View" aria-label="View" on:click={() => viewProject(p)}>
-                    <Eye size={16} />
-                  </button>
-                  <button
-                    class="icon-btn archive"
-                    class:icon-btn-busy={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
-                    title={archivingProjectIds.has(String(p.id || p.proj_id || '').trim()) ? 'Archiving...' : 'Archive'}
-                    aria-label={archivingProjectIds.has(String(p.id || p.proj_id || '').trim()) ? 'Archiving project' : 'Archive'}
-                    disabled={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
-                    on:click={() => archiveProject(p)}
-                  >
-                    {#if archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
-                      <Loader2 size={16} class="spin" />
-                    {:else}
-                      <Archive size={16} />
-                    {/if}
-                  </button>
+                  {#if showArchiveProject(p)}
+                    <button
+                      class="icon-btn archive"
+                      class:icon-btn-busy={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                      class:icon-btn-disabled={!canArchiveProject(p)}
+                      title={archivingProjectIds.has(String(p.id || p.proj_id || '').trim()) ? 'Archiving...' : canArchiveProject(p) ? 'Archive' : 'Archive available when project is completed'}
+                      aria-label={archivingProjectIds.has(String(p.id || p.proj_id || '').trim()) ? 'Archiving project' : canArchiveProject(p) ? 'Archive project' : 'Archive unavailable until project is completed'}
+                      disabled={archivingProjectIds.has(String(p.id || p.proj_id || '').trim()) || !canArchiveProject(p)}
+                      on:click|stopPropagation={() => archiveProject(p)}
+                    >
+                      {#if archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                        <Loader2 size={16} class="spin" />
+                      {:else}
+                        <Archive size={16} />
+                      {/if}
+                    </button>
+                  {/if}
                 </span>
               </div>
 
@@ -2372,7 +2409,7 @@
                         <!-- ── Inline Edit Form ───────────────────────── -->
                         <div class="inline-edit-form">
                           {#if statusOnlyEdit}
-                            <div class="alert-info">This project was created by your supervisor. Only the status can be updated from the intern view.</div>
+                            <div class="alert-info">Only the project status can be updated here. Full editing is available only to the project creator or a supervisor.</div>
                           {/if}
                           <div class="ief-group">
                             <label class="ief-label" for="ief-title-{p.id}">Project Title {#if !statusOnlyEdit}<span class="req">*</span>{/if}</label>
@@ -4267,6 +4304,11 @@
     color: var(--color-sidebar-text);
   }
   .icon-btn.archive { background: transparent; border-color: rgba(255,255,255,0.06); color: var(--color-accent); }
+  .icon-btn.archive.icon-btn-disabled {
+    color: var(--color-sidebar-text);
+    border-color: var(--color-border);
+    background: transparent;
+  }
   .icon-btn.restore { background: transparent; border-color: rgba(255,255,255,0.06); color: #10b981; }
   .icon-btn.restore:hover { background: rgba(16,185,129,0.1); border-color: #10b981; }
   .icon-btn:disabled {

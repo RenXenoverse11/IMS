@@ -581,9 +581,7 @@ function handleUpdateProjSupervisor_(payload) {
   ).trim();
 
   var archiveOnly = isSupervisorArchiveOnlyUpdate_(payload);
-  var access = archiveOnly
-    ? assertSupervisorCanAccessProject_(supervisorUserId, projId)
-    : assertSupervisorOwnsProject_(supervisorUserId, projId);
+  var access = assertSupervisorCanAccessProject_(supervisorUserId, projId);
   if (!access.ok) return access;
   if (archiveOnly) {
     return setSupervisorProjectArchiveState_(supervisorUserId, projId, true);

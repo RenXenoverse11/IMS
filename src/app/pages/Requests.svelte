@@ -211,6 +211,10 @@
       String(request?.archived_previous_status || request?.archivedPreviousStatus || "").trim().toLowerCase() === "approved";
   }
 
+  function isPendingAbsenceRetractionRequest(request) {
+    return isAbsenceRetraction(request) && normalizeStatus(request?.status) === "pending";
+  }
+
   function canRetractApprovedAbsence(request) {
     if (isSupervisor || !request || isAbsenceRetraction(request)) return false;
     const type = String(request?.requestType || request?.request_type || "").trim().toLowerCase();
@@ -1651,19 +1655,12 @@
                   >
                     <XCircle size={12} /> Reject
                   </button>
-                {:else if !isSupervisor && isPendingRetraction(request)}
+                {:else if !isSupervisor && (isPendingRetraction(request) || isPendingAbsenceRetractionRequest(request))}
                   <button
-                    class="btn-edit"
-                    disabled
-                    title="Retraction requests cannot be edited"
-                  >
-                    <Pencil size={12} /> Edit
-                  </button>
-                  <button
-                    class="btn-delete"
+                    class="btn-retract"
                     on:click={() => openDeleteModal(request)}
                   >
-                    <Trash2 size={12} /> Delete
+                    <XCircle size={12} /> Cancel Request
                   </button>
                 {:else if !isSupervisor && statusTone === "pending"}
                   <button
@@ -1850,7 +1847,7 @@
   {#if showDeleteModal && requestToDelete}
     <div class="modal-overlay">
       <div class="modal-container">
-        <div class="modal-header">
+        <div class="modal-header retract-modal-header">
           <button class="modal-close" on:click={closeDeleteModal}
             >&times;</button
           >

@@ -36,6 +36,7 @@ var INTERN_SCHEDULES_HEADERS_ = ['schedule_id', 'intern_id', 'supervisor_id', 'd
 var DEFAULT_WORK_DAYS_ = [1, 2, 3, 4, 5]; // 0=Sunday, 1=Monday, ..., 5=Friday, 6=Saturday
 var DEFAULT_WORK_START_TIME_ = '09:00'; // 24-hour format
 var DEFAULT_WORK_END_TIME_ = '17:00';   // 24-hour format
+var TIME_LOG_SERVER_TIME_TOLERANCE_MINUTES_ = 5;
 var DAILY_TIME_LOG_REMINDER_FUNCTION_ = 'sendDailyTimeLogReminders';
 var DAILY_TIME_LOG_REMINDER_HOUR_ = 17;
 var DAILY_TIME_LOG_REMINDER_MINUTE_ = 5;
@@ -1457,6 +1458,11 @@ function handleStartSession_(payload) {
       };
     }
 
+    var serverLoginTimeError = validateSubmittedTimeMatchesServerNow_(timeIn, 'login');
+    if (serverLoginTimeError) {
+      return { ok: false, error: serverLoginTimeError };
+    }
+
     var scheduleError = validateTimeLogSchedule_(userId, logDate, timeIn);
     if (scheduleError) {
       return { ok: false, error: scheduleError };
@@ -1581,6 +1587,11 @@ function handleEndSession_(payload) {
       return { ok: false, error: 'user_id and time_out are required.' };
     }
 
+    var serverLogoutTimeError = validateSubmittedTimeMatchesServerNow_(timeOut, 'logout');
+    if (serverLogoutTimeError) {
+      return { ok: false, error: serverLogoutTimeError };
+    }
+
     var userRecord = findUserRecordByUserId_(userId);
     if (!userRecord) {
       return { ok: false, error: 'User not found.' };
@@ -1644,6 +1655,19 @@ function handleEndSession_(payload) {
     if (sessionRow <= 0) {
       Logger.log('DEBUG handleEndSession_ - No session found for user=' + userId + ', date=' + logDate);
       return { ok: false, error: 'No active session found. Please log in first.' };
+    }
+
+    var normalizedTimeIn = normalizeTimeForCompare_(timeIn);
+    var normalizedTimeOut = normalizeTimeForCompare_(timeOut);
+    var sessionWindowError = validateTimeLogWindow_(userId, logDate, normalizedTimeIn, normalizedTimeOut);
+    if (sessionWindowError) {
+      return { ok: false, error: sessionWindowError };
+    }
+
+    var loginMinutes = normalizeTimeToMinutes_(normalizedTimeIn);
+    var logoutMinutes = normalizeTimeToMinutes_(normalizedTimeOut);
+    if (loginMinutes === null || logoutMinutes === null || logoutMinutes < loginMinutes) {
+      return { ok: false, error: 'Logout time must be later than the login time.' };
     }
 
     // Get student profile to check completion status and calculate remaining hours
@@ -1851,6 +1875,8 @@ function handleListStudentsForAssignment_(payload) {
 
   var usersSheet = getUsersSheet_();
 
+  var schedulesByIntern = buildLatestInternSchedulesMap_();
+
   var assignedIds = {};
   var assignments = getActiveSupervisorAssignments_(supervisorUserId);
   for (var i = 0; i < assignments.length; i++) {
@@ -1877,6 +1903,7 @@ function handleListStudentsForAssignment_(payload) {
     })
     .map(function (row) {
       var studentUserId = String(row.user_id || '').trim();
+      var scheduleData = schedulesByIntern[studentUserId] || {};
       return {
         user_id: studentUserId,
         full_name: String(row.full_name || ''),
@@ -1884,7 +1911,16 @@ function handleListStudentsForAssignment_(payload) {
         profile_photo_url: String(row.profile_photo_url || ''),
         company: '',
         department: String(row.department || ''),
-        is_assigned: Boolean(assignedIds[studentUserId])
+        is_assigned: Boolean(assignedIds[studentUserId]),
+        shift_start: scheduleData.shift_start || '',
+        shift_end: scheduleData.shift_end || '',
+        days_off: scheduleData.days_off || '',
+        schedule: {
+          shift_start: scheduleData.shift_start || '',
+          shift_end: scheduleData.shift_end || '',
+          days_off: scheduleData.days_off || '',
+          created_by: scheduleData.created_by || ''
+        }
       };
     })
     .sort(function (a, b) {
@@ -2046,15 +2082,15 @@ function handleSaveInternSchedule_(payload) {
   
   var values = getSheetValues_(sheet);
 
-  // Find existing schedule for this intern
+  // Find existing schedule for this intern so one saved schedule is reused
+  // when the intern is assigned under multiple supervisors.
   var existingRowIndex = -1;
   var existingCreatedAt = null;
   var existingCreatedBy = null;
   
   for (var rowIndex = 1; rowIndex < values.length; rowIndex++) {
     var rowInternId = String(values[rowIndex][internIdCol - 1] || '').trim();
-    var rowSupervisorId = String(values[rowIndex][supervisorIdCol - 1] || '').trim();
-    if (rowInternId === internUserId && rowSupervisorId === supervisorUserId) {
+    if (rowInternId === internUserId) {
       existingRowIndex = rowIndex;
       existingCreatedAt = String(values[rowIndex][createdAtCol - 1] || '');
       existingCreatedBy = String(values[rowIndex][createdByCol - 1] || '');
@@ -2069,6 +2105,15 @@ function handleSaveInternSchedule_(payload) {
     sheet.getRange(existingRowIndex + 1, daysOffCol).setValue(JSON.stringify(daysOff));
     sheet.getRange(existingRowIndex + 1, shiftStartCol).setValue(shiftStart);
     sheet.getRange(existingRowIndex + 1, shiftEndCol).setValue(shiftEnd);
+    if (supervisorIdCol > 0) {
+      sheet.getRange(existingRowIndex + 1, supervisorIdCol).setValue(supervisorUserId);
+    }
+    if (createdByCol > 0 && !existingCreatedBy) {
+      sheet.getRange(existingRowIndex + 1, createdByCol).setValue(supervisorUserId);
+    }
+    if (createdAtCol > 0 && !existingCreatedAt) {
+      sheet.getRange(existingRowIndex + 1, createdAtCol).setValue(now);
+    }
     sheet.getRange(existingRowIndex + 1, updatedAtCol).setValue(now);
   } else {
     // CREATE new record
@@ -2175,30 +2220,8 @@ function handleListSupervisorAssignedStudents_(payload) {
   }
   var students = [];
 
-  // Load intern schedules for all student IDs
-  var scheduleSheet = getInternSchedulesSheet_();
-  var scheduleRows = getSheetValues_(scheduleSheet);
-  var scheduleHeaders = getHeaders_(scheduleSheet);
-  var internIdColIndex = findColumnIndex_(scheduleHeaders, 'intern_id');
-  var supervisorIdColIndex = findColumnIndex_(scheduleHeaders, 'supervisor_id');
-  var shiftStartColIndex = findColumnIndex_(scheduleHeaders, 'shift_start');
-  var shiftEndColIndex = findColumnIndex_(scheduleHeaders, 'shift_end');
-  var daysOffColIndex = findColumnIndex_(scheduleHeaders, 'days_off');
-
-  var schedulesByIntern = {};
-  for (var s = 1; s < scheduleRows.length; s++) {
-    var internId = String(scheduleRows[s][internIdColIndex - 1] || '').trim();
-    var supId = String(scheduleRows[s][supervisorIdColIndex - 1] || '').trim();
-    
-    // Only include schedules for this supervisor
-    if (internId && supId === supervisorUserId) {
-      schedulesByIntern[internId] = {
-        shift_start: String(scheduleRows[s][shiftStartColIndex - 1] || '').trim(),
-        shift_end: String(scheduleRows[s][shiftEndColIndex - 1] || '').trim(),
-        days_off: String(scheduleRows[s][daysOffColIndex - 1] || '').trim(),
-      };
-    }
-  }
+  // Load one saved schedule per intern, regardless of which supervisor created it.
+  var schedulesByIntern = buildLatestInternSchedulesMap_();
 
   for (var k = 0; k < assignments.length; k++) {
     var assignment = assignments[k];
@@ -2236,6 +2259,12 @@ function handleListSupervisorAssignedStudents_(payload) {
       shift_start: scheduleData.shift_start || '',
       shift_end: scheduleData.shift_end || '',
       days_off: scheduleData.days_off || '',
+      schedule: {
+        shift_start: scheduleData.shift_start || '',
+        shift_end: scheduleData.shift_end || '',
+        days_off: scheduleData.days_off || '',
+        created_by: scheduleData.created_by || '',
+      }
     });
   }
 
@@ -2479,10 +2508,21 @@ function handleCreateRequest_(payload) {
       return { ok: false, error: 'Start time and end time are required for overtime requests.' };
     }
 
+    var normalizedStartMinutes = normalizeTimeToMinutes_(startTime);
+    var normalizedEndMinutes = normalizeTimeToMinutes_(endTime);
+    if (normalizedStartMinutes === null || normalizedEndMinutes === null || normalizedEndMinutes <= normalizedStartMinutes) {
+      return { ok: false, error: 'Overtime end time must be later than the start time.' };
+    }
+
     // Check if overtime overlaps with default work schedule
-    var overlapError = checkOvertimeScheduleOverlap_(requestDate, startTime, endTime, userDaysOff);
+    var overlapError = checkOvertimeScheduleOverlap_(userId, requestDate, startTime, endTime, userDaysOff);
     if (overlapError) {
       return { ok: false, error: overlapError };
+    }
+
+    var duplicateOvertimeError = getOvertimeDuplicateOverlapError_(userId, requestDate, startTime, endTime, payload.request_id);
+    if (duplicateOvertimeError) {
+      return { ok: false, error: duplicateOvertimeError };
     }
   }
 
@@ -3900,8 +3940,8 @@ function sendStudentRequestStatusEmail_(studentUserId, requestDetails) {
   );
 }
 
-// Validates that overtime doesn't overlap with default work schedule (Mon-Fri, 9am-5pm)
-function checkOvertimeScheduleOverlap_(requestDate, startTime, endTime, daysOff) {
+// Validates that overtime doesn't overlap with the intern's configured work schedule.
+function checkOvertimeScheduleOverlap_(userId, requestDate, startTime, endTime, daysOff) {
   // Parse the date to check what day of week it is
   var dateObj = new Date(requestDate + 'T00:00:00');
   var dayOfWeek = dateObj.getDay(); // 0=Sunday, 1=Monday, ..., 5=Friday, 6=Saturday
@@ -3932,16 +3972,88 @@ function checkOvertimeScheduleOverlap_(requestDate, startTime, endTime, daysOff)
     return '';
   }
 
-  // It's a work day, check if overtime overlaps with 9am-5pm
+  var scheduleResult = handleGetInternSchedule_({ intern_user_id: userId });
+  var schedule = scheduleResult && scheduleResult.ok && scheduleResult.schedule ? scheduleResult.schedule : null;
+
+  // It's a work day, check if overtime overlaps with the intern's shift
   var overtimeStart = timeToMinutes_(startTime);
   var overtimeEnd = timeToMinutes_(endTime);
-  var workStart = timeToMinutes_(DEFAULT_WORK_START_TIME_);
-  var workEnd = timeToMinutes_(DEFAULT_WORK_END_TIME_);
+  var shiftStart = normalizeTimeForCompare_(schedule && schedule.shift_start ? schedule.shift_start : DEFAULT_WORK_START_TIME_) || DEFAULT_WORK_START_TIME_;
+  var shiftEnd = normalizeTimeForCompare_(schedule && schedule.shift_end ? schedule.shift_end : DEFAULT_WORK_END_TIME_) || DEFAULT_WORK_END_TIME_;
+  var workStart = timeToMinutes_(shiftStart);
+  var workEnd = timeToMinutes_(shiftEnd);
 
   // Check for overlap: if overtime is completely outside work hours, it's OK
   // Overlap occurs if: overtimeStart < workEnd AND overtimeEnd > workStart
   if (overtimeStart < workEnd && overtimeEnd > workStart) {
-    return 'Overtime cannot be scheduled during default work hours (9:00 AM - 5:00 PM on weekdays). Please schedule overtime outside these hours.';
+    return 'Overtime cannot be scheduled during your regular shift (' + shiftStart + ' - ' + shiftEnd + '). Please schedule overtime outside these hours.';
+  }
+
+  return '';
+}
+
+function rangesOverlap_(startA, endA, startB, endB) {
+  if (![startA, endA, startB, endB].every(function (value) { return Number.isFinite(value); })) {
+    return false;
+  }
+  return startA < endB && endA > startB;
+}
+
+function getOvertimeDuplicateOverlapError_(userId, requestDate, startTime, endTime, ignoreRequestId) {
+  var normalizedUserId = String(userId || '').trim();
+  var normalizedDate = formatDateValue_(requestDate);
+  var normalizedStart = normalizeTimeForCompare_(startTime);
+  var normalizedEnd = normalizeTimeForCompare_(endTime);
+  var ignoredId = String(ignoreRequestId || '').trim();
+
+  if (!normalizedUserId || !normalizedDate || !normalizedStart || !normalizedEnd) {
+    return '';
+  }
+
+  var requestedStartMinutes = normalizeTimeToMinutes_(normalizedStart);
+  var requestedEndMinutes = normalizeTimeToMinutes_(normalizedEnd);
+  if (requestedStartMinutes === null || requestedEndMinutes === null || requestedEndMinutes <= requestedStartMinutes) {
+    return '';
+  }
+
+  var rows = readSheetObjects_(getRequestsSheet_());
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i] || {};
+    if (String(row.user_id || '').trim() !== normalizedUserId) {
+      continue;
+    }
+
+    var requestId = String(row.request_id || '').trim();
+    if (ignoredId && requestId === ignoredId) {
+      continue;
+    }
+
+    var requestType = String(row.request_type || '').trim().toLowerCase();
+    if (requestType !== 'overtime') {
+      continue;
+    }
+
+    var statusLower = String(row.status || '').trim().toLowerCase();
+    var archivedPreviousStatusLower = String(row.archived_previous_status || '').trim().toLowerCase();
+    var effectiveStatusLower = statusLower === 'archived' ? archivedPreviousStatusLower : statusLower;
+    if (effectiveStatusLower !== 'pending' && effectiveStatusLower !== 'approved') {
+      continue;
+    }
+
+    var rowDate = formatDateValue_(row.request_date);
+    if (rowDate !== normalizedDate) {
+      continue;
+    }
+
+    var rowStartMinutes = normalizeTimeToMinutes_(row.start_time);
+    var rowEndMinutes = normalizeTimeToMinutes_(row.end_time);
+    if (rowStartMinutes === null || rowEndMinutes === null || rowEndMinutes <= rowStartMinutes) {
+      continue;
+    }
+
+    if (rangesOverlap_(requestedStartMinutes, requestedEndMinutes, rowStartMinutes, rowEndMinutes)) {
+      return 'You already have a ' + effectiveStatusLower + ' overtime request that overlaps this time range. Please choose a different time.';
+    }
   }
 
   return '';
@@ -4038,7 +4150,95 @@ function hasApprovedOvertimeRequestForDateAndTime_(userId, targetDate, timeValue
   return false;
 }
 
-function validateTimeLogSchedule_(userId, logDate, timeIn) {
+function getApprovedOvertimeWindowForDateAndTime_(userId, targetDate, timeValue) {
+  var normalizedUserId = String(userId || '').trim();
+  var normalizedDate = formatDateValue_(targetDate);
+  if (!normalizedUserId || !normalizedDate) {
+    return null;
+  }
+
+  var timeMinutes = normalizeTimeToMinutes_(timeValue);
+  if (timeMinutes === null) {
+    return null;
+  }
+
+  var rows = readSheetObjects_(getRequestsSheet_());
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i] || {};
+    if (String(row.user_id || '').trim() !== normalizedUserId) {
+      continue;
+    }
+
+    var requestType = String(row.request_type || '').trim().toLowerCase();
+    if (requestType !== 'overtime') {
+      continue;
+    }
+
+    var statusLower = String(row.status || '').trim().toLowerCase();
+    var archivedPreviousStatusLower = String(row.archived_previous_status || '').trim().toLowerCase();
+    var isApprovedOvertime = statusLower === 'approved' || (statusLower === 'archived' && archivedPreviousStatusLower === 'approved');
+    if (!isApprovedOvertime) {
+      continue;
+    }
+
+    var requestDate = formatDateValue_(row.request_date);
+    if (requestDate !== normalizedDate) {
+      continue;
+    }
+
+    var startMinutes = normalizeTimeToMinutes_(row.start_time);
+    var endMinutes = normalizeTimeToMinutes_(row.end_time);
+    if (startMinutes === null || endMinutes === null || endMinutes < startMinutes) {
+      continue;
+    }
+
+    if (timeMinutes >= startMinutes && timeMinutes <= endMinutes) {
+      return {
+        request_id: String(row.request_id || '').trim(),
+        start_time: normalizeTimeForCompare_(row.start_time),
+        end_time: normalizeTimeForCompare_(row.end_time),
+        start_minutes: startMinutes,
+        end_minutes: endMinutes
+      };
+    }
+  }
+
+  return null;
+}
+
+function isTimeRangeWithinWindow_(startTime, endTime, windowStart, windowEnd) {
+  var startMinutes = normalizeTimeToMinutes_(startTime);
+  var endMinutes = normalizeTimeToMinutes_(endTime);
+  var windowStartMinutes = normalizeTimeToMinutes_(windowStart);
+  var windowEndMinutes = normalizeTimeToMinutes_(windowEnd);
+  if ([startMinutes, endMinutes, windowStartMinutes, windowEndMinutes].some(function (value) { return value === null; })) {
+    return false;
+  }
+  return startMinutes >= windowStartMinutes && endMinutes <= windowEndMinutes;
+}
+
+function validateSubmittedTimeMatchesServerNow_(submittedTime, label) {
+  var normalizedSubmittedTime = normalizeTimeForCompare_(submittedTime);
+  if (!normalizedSubmittedTime) {
+    return 'Invalid ' + label + ' time.';
+  }
+
+  var scriptNow = new Date();
+  var nowTime = Utilities.formatDate(scriptNow, Session.getScriptTimeZone(), 'HH:mm');
+  var submittedMinutes = normalizeTimeToMinutes_(normalizedSubmittedTime);
+  var nowMinutes = normalizeTimeToMinutes_(nowTime);
+  if (submittedMinutes === null || nowMinutes === null) {
+    return '';
+  }
+
+  if (Math.abs(submittedMinutes - nowMinutes) > TIME_LOG_SERVER_TIME_TOLERANCE_MINUTES_) {
+    return label.charAt(0).toUpperCase() + label.slice(1) + ' time must match the current time.';
+  }
+
+  return '';
+}
+
+function validateTimeLogWindow_(userId, logDate, timeIn, timeOut) {
   var scheduleResult = handleGetInternSchedule_({ intern_user_id: userId });
   var schedule = scheduleResult && scheduleResult.ok && scheduleResult.schedule ? scheduleResult.schedule : null;
   var daysOff = normalizeDaysOff_(schedule ? schedule.days_off : null, [0, 6]);
@@ -4046,26 +4246,41 @@ function validateTimeLogSchedule_(userId, logDate, timeIn) {
   var shiftEnd = normalizeTimeForCompare_(schedule && schedule.shift_end ? schedule.shift_end : DEFAULT_WORK_END_TIME_);
 
   var normalizedDate = formatDateValue_(logDate);
-  if (!normalizedDate || !timeIn) {
+  var normalizedTimeIn = normalizeTimeForCompare_(timeIn);
+  var normalizedTimeOut = normalizeTimeForCompare_(timeOut);
+  if (!normalizedDate || !normalizedTimeIn) {
     return '';
   }
 
   var isDayOff = isDayOffForDate_(normalizedDate, daysOff);
-  var isWithinShift = isTimeWithinSchedule_(timeIn, shiftStart, shiftEnd);
+  var isWithinShiftForLogin = isTimeWithinSchedule_(normalizedTimeIn, shiftStart, shiftEnd);
+  var isWithinShiftForLogout = normalizedTimeOut ? isTimeWithinSchedule_(normalizedTimeOut, shiftStart, shiftEnd) : false;
 
-  if (isDayOff || !isWithinShift) {
-    if (hasApprovedOvertimeRequestForDateAndTime_(userId, normalizedDate, timeIn)) {
-      return '';
-    }
+  if (!isDayOff && isWithinShiftForLogin && (!normalizedTimeOut || isWithinShiftForLogout)) {
+    return '';
+  }
 
+  var overtimeWindow = getApprovedOvertimeWindowForDateAndTime_(userId, normalizedDate, normalizedTimeIn);
+  if (!overtimeWindow) {
     if (isDayOff) {
       return 'Login is not allowed on ' + normalizedDate + ' because it is your day off. Please file an overtime request to log in on this date.';
     }
-
     return 'Login time must be within your schedule (' + shiftStart + ' - ' + shiftEnd + '). Please file an overtime request to log in outside your schedule.';
   }
 
+  if (!normalizedTimeOut) {
+    return '';
+  }
+
+  if (!isTimeRangeWithinWindow_(normalizedTimeIn, normalizedTimeOut, overtimeWindow.start_time, overtimeWindow.end_time)) {
+    return 'Time logs tied to overtime must stay within the approved overtime window (' + overtimeWindow.start_time + ' - ' + overtimeWindow.end_time + ').';
+  }
+
   return '';
+}
+
+function validateTimeLogSchedule_(userId, logDate, timeIn) {
+  return validateTimeLogWindow_(userId, logDate, timeIn, '');
 }
 
 // Validates that absence is not requested on one of the intern's configured day-off days.
@@ -4561,6 +4776,47 @@ function getUsersSheet_() {
 
 function getInternSchedulesSheet_() {
   return getOrCreateSheetWithHeaders_(INTERN_SCHEDULES_SHEET_, INTERN_SCHEDULES_HEADERS_);
+}
+
+function buildLatestInternSchedulesMap_() {
+  var scheduleSheet = getInternSchedulesSheet_();
+  var scheduleRows = getSheetValues_(scheduleSheet);
+  var scheduleHeaders = getHeaders_(scheduleSheet);
+  var internIdCol = findColumnIndex_(scheduleHeaders, 'intern_id');
+  var supervisorIdCol = findColumnIndex_(scheduleHeaders, 'supervisor_id');
+  var shiftStartCol = findColumnIndex_(scheduleHeaders, 'shift_start');
+  var shiftEndCol = findColumnIndex_(scheduleHeaders, 'shift_end');
+  var daysOffCol = findColumnIndex_(scheduleHeaders, 'days_off');
+  var createdByCol = findColumnIndex_(scheduleHeaders, 'created_by');
+  var createdAtCol = findColumnIndex_(scheduleHeaders, 'created_at');
+  var updatedAtCol = findColumnIndex_(scheduleHeaders, 'updated_at');
+
+  var schedulesByIntern = {};
+
+  for (var rowIndex = 1; rowIndex < scheduleRows.length; rowIndex++) {
+    var internId = String(scheduleRows[rowIndex][internIdCol - 1] || '').trim();
+    if (!internId) {
+      continue;
+    }
+
+    var updatedAtRaw = updatedAtCol > 0 ? String(serializeCellValue_(scheduleRows[rowIndex][updatedAtCol - 1]) || '').trim() : '';
+    var createdAtRaw = createdAtCol > 0 ? String(serializeCellValue_(scheduleRows[rowIndex][createdAtCol - 1]) || '').trim() : '';
+    var sortKey = updatedAtRaw || createdAtRaw || String(rowIndex).padStart(12, '0');
+    var existing = schedulesByIntern[internId];
+
+    if (!existing || String(existing._sort_key || '') <= sortKey) {
+      schedulesByIntern[internId] = {
+        shift_start: String(scheduleRows[rowIndex][shiftStartCol - 1] || '').trim(),
+        shift_end: String(scheduleRows[rowIndex][shiftEndCol - 1] || '').trim(),
+        days_off: String(scheduleRows[rowIndex][daysOffCol - 1] || '').trim(),
+        created_by: createdByCol > 0 ? String(scheduleRows[rowIndex][createdByCol - 1] || '').trim() : '',
+        supervisor_id: supervisorIdCol > 0 ? String(scheduleRows[rowIndex][supervisorIdCol - 1] || '').trim() : '',
+        _sort_key: sortKey
+      };
+    }
+  }
+
+  return schedulesByIntern;
 }
 
 function ensureSheetColumns_(sheet, columnNames) {
@@ -6597,77 +6853,41 @@ function handleGetInternSchedule_(payload) {
     return { ok: false, error: 'intern_user_id is required.' };
   }
 
-  // Get the intern's supervisor first
-  var supervisorResult = handleGetStudentSupervisor_({ student_user_id: internUserId });
-  if (!supervisorResult.ok || !supervisorResult.supervisor) {
-    // No supervisor assigned, return defaults
+  var latestSchedule = buildLatestInternSchedulesMap_()[internUserId];
+  if (latestSchedule) {
+    var shiftStart = normalizeTimeForCompare_(latestSchedule.shift_start) || '09:00';
+    var shiftEnd = normalizeTimeForCompare_(latestSchedule.shift_end) || '17:00';
+    var parsedDaysOff = [0, 6];
+    if (latestSchedule.days_off) {
+      try {
+        var candidateDaysOff = JSON.parse(latestSchedule.days_off);
+        if (Array.isArray(candidateDaysOff) && candidateDaysOff.length) {
+          var normalizedDaysOff = [];
+          var seenDays = {};
+          for (var d = 0; d < candidateDaysOff.length; d++) {
+            var dayNum = Number(candidateDaysOff[d]);
+            if (!Number.isInteger(dayNum) || dayNum < 0 || dayNum > 6 || seenDays[dayNum]) {
+              continue;
+            }
+            seenDays[dayNum] = true;
+            normalizedDaysOff.push(dayNum);
+          }
+          if (normalizedDaysOff.length) {
+            normalizedDaysOff.sort(function(a, b) { return a - b; });
+            parsedDaysOff = normalizedDaysOff;
+          }
+        }
+      } catch (e) {}
+    }
+
     return {
       ok: true,
       schedule: {
-        shift_start: '09:00',
-        shift_end: '17:00',
-        days_off: [0, 6]
+        shift_start: shiftStart,
+        shift_end: shiftEnd,
+        days_off: parsedDaysOff
       }
     };
-  }
-
-  var supervisorUserId = supervisorResult.supervisor.user_id;
-
-  // Load intern schedules and find the one for this intern and supervisor
-  var scheduleSheet = getInternSchedulesSheet_();
-  var scheduleRows = getSheetValues_(scheduleSheet);
-  var scheduleHeaders = getHeaders_(scheduleSheet);
-  var internIdColIndex = findColumnIndex_(scheduleHeaders, 'intern_id');
-  var supervisorIdColIndex = findColumnIndex_(scheduleHeaders, 'supervisor_id');
-  var shiftStartColIndex = findColumnIndex_(scheduleHeaders, 'shift_start');
-  var shiftEndColIndex = findColumnIndex_(scheduleHeaders, 'shift_end');
-  var daysOffColIndex = findColumnIndex_(scheduleHeaders, 'days_off');
-
-  for (var i = 1; i < scheduleRows.length; i++) {
-    var scheduleInternId = String(scheduleRows[i][internIdColIndex - 1] || '').trim();
-    var scheduleSupervisorId = String(scheduleRows[i][supervisorIdColIndex - 1] || '').trim();
-
-    if (scheduleInternId === internUserId && scheduleSupervisorId === supervisorUserId) {
-      var shiftStartRaw = scheduleRows[i][shiftStartColIndex - 1];
-      var shiftEndRaw = scheduleRows[i][shiftEndColIndex - 1];
-      var daysOff = String(scheduleRows[i][daysOffColIndex - 1] || '').trim();
-
-      // Convert time values to HH:MM format
-      var shiftStart = normalizeTimeForCompare_(shiftStartRaw) || '09:00';
-      var shiftEnd = normalizeTimeForCompare_(shiftEndRaw) || '17:00';
-
-      var parsedDaysOff = [0, 6];
-      if (daysOff) {
-        try {
-          var candidateDaysOff = JSON.parse(daysOff);
-          if (Array.isArray(candidateDaysOff) && candidateDaysOff.length) {
-            var normalizedDaysOff = [];
-            var seenDays = {};
-            for (var d = 0; d < candidateDaysOff.length; d++) {
-              var dayNum = Number(candidateDaysOff[d]);
-              if (!Number.isInteger(dayNum) || dayNum < 0 || dayNum > 6 || seenDays[dayNum]) {
-                continue;
-              }
-              seenDays[dayNum] = true;
-              normalizedDaysOff.push(dayNum);
-            }
-            if (normalizedDaysOff.length) {
-              normalizedDaysOff.sort(function(a, b) { return a - b; });
-              parsedDaysOff = normalizedDaysOff;
-            }
-          }
-        } catch (e) {}
-      }
-
-      return {
-        ok: true,
-        schedule: {
-          shift_start: shiftStart,
-          shift_end: shiftEnd,
-          days_off: parsedDaysOff
-        }
-      };
-    }
   }
 
   // Schedule not found, return defaults

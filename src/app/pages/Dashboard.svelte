@@ -38,8 +38,8 @@
   let tasks = [];
   let pendingRequests = [];
   let requestRows = [];
-  let approvedAbsenceAdjustmentDays = 0;
-  let pendingAbsenceAdjustmentDays = 0;
+  let approvedAbsenceHours = 0;
+  let pendingAbsenceHours = 0;
   let internSchedule = {
     shift_start: '09:00',
     shift_end: '17:00',
@@ -134,22 +134,42 @@
     return projected ? toIsoDateOnly(projected) : '';
   }
 
-  function countAbsenceAdjustments(requests, todayDateOnly, allowedStatuses) {
+  function getScheduleDailyHours(schedule) {
+    const start = normalizeTimeTo24Hour(schedule?.shift_start);
+    const end = normalizeTimeTo24Hour(schedule?.shift_end);
+    if (!start || !end) return 8;
+
+    const [startHour, startMinute] = start.split(':').map((n) => Number(n));
+    const [endHour, endMinute] = end.split(':').map((n) => Number(n));
+    if (![startHour, startMinute, endHour, endMinute].every(Number.isFinite)) return 8;
+
+    const startTotalMinutes = (startHour * 60) + startMinute;
+    const endTotalMinutes = (endHour * 60) + endMinute;
+    const diffMinutes = endTotalMinutes - startTotalMinutes;
+    if (diffMinutes <= 0) return 8;
+
+    const dailyHours = diffMinutes / 60;
+    return Number.isFinite(dailyHours) && dailyHours > 0 ? dailyHours : 8;
+  }
+
+  function sumFutureAbsenceHours(requests, todayDateOnly, allowedStatuses, dailyHours) {
     const rows = Array.isArray(requests) ? requests : [];
     const statusLookup = new Set((Array.isArray(allowedStatuses) ? allowedStatuses : []).map((status) => String(status || '').toLowerCase()));
     const seen = new Set();
-    return rows.reduce((count, req) => {
+    const safeDailyHours = Math.max(0, Number(dailyHours) || 0);
+
+    return rows.reduce((totalHours, req) => {
       const requestId = String(req?.id || req?.request_id || '').trim();
-      if (requestId && seen.has(requestId)) return count;
+      if (requestId && seen.has(requestId)) return totalHours;
       const type = String(req?.requestType || req?.request_type || '').trim().toLowerCase();
       const status = String(req?.status || '').trim().toLowerCase();
       const archivedPrevious = String(req?.archived_previous_status || req?.archivedPreviousStatus || '').trim().toLowerCase();
       const effectiveStatus = status === 'archived' ? archivedPrevious : status;
-      if (type !== 'absence' || !statusLookup.has(effectiveStatus)) return count;
+      if (type !== 'absence' || !statusLookup.has(effectiveStatus)) return totalHours;
       const requestDate = normalizeDateOnly(req?.date || req?.request_date || req?.applied_date || '');
-      if (!requestDate || (todayDateOnly && requestDate < todayDateOnly)) return count;
+      if (!requestDate || (todayDateOnly && requestDate < todayDateOnly)) return totalHours;
       if (requestId) seen.add(requestId);
-      return count + 1;
+      return totalHours + safeDailyHours;
     }, 0);
   }
 
@@ -304,14 +324,45 @@
     }, 0);
   }
 
+  function isFutureFacingRequest(req, todayDateOnly) {
+    const requestDate = normalizeDateOnly(req?.date || req?.request_date || req?.applied_date || '');
+    if (!requestDate) return false;
+    return !todayDateOnly || requestDate >= todayDateOnly;
+  }
+
+  function sumFutureRequestHours(requests, requestType, allowedStatuses, todayDateOnly) {
+    const rows = Array.isArray(requests) ? requests : [];
+    const targetType = String(requestType || '').trim().toLowerCase();
+    const statusLookup = new Set((Array.isArray(allowedStatuses) ? allowedStatuses : []).map((status) => String(status || '').toLowerCase()));
+    const seen = new Set();
+
+    return rows.reduce((acc, req) => {
+      const requestId = String(req?.id || req?.request_id || '').trim();
+      if (requestId && seen.has(requestId)) return acc;
+
+      const type = String(req?.requestType || req?.request_type || '').trim().toLowerCase();
+      const status = String(req?.status || '').trim().toLowerCase();
+      const archivedPrevious = String(req?.archived_previous_status || req?.archivedPreviousStatus || '').trim().toLowerCase();
+      const effectiveStatus = status === 'archived' ? archivedPrevious : status;
+      if (type !== targetType || !statusLookup.has(effectiveStatus) || !isFutureFacingRequest(req, todayDateOnly)) return acc;
+
+      const hours = Number(req?.total_hours || req?.totalHours || 0);
+      if (requestId) seen.add(requestId);
+      return acc + (Number.isFinite(hours) ? hours : 0);
+    }, 0);
+  }
+
   $: totalOjtHours = Number(formTotalOjtHours || profile?.total_ojt_hours || 0);
+  $: todayDateOnly = toLocalIsoDate(now);
   $: activeSessionElapsedHours = getActiveSessionElapsedHours(activeSession, now);
-  $: projectedOvertimeHours = sumRequestHours(requestRows, 'overtime', ['pending', 'approved']);
-  $: projectedAdditionalHours = activeSessionElapsedHours + projectedOvertimeHours;
-  $: effectiveCompletedHours = progressMode === PROGRESS_MODES.PROJECTED ? totalCompletedHours + projectedAdditionalHours : totalCompletedHours;
-  $: absenceAdjustmentDays = progressMode === PROGRESS_MODES.PROJECTED
-    ? pendingAbsenceAdjustmentDays
-    : approvedAbsenceAdjustmentDays;
+  $: scheduleDailyHours = getScheduleDailyHours(internSchedule);
+  $: renderedCompletedHours = totalCompletedHours + activeSessionElapsedHours;
+  $: projectedOvertimeHours = sumFutureRequestHours(requestRows, 'overtime', ['approved', 'pending'], todayDateOnly);
+  $: projectedAbsenceHours = approvedAbsenceHours + pendingAbsenceHours;
+  $: projectedAdditionalHours = projectedOvertimeHours - projectedAbsenceHours;
+  $: effectiveCompletedHours = progressMode === PROGRESS_MODES.PROJECTED
+    ? Math.max(0, renderedCompletedHours + projectedAdditionalHours)
+    : renderedCompletedHours;
   $: hoursCompleted = effectiveCompletedHours;
   $: isCompleted = profile?.completed_at ? true : false;
   $: hoursRemaining = isCompleted ? 0 : Math.max(0, totalOjtHours - hoursCompleted);
@@ -325,9 +376,7 @@
   $: baseCalculatedEstimatedEndDate = (formStartDate && hoursRemaining > 0 && !isCompleted)
     ? getEstimatedCompletionDate(hoursRemaining, avgDailyHours, internSchedule.days_off)
     : '';
-  $: calculatedEstimatedEndDate = baseCalculatedEstimatedEndDate
-    ? (addWorkingDaysToDateString(baseCalculatedEstimatedEndDate, absenceAdjustmentDays, internSchedule.days_off) || baseCalculatedEstimatedEndDate)
-    : '';
+  $: calculatedEstimatedEndDate = baseCalculatedEstimatedEndDate;
   $: storedEstimatedEndDateDisplay = profile?.estimated_end_date
     ? formatDateLong(profile.estimated_end_date)
     : '';
@@ -434,6 +483,8 @@
           type: String(notification?.type || 'reviewed').trim().toLowerCase(),
           title: buildRequestDecisionTitle(notification, request),
           created_at: String(notification?.created_at || '').trim(),
+          request_id: relatedId,
+          activity_kind: 'request',
         };
       });
   }
@@ -453,6 +504,7 @@
           type: 'logout',
           title: `Logged Out: ${timeOutLabel}`,
           created_at: buildActivityDateTime(logDate, log?.time_out),
+          activity_kind: 'timelog',
         });
       }
 
@@ -462,6 +514,7 @@
           type: 'login',
           title: `Logged In: ${timeInLabel}`,
           created_at: buildActivityDateTime(logDate, log?.time_in),
+          activity_kind: 'timelog',
         });
       }
     }
@@ -482,6 +535,19 @@
     return allActivities;
   }
 
+  function isRequestActivity(item) {
+    return String(item?.activity_kind || '').trim().toLowerCase() === 'request';
+  }
+
+  function openRequestActivity(item) {
+    const requestId = String(item?.request_id || '').trim();
+    if (requestId) {
+      window.location.hash = `/requests?requestId=${encodeURIComponent(requestId)}`;
+      return;
+    }
+    window.location.hash = '/requests';
+  }
+
   async function loadDashboardRequestContext(userId, baseActivities, loadToken) {
     try {
       let allRequestRows = [];
@@ -495,17 +561,18 @@
       if (loadToken !== dashboardLoadToken) return;
 
       requestRows = [];
-      approvedAbsenceAdjustmentDays = 0;
-      pendingAbsenceAdjustmentDays = 0;
+      approvedAbsenceHours = 0;
+      pendingAbsenceHours = 0;
 
       if (requestsResult.status === 'fulfilled' && requestsResult.value?.ok && Array.isArray(requestsResult.value.requests)) {
         allRequestRows = requestsResult.value.requests;
         requestRows = allRequestRows;
         const todayDateOnly = toLocalIsoDate(new Date());
-        approvedAbsenceAdjustmentDays = countAbsenceAdjustments(allRequestRows, todayDateOnly, ['approved']);
-        pendingAbsenceAdjustmentDays = countAbsenceAdjustments(allRequestRows, todayDateOnly, ['pending']);
+        const dailyHours = getScheduleDailyHours(internSchedule);
+        approvedAbsenceHours = sumFutureAbsenceHours(allRequestRows, todayDateOnly, ['approved'], dailyHours);
+        pendingAbsenceHours = sumFutureAbsenceHours(allRequestRows, todayDateOnly, ['pending'], dailyHours);
       } else if (requestsResult.status === 'rejected') {
-        console.error('Failed to load approved absence adjustments:', requestsResult.reason);
+        console.error('Failed to load projected request adjustments:', requestsResult.reason);
       }
 
       if (notificationsResult.status === 'fulfilled') {
@@ -623,9 +690,6 @@
         })
         .slice(0, 10);
       pendingRequests = Array.isArray(data.pending_requests) ? data.pending_requests : [];
-      requestRows = pendingRequests;
-      approvedAbsenceAdjustmentDays = 0;
-      pendingAbsenceAdjustmentDays = countAbsenceAdjustments(requestRows, toLocalIsoDate(new Date()), ['pending']);
 
       const timeLogActivities = buildTimeLogActivities(timeLogs);
       activityLogs = mergeAndSortActivities(timeLogActivities, []).slice(0, 10);
@@ -799,7 +863,7 @@
             class="dash-mode-btn"
             class:active={progressMode === PROGRESS_MODES.RENDERED}
             on:click={() => (progressMode = PROGRESS_MODES.RENDERED)}
-            title="Uses logged rendered hours only"
+            title="Uses submitted time logs plus any currently active session"
           >
             Rendered
           </button>
@@ -808,7 +872,7 @@
             class="dash-mode-btn"
             class:active={progressMode === PROGRESS_MODES.PROJECTED}
             on:click={() => (progressMode = PROGRESS_MODES.PROJECTED)}
-            title="Includes active login time and pending absence effects. Overtime counts only after it is logged."
+            title="Uses rendered hours plus future approved and pending overtime/absence requests"
           >
             Projected
           </button>
@@ -835,7 +899,9 @@
             <div class="dash-stat-label">Hours Completed</div>
             <div class="dash-stat-value">{Number(hoursCompleted || 0).toFixed(1)}</div>
             <div class="dash-stat-sub">
-              {progressMode === PROGRESS_MODES.PROJECTED && projectedAdditionalHours > 0 ? 'Rendered + projected requests' : 'All rendered hours'}
+              {progressMode === PROGRESS_MODES.PROJECTED && (projectedAdditionalHours !== 0)
+                ? 'Rendered + future approved/pending requests'
+                : 'Rendered time log hours'}
             </div>
           </div>
         </div>
@@ -913,10 +979,19 @@
               {#each activityLogs as item (item.id || item.activity_id || item.created_at || activityTitle(item))}
                 <div class="dash-activity-item">
                   <div class="dash-activity-dot dash-activity-{normalizeActivityDotKind(item)}"></div>
-                  <div>
+                  <div class="dash-activity-copy">
                     <div class="dash-activity-title">{activityTitle(item)}</div>
                     <div class="dash-activity-date">{activityWhen(item)}</div>
                   </div>
+                  {#if isRequestActivity(item)}
+                    <button
+                      type="button"
+                      class="dash-view-btn"
+                      on:click={() => openRequestActivity(item)}
+                    >
+                      View
+                    </button>
+                  {/if}
                 </div>
               {/each}
             {:else}
@@ -1483,6 +1558,11 @@
   .dash-task-item {
     align-items: center;
     justify-content: space-between;
+  }
+
+  .dash-activity-copy {
+    flex: 1;
+    min-width: 0;
   }
 
   .dash-activity-item:hover,

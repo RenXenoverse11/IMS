@@ -861,6 +861,12 @@
 
   function canManageProject(project) {
     const currentUserId = getCurrentUserId();
+    const projId = String(project?.proj_id || project?.id || '').trim();
+    return Boolean(currentUserId && projId);
+  }
+
+  function canDeleteProject(project) {
+    const currentUserId = getCurrentUserId();
     const creatorId = String(project?.created_by || '').trim();
     return Boolean(currentUserId && creatorId && currentUserId === creatorId);
   }
@@ -868,7 +874,8 @@
   function canArchiveProject(project) {
     const currentUserId = getCurrentUserId();
     const projId = String(project?.proj_id || project?.id || '').trim();
-    return Boolean(currentUserId && projId);
+    const status = canonicalStatusLabel(project?.status || '').toLowerCase();
+    return Boolean(currentUserId && projId && status === 'completed' && !project?.archived);
   }
 
   function ensureArchivableProject(projectOrId, actionLabel) {
@@ -889,6 +896,36 @@
     return project;
   }
 
+  function canRestoreProject(project) {
+    const currentUserId = getCurrentUserId();
+    const projId = String(project?.proj_id || project?.id || '').trim();
+    return Boolean(currentUserId && projId && project?.archived);
+  }
+
+  function ensureRestorableProject(projectOrId, actionLabel) {
+    const project = typeof projectOrId === 'object'
+      ? projectOrId
+      : allProjects.find((item) => String(item.id || item.proj_id || '').trim() === String(projectOrId || '').trim());
+
+    if (!project) {
+      setFlashError('Project not found.');
+      return null;
+    }
+
+    if (!canRestoreProject(project)) {
+      setFlashError(`You cannot ${actionLabel}.`);
+      return null;
+    }
+
+    return project;
+  }
+
+  function showArchiveProject(project) {
+    const currentUserId = getCurrentUserId();
+    const projId = String(project?.proj_id || project?.id || '').trim();
+    return Boolean(currentUserId && projId && !project?.archived);
+  }
+
   function ensureManageableProject(projectOrId, actionLabel) {
     const project = typeof projectOrId === 'object'
       ? projectOrId
@@ -900,6 +937,24 @@
     }
 
     if (!canManageProject(project)) {
+      setFlashError(`You do not have permission to ${actionLabel}.`);
+      return null;
+    }
+
+    return project;
+  }
+
+  function ensureOwnedProject(projectOrId, actionLabel) {
+    const project = typeof projectOrId === 'object'
+      ? projectOrId
+      : allProjects.find((item) => String(item.id || item.proj_id || '').trim() === String(projectOrId || '').trim());
+
+    if (!project) {
+      setFlashError('Project not found.');
+      return null;
+    }
+
+    if (!canDeleteProject(project)) {
       setFlashError(`Only the supervisor who created this project can ${actionLabel}.`);
       return null;
     }
@@ -1377,7 +1432,9 @@
       filterPriority = 'all';
       filterStatus = 'all';
       filterIntern = 'all';
-      searchQuery = String(updatedProject.title || '').trim();
+      if (!isEditing) {
+        searchQuery = String(updatedProject.title || '').trim();
+      }
       closeAddProjectModal();
       setFlashMessage(isEditing ? 'Project updated successfully.' : 'Project added successfully.');
     } catch (error) {
@@ -1388,7 +1445,7 @@
   }
 
   function openDeleteProjectModal(project) {
-    const target = ensureManageableProject(project, 'delete this project');
+    const target = ensureOwnedProject(project, 'delete this project');
     if (!target) return;
     projectToDelete = target;
     showDeleteProjectModal = true;
@@ -1400,7 +1457,7 @@
   }
 
   async function confirmDeleteProject() {
-    const project = ensureManageableProject(projectToDelete, 'delete this project');
+    const project = ensureOwnedProject(projectToDelete, 'delete this project');
     if (!project) {
       closeDeleteProjectModal();
       return;
@@ -1681,7 +1738,7 @@
   }
 
   async function restoreProject(project) {
-    const targetProject = ensureArchivableProject(project, 'restore this project');
+    const targetProject = ensureRestorableProject(project, 'restore this project');
     const projectId = String(targetProject?.id || targetProject?.proj_id || '').trim();
     if (!targetProject || !projectId || restoringProjectIds.has(projectId)) return;
 
@@ -2036,7 +2093,19 @@
                 {@const pl = normalizePriorityLabel(p.priority_level)}
               {@const pct = p.progress_percent != null ? Number(p.progress_percent) : statusToProgress(p.status)}
                 {@const past = isDeadlinePast(p.timeline_end || p.deadline)}
-                <div class="ov-snippet-card">
+                <div
+                  class="ov-snippet-card"
+                  role="button"
+                  tabindex="0"
+                  aria-label={`Open project ${p.title}`}
+                  on:click={() => viewProject(p)}
+                  on:keydown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      viewProject(p);
+                    }
+                  }}
+                >
                 <div class="ov-snippet-top">
                   <div class="ov-snippet-name">{p.title}</div>
                   <div class="ov-snippet-top-right">
@@ -2056,16 +2125,14 @@
                   </div>
                 {/if}
                 <div class="ov-snippet-actions">
-                  <button class="sub-action-btn" on:click={() => viewProject(p)}>
-                    <Eye size={12} /> Open
-                  </button>
-                  {#if canArchiveProject(p)}
+                  {#if showArchiveProject(p)}
                     <button
                       class="sub-action-btn"
                       class:sub-action-btn-busy={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
-                      title={archivingProjectIds.has(String(p.id || p.proj_id || '').trim()) ? 'Archiving...' : 'Archive project'}
-                      disabled={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
-                      on:click={() => archiveProject(p)}
+                      class:sub-action-btn-disabled={!canArchiveProject(p)}
+                      title={archivingProjectIds.has(String(p.id || p.proj_id || '').trim()) ? 'Archiving...' : canArchiveProject(p) ? 'Archive project' : 'Archive available when project is completed'}
+                      disabled={archivingProjectIds.has(String(p.id || p.proj_id || '').trim()) || !canArchiveProject(p)}
+                      on:click|stopPropagation={() => archiveProject(p)}
                     >
                       {#if archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
                         <Loader2 size={12} class="spin" /> Archiving...
@@ -2170,7 +2237,7 @@
       {:else}
         <div class="proj-table-body">
           {#each archivedProjects as p (p.id)}
-            {@const canRestore = canArchiveProject(p)}
+            {@const canRestore = canRestoreProject(p)}
             <div class="proj-table-row proj-arc-row">
               <span class="proj-col-name proj-name-cell">
                 <div class="proj-arc-title">{p.title}</div>
@@ -2230,7 +2297,20 @@
             {@const isViewing = viewingProjectId === p.id}
             {@const canManage = canManageProject(p)}
             {@const canArchive = canArchiveProject(p)}
-            <div class="proj-table-row" class:proj-row-active={isViewing}>
+              <div
+                class="proj-table-row"
+                class:proj-row-active={isViewing}
+                role="button"
+                tabindex="0"
+                aria-label={`Open project ${p.title}`}
+                on:click={() => viewProject(p)}
+                on:keydown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    viewProject(p);
+                  }
+                }}
+              >
               <span class="proj-col-name proj-name-cell">{p.title}</span>
               <span class="proj-col-priority" data-label="Priority">
                 <span class={"proj-priority-pill priority-" + pl.toLowerCase()}>{pl || ICONS.emDash}</span>
@@ -2246,17 +2326,15 @@
                   : (p.deadline ? formatDate(p.deadline) : ICONS.emDash)}
               </span>
               <span class="proj-col-actions proj-actions-cell" data-label="Actions">
-                <button class="icon-btn" class:icon-btn-active={isViewing} title="View" aria-label="View" on:click={() => viewProject(p)}>
-                  <Eye size={16} />
-                </button>
-                {#if canArchive}
+                {#if showArchiveProject(p)}
                   <button
                     class="icon-btn archive"
                     class:icon-btn-busy={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
-                    title={archivingProjectIds.has(String(p.id || p.proj_id || '').trim()) ? 'Archiving...' : 'Archive'}
-                    aria-label={archivingProjectIds.has(String(p.id || p.proj_id || '').trim()) ? 'Archiving project' : 'Archive'}
-                    disabled={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
-                    on:click={() => archiveProject(p)}
+                    class:icon-btn-disabled={!canArchiveProject(p)}
+                    title={archivingProjectIds.has(String(p.id || p.proj_id || '').trim()) ? 'Archiving...' : canArchiveProject(p) ? 'Archive' : 'Archive available when project is completed'}
+                    aria-label={archivingProjectIds.has(String(p.id || p.proj_id || '').trim()) ? 'Archiving project' : canArchiveProject(p) ? 'Archive project' : 'Archive unavailable until project is completed'}
+                    disabled={archivingProjectIds.has(String(p.id || p.proj_id || '').trim()) || !canArchiveProject(p)}
+                    on:click|stopPropagation={() => archiveProject(p)}
                   >
                     {#if archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
                       <Loader2 size={16} class="spin" />
@@ -2279,7 +2357,19 @@
         {@const near = !past && isDeadlineNear(p.deadline)}
         {@const canManage = canManageProject(p)}
         {@const canArchive = canArchiveProject(p)}
-        <div class="project-card">
+        <div
+          class="project-card"
+          role="button"
+          tabindex="0"
+          aria-label={`Open project ${p.title}`}
+          on:click={() => viewProject(p)}
+          on:keydown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              viewProject(p);
+            }
+          }}
+        >
           <div class="project-card-header">
             <div
               class="priority-badge"
@@ -2307,15 +2397,13 @@
             <div class="meta-item team-chip"><Users2 size={12} /> {teamLabel(p)}</div>
           </div>
           <div class="project-card-footer">
-            <button class="sub-action-btn" on:click={() => viewProject(p)}>
-              <Eye size={12} /> Open
-            </button>
-            {#if canArchive}
+            {#if showArchiveProject(p)}
               <button
                 class="sub-action-btn"
                 class:sub-action-btn-busy={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
-                disabled={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
-                on:click={() => archiveProject(p)}
+                class:sub-action-btn-disabled={!canArchiveProject(p)}
+                disabled={archivingProjectIds.has(String(p.id || p.proj_id || '').trim()) || !canArchiveProject(p)}
+                on:click|stopPropagation={() => archiveProject(p)}
               >
                 {#if archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
                   <Loader2 size={12} class="spin" /> Archiving...
@@ -2988,6 +3076,11 @@
     border-color: rgba(255,255,255,0.06);
     color: var(--color-accent);
   }
+  .icon-btn.archive.icon-btn-disabled {
+    color: var(--color-sidebar-text);
+    border-color: var(--color-border);
+    background: transparent;
+  }
   .icon-btn.restore {
     background: transparent;
     border-color: rgba(255,255,255,0.06);
@@ -2998,6 +3091,11 @@
     border-color: #10b981;
   }
   .retry-btn:hover { background: #1d4ed8; }
+  .sub-action-btn-disabled {
+    background: var(--color-surface) !important;
+    border-color: var(--color-border) !important;
+    color: var(--color-sidebar-text) !important;
+  }
 
   .empty-state {
     display: flex;

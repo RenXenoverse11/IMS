@@ -2349,13 +2349,15 @@ let restoringTaskMap = {};
         />
       </label>
 
-      <label class="status-control" aria-label="Status filter">
-        <select class="quick-status" bind:value={statusFilter}>
-          {#each statusOptions as option}
-            <option value={option}>{option}</option>
-          {/each}
-        </select>
-      </label>
+      {#if activeView === 'List'}
+        <label class="status-control" aria-label="Status filter">
+          <select class="quick-status" bind:value={statusFilter}>
+            {#each statusOptions as option}
+              <option value={option}>{option}</option>
+            {/each}
+          </select>
+        </label>
+      {/if}
 
       <button class="new-task-btn primary" type="button" on:click={toggleAddTaskForm}>
         <Plus size={15} />
@@ -7089,4 +7091,3 @@ let restoringTaskMap = {};
     }
   }
 </style>
-
