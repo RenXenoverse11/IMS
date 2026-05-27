@@ -739,8 +739,8 @@
   let membersSelectEl = null;
   let supervisorsSelectEl = null;
   const MAX_ASSIGNMENT_CHIPS = 3;
+  const TEMP_FOLDER_PREFIX = 'tmp-folder-';
   let isLoadingFolders   = false;
-  let isSavingFolder     = false;
   let isUploadingFile    = false;
 
   const FILE_TYPE_OPTIONS = ['Document', 'Powerpoint', 'PDF', 'Word'];
@@ -845,6 +845,46 @@
     if (expandedFolderIds.has(folderId)) { expandedFolderIds.delete(folderId); }
     else { expandedFolderIds.add(folderId); }
     expandedFolderIds = new Set(expandedFolderIds);
+  }
+
+  function isTemporaryFolderId(folderId) {
+    return String(folderId || '').startsWith(TEMP_FOLDER_PREFIX);
+  }
+
+  function getProjectFolderById(projectId, folderId) {
+    const project = projects.find((p) => p.id === projectId);
+    return (project?.folders || []).find((folder) => folder.id === folderId) || null;
+  }
+
+  function replaceFolderIdAcrossUi(oldId, nextFolder) {
+    if (!oldId || !nextFolder?.id) return;
+
+    projects = projects.map((project) => ({
+      ...project,
+      folders: (project.folders || []).map((folder) =>
+        folder.id === oldId
+          ? { ...folder, ...nextFolder, id: nextFolder.id, folder_id: nextFolder.folder_id || nextFolder.id }
+          : folder
+      ),
+    }));
+
+    if (expandedFolderIds.has(oldId)) {
+      expandedFolderIds.delete(oldId);
+      expandedFolderIds.add(nextFolder.id);
+      expandedFolderIds = new Set(expandedFolderIds);
+    }
+
+    if (renamingFolderId === oldId) {
+      renamingFolderId = nextFolder.id;
+    }
+
+    if (activeLinkFolderId === oldId) {
+      activeLinkFolderId = nextFolder.id;
+    }
+
+    if (pendingUpload.folderId === oldId) {
+      pendingUpload = { ...pendingUpload, folderId: nextFolder.id };
+    }
   }
 
   // Load folders + submissions for a project from the backend
@@ -1314,27 +1354,74 @@
   async function addFolder(projectId) {
     const uid    = getCurrentUserId();
     const projId = String(projects.find(p => p.id === projectId)?.proj_id || projectId);
-    isSavingFolder = true;
+    const tempId = `${TEMP_FOLDER_PREFIX}${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const tempFolder = {
+      id: tempId,
+      folder_id: tempId,
+      name: 'New Folder',
+      gdrive_link: '',
+      submissions: [],
+      isPending: true
+    };
+
+    projects = projects.map(p => p.id === projectId
+      ? { ...p, folders: [...(p.folders || []), tempFolder] } : p);
+    expandedFolderIds.add(tempId);
+    expandedFolderIds = new Set(expandedFolderIds);
+    renamingFolderId   = tempId;
+    renamingFolderName = 'New Folder';
+
     try {
       const res = await dispatchAction('create_proj_folder', {
         proj_id: projId, folder_name: 'New Folder', user_id: uid
       });
-      if (!res?.ok) { formError = res?.error || 'Failed to create folder.'; return; }
+      if (!res?.ok) {
+        projects = projects.map(p => p.id === projectId
+          ? { ...p, folders: (p.folders || []).filter(f => f.id !== tempId) } : p);
+        expandedFolderIds.delete(tempId);
+        expandedFolderIds = new Set(expandedFolderIds);
+        if (renamingFolderId === tempId) {
+          renamingFolderId = null;
+          renamingFolderName = '';
+        }
+        formError = res?.error || 'Failed to create folder.';
+        return;
+      }
       const newFolder = {
         id: res.folder_id, folder_id: res.folder_id,
         name: 'New Folder', gdrive_link: res.gdrive_link || '',
-        submissions: []
+        submissions: [],
+        isPending: false
       };
-      projects = projects.map(p => p.id === projectId
-        ? { ...p, folders: [...(p.folders || []), newFolder] } : p);
-      expandedFolderIds.add(res.folder_id);
-      expandedFolderIds = new Set(expandedFolderIds);
-      renamingFolderId   = res.folder_id;
-      renamingFolderName = 'New Folder';
+      const folderStillExists = Boolean(getProjectFolderById(projectId, tempId));
+      if (!folderStillExists) {
+        await dispatchAction('delete_proj_folder', { folder_id: res.folder_id });
+        return;
+      }
+
+      replaceFolderIdAcrossUi(tempId, newFolder);
+
+      const currentFolderName = String(getProjectFolderById(projectId, res.folder_id)?.name || 'New Folder').trim() || 'New Folder';
+      if (currentFolderName !== 'New Folder') {
+        const renameRes = await dispatchAction('update_proj_folder', {
+          folder_id: res.folder_id,
+          folder_name: currentFolderName,
+          user_id: uid
+        });
+        if (!renameRes?.ok) {
+          formError = renameRes?.error || 'Rename failed.';
+        }
+      }
     } catch (e) {
+      projects = projects.map(p => p.id === projectId
+        ? { ...p, folders: (p.folders || []).filter(f => f.id !== tempId) } : p);
+      expandedFolderIds.delete(tempId);
+      expandedFolderIds = new Set(expandedFolderIds);
+      if (renamingFolderId === tempId) {
+        renamingFolderId = null;
+        renamingFolderName = '';
+      }
       formError = e?.message || 'Failed to create folder.';
-    } finally {
-      isSavingFolder = false;
     }
   }
 
@@ -1348,12 +1435,14 @@
     const newName  = String(renamingFolderName || '').trim() || 'New Folder';
     const uid      = getCurrentUserId();
     const savedId  = renamingFolderId;
+    const isTemporaryFolder = isTemporaryFolderId(savedId) || Boolean(getProjectFolderById(projectId, savedId)?.isPending);
     renamingFolderId   = null;
     renamingFolderName = '';
     // Optimistic UI update
     projects = projects.map(p => p.id === projectId ? {
       ...p, folders: (p.folders || []).map(f => f.id === savedId ? { ...f, name: newName } : f)
     } : p);
+    if (isTemporaryFolder) return;
     try {
       const res = await dispatchAction('update_proj_folder', {
         folder_id: savedId, folder_name: newName, user_id: uid
@@ -1365,6 +1454,7 @@
   }
 
   async function deleteFolder(projectId, folderId) {
+    const isTemporaryFolder = isTemporaryFolderId(folderId) || Boolean(getProjectFolderById(projectId, folderId)?.isPending);
     if (activeLinkFolderId === folderId) activeLinkFolderId = null;
     if (pendingUpload.folderId === folderId) cancelPendingUpload();
     // Optimistic UI
@@ -1373,6 +1463,7 @@
     } : p);
     expandedFolderIds.delete(folderId);
     expandedFolderIds = new Set(expandedFolderIds);
+    if (isTemporaryFolder) return;
     try {
       const res = await dispatchAction('delete_proj_folder', { folder_id: folderId });
       if (!res?.ok) { formError = res?.error || 'Delete folder failed.'; return; }
@@ -2573,8 +2664,8 @@
                     {:else if viewingProjectTab === 'Submissions'}
                       <!-- Folders top bar -->
                       <div class="sub-action-bar">
-                        <button class="sub-action-btn" disabled={isSavingFolder} on:click={() => addFolder(p.id)}>
-                          {#if isSavingFolder}<Loader2 size={13} class="spin" />{:else}<FolderOpen size={13} />{/if} New Folder
+                        <button class="sub-action-btn" on:click={() => addFolder(p.id)}>
+                          <FolderOpen size={13} /> New Folder
                         </button>
                         <!-- Add Milestone moved to Milestones tab -->
                       </div>
