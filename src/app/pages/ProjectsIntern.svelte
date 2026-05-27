@@ -732,7 +732,7 @@
   let viewingLinkLabel   = '';
   let renamingFolderId   = null;
   let renamingFolderName = '';
-  let pendingUpload      = { projectId: null, folderId: null, file: null, name: '', type: 'Document' };
+  let pendingUpload      = { projectId: null, folderId: null, file: null, name: '', ext: '' };
   let showMembersPanel   = false;
   let memberSearch = '';
   let supervisorSearch = '';
@@ -742,8 +742,6 @@
   const TEMP_FOLDER_PREFIX = 'tmp-folder-';
   let isLoadingFolders   = false;
   let isUploadingFile    = false;
-
-  const FILE_TYPE_OPTIONS = ['Document', 'Powerpoint', 'PDF', 'Word'];
 
   // Map file extension → kind category
   function extToKind_(ext) {
@@ -1498,12 +1496,12 @@
     if (!file) return;
     const defaultName = file.name.replace(/\.[^/.]+$/, '');
     const ext = (file.name.match(/\.([^.]+)$/) || [])[1] || '';
-    pendingUpload = { projectId, folderId, file, name: defaultName, type: extToKind_(ext), ext };
+    pendingUpload = { projectId, folderId, file, name: defaultName, ext };
     ev.target.value = '';
   }
 
   function cancelPendingUpload() {
-    pendingUpload = { projectId: null, folderId: null, file: null, name: '', type: 'Document', ext: '' };
+    pendingUpload = { projectId: null, folderId: null, file: null, name: '', ext: '' };
     formError = '';
   }
 
@@ -1511,8 +1509,8 @@
     if (!pendingUpload || pendingUpload.projectId !== projectId || pendingUpload.folderId !== folderId || !pendingUpload.file) return;
     const file       = pendingUpload.file;
     const chosenName = (String(pendingUpload.name || '').trim() || file.name.replace(/\.[^/.]+$/, '')) + (pendingUpload.ext ? '.' + pendingUpload.ext : '');
-    const chosenKind = pendingUpload.type || 'Document';
     const ext        = pendingUpload.ext || (file.name.match(/\.([^.]+)$/) || [])[1] || '';
+    const chosenKind = extToKind_(ext);
     const mimeType   = extToMime_(ext);
     const fileSizeMb = (file.size / (1024 * 1024)).toFixed(3);
     const projId     = String(projects.find(p => p.id === projectId)?.proj_id || projectId);
@@ -2740,9 +2738,6 @@
                                         <div class="sub-file-icon">📄</div>
                                         <div class="submission-meta">
                                           <input class="sub-input" bind:value={pendingUpload.name} placeholder="File name" />
-                                          <select class="sub-input" bind:value={pendingUpload.type}>
-                                            {#each FILE_TYPE_OPTIONS as t}<option value={t}>{t}</option>{/each}
-                                          </select>
                                           <div class="submission-info">Selected: {pendingUpload.file ? pendingUpload.file.name : ''} ({pendingUpload.file ? (pendingUpload.file.size / (1024*1024)).toFixed(2) + ' MB' : ''})</div>
                                         </div>
                                       </div>
