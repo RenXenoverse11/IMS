@@ -2069,15 +2069,6 @@
   <!-- ── MY PROJECTS TAB ─────────────────────────────────────────── -->
   {#if activeTab === 'my-projects'}
     {#if activeView === 'Overview'}
-      {#if !isLoading && projects.length === 0}
-        <div class="empty-state">
-          <FolderOpen size={32} />
-          <div class="empty-title">No projects yet</div>
-          <div class="empty-sub">Click "+ Add Project" to get started.</div>
-          <button class="empty-cta" on:click={openAddProjectModal}>+ Add Project</button>
-        </div>
-      {:else}
-
         <section class="card ov-card">
           <div class="ov-card-head">
             <div class="ov-card-title">Your Projects</div>
@@ -2274,7 +2265,6 @@
             {/if}
           </section>
         </div>
-      {/if}
     {:else if activeView === 'Projects'}
       <section class="proj-table-panel">
         <header class="proj-table-header">
@@ -2293,8 +2283,7 @@
           <div class="empty-state">
             <FolderOpen size={32} />
             <div class="empty-title">No projects yet</div>
-            <div class="empty-sub">Click "+ Add Project" to get started.</div>
-            <button class="empty-cta" on:click={openAddProjectModal}>+ Add Project</button>
+            <div class="empty-sub">No assigned projects available yet.</div>
           </div>
         {:else}
           <div class="proj-table-body">
