@@ -215,6 +215,12 @@
     return isAbsenceRetraction(request) && normalizeStatus(request?.status) === "pending";
   }
 
+  function isTimeLogOverride(request) {
+    return String(request?.requestType || request?.request_type || "")
+      .trim()
+      .toLowerCase() === "time log override";
+  }
+
   function canRetractApprovedAbsence(request) {
     if (isSupervisor || !request || isAbsenceRetraction(request)) return false;
     const type = String(request?.requestType || request?.request_type || "").trim().toLowerCase();
@@ -1566,6 +1572,8 @@
                       <RotateCcw size={14} /> Absence Retraction
                     {:else if isPendingRetraction(request)}
                       <RotateCcw size={14} /> Retraction Pending
+                    {:else if isTimeLogOverride(request)}
+                      <ClipboardList size={14} /> Time Log Override
                     {:else if request.requestType === "Overtime"}
                       <Clock3 size={14} /> Overtime
                     {:else}
@@ -1577,7 +1585,7 @@
                       <span class="info-label">For:</span>
                       <span class="info-value">{formatDate(request.date)}</span>
                     </span>
-                    {#if request.requestType === "Overtime" && request.start_time && request.end_time}
+                    {#if (request.requestType === "Overtime" || isTimeLogOverride(request)) && request.start_time && request.end_time}
                       <span class="request-info-item">
                         <span class="info-label">Time:</span>
                         <span class="info-value">

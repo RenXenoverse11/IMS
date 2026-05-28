@@ -194,9 +194,29 @@
     return d < now;
   }
 
+  function deadlineTimestamp(val) {
+    const s = String(val || '').trim();
+    if (!s) return Number.POSITIVE_INFINITY;
+    const d = /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(`${s}T00:00:00`) : new Date(s);
+    const ts = d.getTime();
+    return Number.isFinite(ts) ? ts : Number.POSITIVE_INFINITY;
+  }
+
+  function compareUpcomingDeadlineProjects(a, b) {
+    const aValue = a?.timeline_end || a?.deadline || '';
+    const bValue = b?.timeline_end || b?.deadline || '';
+    const aCompleted = canonicalStatusLabel(a?.status) === 'Completed';
+    const bCompleted = canonicalStatusLabel(b?.status) === 'Completed';
+    if (aCompleted !== bCompleted) return aCompleted ? 1 : -1;
+    const byDate = deadlineTimestamp(aValue) - deadlineTimestamp(bValue);
+    if (byDate !== 0) return byDate;
+    return String(a?.title || '').localeCompare(String(b?.title || ''));
+  }
+
   function validateForm() {
     if (!String(form.title || '').trim())         return 'Project title is required.';
     if (!String(form.timeline_start || '').trim() || !String(form.timeline_end || '').trim()) return 'Timeline start and end are required.';
+    if (String(form.timeline_end || '').trim() < String(form.timeline_start || '').trim()) return 'Timeline end must be on or after the timeline start.';
     return '';
   }
 
@@ -667,6 +687,12 @@
     }
   }
 
+  function openProjectFromOverview(project) {
+    if (!project) return;
+    activeView = 'Projects';
+    viewProject(project);
+  }
+
   function canArchiveProject(project) {
     const status = canonicalStatusLabel(project?.status || '').toLowerCase();
     return Boolean(
@@ -692,10 +718,17 @@
   }
 
   function toggleMember(name) {
+    const currentUserId = String(getCurrentUserId() || '').trim();
+    if (currentUserId && String(name || '').trim() === currentUserId) {
+      return;
+    }
     const list = Array.isArray(form.members) ? [...form.members] : [];
     const idx = list.indexOf(name);
     if (idx === -1) list.push(name);
     else list.splice(idx, 1);
+    if (currentUserId && !list.includes(currentUserId)) {
+      list.push(currentUserId);
+    }
     form.members = list;
   }
 
@@ -1820,7 +1853,7 @@
   $: selectedSupervisorOptions = (form.supervisor || []).map((id) => (
     SUPERVISOR_OPTIONS.find((option) => option.value === id) || { value: id, label: id, initials: getInitials(id) }
   ));
-  $: memberChipList = selectedMemberOptions.slice(0, MAX_ASSIGNMENT_CHIPS);
+  $: memberChipList = selectedMemberOptions;
   $: supervisorChipList = selectedSupervisorOptions.slice(0, MAX_ASSIGNMENT_CHIPS);
   $: filteredMemberOptions = filterAssignmentOptions(MEMBER_OPTIONS, memberSearch);
   $: filteredSupervisorOptions = filterAssignmentOptions(SUPERVISOR_OPTIONS, supervisorSearch);
@@ -1862,7 +1895,11 @@
   $: totalProjects     = projects.filter(p => !p.archived).length;
   $: inProgressCount   = projects.filter(p => !p.archived && p.status === 'In Progress').length;
   $: completedCount    = projects.filter(p => !p.archived && p.status === 'Completed').length;
-  $: isFormValid       = String(form.title || '').trim() && String(form.timeline_start || '').trim() && String(form.timeline_end || '').trim();
+  $: isFormValid =
+    String(form.title || '').trim() &&
+    String(form.timeline_start || '').trim() &&
+    String(form.timeline_end || '').trim() &&
+    String(form.timeline_end || '').trim() >= String(form.timeline_start || '').trim();
 
   // Derived sets for tab views
   $: archivedProjects = projects.filter(p => !!p.archived);
@@ -1957,7 +1994,7 @@
 
   $: upcomingDeadlines = projects
     .filter(p => !p.archived && String(p.timeline_end || '').trim())
-    .sort((a, b) => String(a.timeline_end).localeCompare(String(b.timeline_end)))
+    .sort(compareUpcomingDeadlineProjects)
     .slice(0, 5);
 
   $: statusBreakdown = STATUS_OPTIONS.map(s => ({
@@ -2120,21 +2157,28 @@
                 {@const pl  = getPriorityLabel(p.priority_level)}
                 {@const pct = p.progress_percent != null ? p.progress_percent : statusToProgress(p.status)}
                 {@const past = isDeadlinePast(p.timeline_end || p.deadline)}
+                {@const near = !past && isDeadlineNear(p.timeline_end || p.deadline)}
+                {@const ownerName = String(p.owner_name || p.created_by || '').trim() || 'Assigned project'}
                 <div
                   class="ov-snippet-card"
                   role="button"
                   tabindex="0"
                   aria-label={`Open project ${p.title}`}
-                  on:click={() => viewProject(p)}
+                  on:click={() => openProjectFromOverview(p)}
                   on:keydown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault();
-                      viewProject(p);
+                      openProjectFromOverview(p);
                     }
                   }}
                 >
                   <div class="ov-snippet-top">
-                    <div class="ov-snippet-name">{p.title}</div>
+                    <div class="ov-snippet-headline">
+                      <div class="ov-snippet-name">{p.title}</div>
+                      <div class="ov-snippet-owner">
+                        <Users size={12} /> {ownerName}
+                      </div>
+                    </div>
                     <div class="ov-snippet-top-right">
                       <span class={"proj-status-pill " + sm.cls}>{sm.label}</span>
                       <span class={"proj-priority-pill priority-" + pl.toLowerCase()}>{pl}</span>
@@ -2147,8 +2191,15 @@
                     <span class="ov-snippet-pct">{pct}%</span>
                   </div>
                   {#if p.timeline_end || p.deadline}
-                    <div class="ov-snippet-due" class:ov-date-past={past}>
-                      <CalendarDays size={11} /> Due: {formatDate(p.timeline_end || p.deadline)}
+                    <div class="ov-snippet-meta-row">
+                      <div class="ov-snippet-due" class:ov-date-past={past} class:ov-date-near={near}>
+                        <CalendarDays size={11} />
+                        <span>{past ? 'Past due' : near ? 'Due soon' : 'Due'}:</span>
+                        <strong>{formatDate(p.timeline_end || p.deadline)}</strong>
+                      </div>
+                      <div class="ov-snippet-date-chip" class:ov-snippet-date-chip-past={past} class:ov-snippet-date-chip-near={near}>
+                        {formatShortMonthDay(p.timeline_end || p.deadline)}
+                      </div>
                     </div>
                   {/if}
                   <div class="ov-snippet-actions">
@@ -2232,6 +2283,9 @@
                     <div class="ov-act-body">
                       <div class="ov-act-text">{act.text}</div>
                       <div class="ov-act-meta">
+                        {#if act.actor_name}
+                          <span class="ov-act-actor">{act.actor_name}</span>
+                        {/if}
                         {#if act.proj_name || proj}
                           <span class="ov-act-proj">{act.proj_name || proj?.title || ''}</span>
                         {/if}
@@ -3253,9 +3307,7 @@
 {/if}
 
 {#if showAddProjectModal}
-  <!-- svelte-ignore a11y-click-events-have-key-events -->
-  <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div class="modal-overlay" on:click={closeAddProjectModal}>
+  <div class="modal-overlay">
     <div class="modal-box large" on:click|stopPropagation>
       <div class="modal-title">{editingId ? 'Edit Project' : 'Add New Project'}</div>
       <div class="modal-content">
@@ -3278,14 +3330,12 @@
             <div class="members-value">
               {#if (form.members || []).length === 0}
                 <span class="members-placeholder">Select members</span>
-              {:else if (form.members || []).length <= MAX_ASSIGNMENT_CHIPS}
+              {:else}
                 <div class="members-chips">
                   {#each memberChipList as m (m.value)}
                     <span class="member-chip" title={m.label}>{m.label}</span>
                   {/each}
                 </div>
-              {:else}
-                <span class="members-count-text">{(form.members || []).length} members selected</span>
               {/if}
             </div>
             <div class="muted">{(form.members || []).length}</div>
@@ -3301,8 +3351,14 @@
                 {:else}
                   {#if filteredMemberOptions.length}
                     {#each filteredMemberOptions as m}
+                      {@const isCreatorMember = String(m.value || '').trim() === String(getCurrentUserId() || '').trim()}
                       <label class="members-item">
-                        <input type="checkbox" checked={(form.members || []).includes(m.value)} on:change={() => toggleMember(m.value)} />
+                        <input
+                          type="checkbox"
+                          checked={(form.members || []).includes(m.value)}
+                          disabled={isCreatorMember}
+                          on:change={() => toggleMember(m.value)}
+                        />
                         <span class="member-avatar" aria-hidden="true">
                           {#if m.photoUrl}
                             <img src={m.photoUrl} alt="" />
@@ -3310,7 +3366,12 @@
                             <span>{m.initials}</span>
                           {/if}
                         </span>
-                        <span class="members-name">{m.label}</span>
+                        <span class="members-name">
+                          {m.label}
+                          {#if isCreatorMember}
+                            <span class="members-lock-hint">(Creator)</span>
+                          {/if}
+                        </span>
                       </label>
                     {/each}
                   {:else}
@@ -3397,11 +3458,23 @@
       <div class="row-2">
         <div class="form-group">
           <label class="form-label" for="proj-timeline-start">Timeline (Start)</label>
-          <input id="proj-timeline-start" type="date" class="form-input" bind:value={form.timeline_start} />
+          <input
+            id="proj-timeline-start"
+            type="date"
+            class="form-input"
+            bind:value={form.timeline_start}
+            max={form.timeline_end || undefined}
+          />
         </div>
         <div class="form-group">
           <label class="form-label" for="proj-timeline-end">Timeline (End)</label>
-          <input id="proj-timeline-end" type="date" class="form-input" bind:value={form.timeline_end} />
+          <input
+            id="proj-timeline-end"
+            type="date"
+            class="form-input"
+            bind:value={form.timeline_end}
+            min={form.timeline_start || undefined}
+          />
         </div>
       </div>
 
@@ -3412,7 +3485,7 @@
       {/if}
       </div>
 
-      <div class="modal-footer modal-footer-sticky">
+      <div class="modal-footer modal-footer-sticky modal-footer-centered">
         <button class="btn-secondary" on:click={closeAddProjectModal}>Cancel</button>
         <button class="btn-submit" on:click={submitProject} disabled={isSubmitting || !isFormValid}>
           {#if isSubmitting}
@@ -4659,6 +4732,7 @@
   .modal-title  { font-size: 15px; font-weight: 700; color: var(--color-heading); }
   .modal-body   { font-size: 13px; color: var(--color-sidebar-text); margin: 0; line-height: 1.5; }
   .modal-footer { display: flex; justify-content: flex-end; gap: 8px; }
+  .modal-footer-centered { justify-content: center; }
   .modal-footer.modal-footer-sticky {
     padding: 12px 22px 16px;
     border-top: 1px solid var(--color-border);
@@ -4740,9 +4814,11 @@
   .members-item { display:flex; align-items:center; gap:10px; padding:6px 10px; border-radius:6px; cursor:pointer; color:var(--color-heading); font-size:13px; font-weight:600; }
   .members-item + .members-item { margin-top:6px; }
   .members-item input[type="checkbox"] { width:18px; height:18px; accent-color:#60a5fa; }
+  .members-item input[type="checkbox"]:disabled { cursor:not-allowed; opacity:0.8; }
   .member-avatar { width:26px; height:26px; border-radius:50%; flex:0 0 auto; display:inline-flex; align-items:center; justify-content:center; overflow:hidden; border:1px solid rgba(148,163,184,0.35); background:linear-gradient(135deg, rgba(37,99,235,0.28), rgba(14,165,233,0.18)); color:#dbeafe; font-size:10px; font-weight:800; letter-spacing:0.03em; }
   .member-avatar img { width:100%; height:100%; object-fit:cover; display:block; }
   .members-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .members-lock-hint { margin-left:6px; font-size:11px; font-weight:700; color:var(--color-sidebar-text); }
   .members-item:hover { background:var(--color-surface-muted); }
   .members-name { line-height:1; }
 
@@ -5075,6 +5151,13 @@
     display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
   }
 
+  .ov-act-actor {
+    font-size: 0.76rem;
+    font-weight: 700;
+    color: var(--color-heading);
+    white-space: nowrap;
+  }
+
   .ov-act-proj {
     font-size: 0.76rem;
     font-weight: 600;
@@ -5104,30 +5187,40 @@
   }
   @media (max-width: 680px) {
     .ov-snippets-grid { grid-template-columns: 1fr; }
+    .ov-snippet-meta-row { align-items: flex-start; flex-direction: column; }
   }
 
   .ov-snippet-card {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 0.85rem;
     padding: 1.05rem 0.95rem 0.9rem;
     border: 1px solid var(--color-border);
-    border-radius: 0.75rem;
-    background: var(--color-soft);
-    transition: border-color 140ms, box-shadow 140ms;
+    border-radius: 1rem;
+    background:
+      radial-gradient(circle at top right, rgba(59, 130, 246, 0.07), transparent 42%),
+      linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015)),
+      var(--color-soft);
+    transition: border-color 140ms, box-shadow 140ms, transform 140ms;
     overflow: hidden;
     min-width: 0;
   }
-  .ov-snippet-card:hover { border-color: var(--color-accent); box-shadow: 0 6px 18px -14px rgba(15,23,42,.3); }
-  :global(body.dark) .ov-snippet-card { background: #0d1117 !important; border-color: #ffffff0f !important; }
+  .ov-snippet-card:hover { border-color: var(--color-accent); box-shadow: 0 16px 28px -24px rgba(15,23,42,.38); transform: translateY(-1px); }
+  :global(body.dark) .ov-snippet-card {
+    background:
+      radial-gradient(circle at top right, rgba(96, 165, 250, 0.08), transparent 42%),
+      linear-gradient(180deg, rgba(15, 23, 42, 0.85), rgba(15, 23, 42, 0.65)),
+      #0d1117 !important;
+    border-color: #ffffff0f !important;
+  }
 
   .ov-snippet-top {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
     gap: 0.55rem;
-    flex-wrap: wrap;
   }
+  .ov-snippet-headline { min-width: 0; display: flex; flex-direction: column; gap: 0.38rem; }
 
   .ov-snippet-top-right {
     display: flex;
@@ -5146,6 +5239,18 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .ov-snippet-owner {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.74rem;
+    font-weight: 600;
+    color: var(--color-sidebar-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  :global(body.dark) .ov-snippet-owner { color: #8da2c0; }
 
   .ov-snippet-status { display: flex; }
 
@@ -5165,13 +5270,36 @@
     text-align: right;
   }
 
+  .ov-snippet-meta-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.7rem;
+  }
   .ov-snippet-due {
     font-size: 0.77rem;
     color: var(--color-sidebar-text);
     display: flex;
     align-items: center;
     gap: 4px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
+  .ov-snippet-due strong { color: var(--color-heading); font-weight: 700; }
+  .ov-snippet-date-chip {
+    flex: 0 0 auto;
+    padding: 0.28rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #c7d8f8;
+    background: rgba(59, 130, 246, 0.12);
+    border: 1px solid rgba(96, 165, 250, 0.18);
+  }
+  .ov-snippet-date-chip-near { color: #fbbf24; background: rgba(245, 158, 11, 0.12); border-color: rgba(245, 158, 11, 0.2); }
+  .ov-snippet-date-chip-past { color: #fca5a5; background: rgba(239, 68, 68, 0.12); border-color: rgba(239, 68, 68, 0.2); }
   .ov-snippet-due.ov-date-past { color: #dc2626; }
 
   .ov-ms-section { margin-top: 0.75rem; border-top: 1px solid var(--color-border, rgba(255,255,255,0.07)); padding-top: 0.65rem; display: flex; flex-direction: column; gap: 0.45rem; }
@@ -5184,7 +5312,8 @@
   .ov-snippet-actions {
     display: flex;
     gap: 0.5rem;
-    margin-top: 0.2rem;
+    margin-top: auto;
+    padding-top: 0.05rem;
   }
   .ov-snippet-actions .sub-action-btn {
     flex: 1;

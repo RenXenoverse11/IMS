@@ -904,6 +904,29 @@ function feedbackCommenterName_(commenterId, cache) {
   memo[key] = name;
   return name;
 }
+
+function projectActivityActorName_(userId, cache) {
+  var key = String(userId || '').trim();
+  if (!key) return '';
+
+  var memo = cache || {};
+  if (Object.prototype.hasOwnProperty.call(memo, key)) {
+    return memo[key];
+  }
+
+  var name = '';
+  try {
+    var record = findUserRecordByUserId_(key);
+    if (record && record.user) {
+      name = String(record.user.full_name || record.user.name || record.user.email || key).trim();
+    }
+  } catch (e) {
+    name = '';
+  }
+
+  memo[key] = name;
+  return name;
+}
 // For feedback, we can have root comments (parent_id = '') and replies (parent_id = feedback_id of the parent comment).
 function handleListFeedback_(payload) {
   var projId = String(payload.proj_id || '').trim();
@@ -997,6 +1020,7 @@ function handleGetProjRecentActivity_(payload) {
 
   var activities = [];
   var activityKeySet = {};
+  var actorNameCache = {};
 
   // 2. Collect project activity events across those projects.
   // New feedback and milestone-create events are logged here too, which keeps
@@ -1018,6 +1042,8 @@ function handleGetProjRecentActivity_(payload) {
         proj_id: paProjId,
         proj_name: String(paRow[2] || '').trim() || projNameMap[paProjId] || '',
         text: paText,
+        actor_id: String(paRow[6] || '').trim(),
+        actor_name: projectActivityActorName_(String(paRow[6] || '').trim(), actorNameCache),
         created_at: paCreatedAt,
         _sort_time: projActivityComparableTime_(paCreatedAt),
         _sort_row: j,
@@ -1046,6 +1072,8 @@ function handleGetProjRecentActivity_(payload) {
         proj_id:    rowProjId,
         proj_name:  projNameMap[rowProjId] || '',
         text:       fbText,
+        actor_id:   String(row[3] || '').trim(),
+        actor_name: feedbackCommenterName_(String(row[3] || '').trim(), actorNameCache),
         role:       String(row[4] || ''),
         created_at: fbCreatedAt,
         _sort_time: projActivityComparableTime_(fbCreatedAt),
@@ -1074,6 +1102,8 @@ function handleGetProjRecentActivity_(payload) {
         proj_id:    msProjId,
         proj_name:  projNameMap[msProjId] || '',
         text:       milestoneText,
+        actor_id:   String(msRow[7] || '').trim(),
+        actor_name: projectActivityActorName_(String(msRow[7] || '').trim(), actorNameCache),
         status:     String(msRow[3] || 'Not Started'),
         created_at: milestoneCreatedAt,
         _sort_time: projActivityComparableTime_(milestoneCreatedAt),

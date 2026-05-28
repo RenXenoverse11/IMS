@@ -2,7 +2,7 @@
 // @ts-nocheck
   import { onMount, onDestroy } from 'svelte';
   import { getCurrentUser, subscribeToCurrentUser, callApiAction } from '../lib/auth.js';
-  import { FolderOpen, Clock3, Tag, Users2, CalendarDays, Loader2, Grid, Archive, RotateCcw, Eye, Download, Plus, Trash2, Pencil, ExternalLink, Link2, Send, X } from 'lucide-svelte';
+  import { FolderOpen, Clock3, Tag, Users2, UserCheck, CalendarDays, Loader2, Grid, Archive, RotateCcw, Eye, Download, Plus, Trash2, Pencil, ExternalLink, Link2, Send, X } from 'lucide-svelte';
   import FeedbackThread from '../components/FeedbackThread.svelte';
 
   export let currentUser = null;
@@ -963,12 +963,13 @@
   }
 
   function resetProjectForm() {
+    const currentSupervisorId = getCurrentUserId();
     projectForm = {
       priority_level: 'Low',
       title: '',
       description: '',
       members: [],
-      supervisor: [],
+      supervisor: currentSupervisorId ? [currentSupervisorId] : [],
       timeline_start: '',
       timeline_end: '',
       status: 'Not Started'
@@ -981,6 +982,9 @@
     if (!String(projectForm.title || '').trim()) return 'Project title is required.';
     if (!String(projectForm.timeline_start || '').trim() || !String(projectForm.timeline_end || '').trim()) {
       return 'Timeline start and end are required.';
+    }
+    if (String(projectForm.timeline_end || '').trim() < String(projectForm.timeline_start || '').trim()) {
+      return 'Timeline end must be on or after the timeline start.';
     }
     return '';
   }
@@ -1021,6 +1025,34 @@
       .filter(Boolean)
       .slice(0, 2);
     return (parts.map((part) => part.charAt(0)).join('') || '?').toUpperCase();
+  }
+
+  function getUserRecordById(userId) {
+    const key = String(userId || '').trim();
+    if (!key) return null;
+    return (Array.isArray(users) ? users : []).find((user) => getUserId(user) === key) || null;
+  }
+
+  function buildProjectPersonList(ids) {
+    return splitList(ids).map((id) => {
+      const label = resolveUserName(id);
+      const user = getUserRecordById(id);
+      return {
+        value: id,
+        label: label || id,
+        initials: getInitials(label || id),
+        photoUrl: getProfilePhotoUrl(user)
+      };
+    });
+  }
+
+  function ensureCreatorIncludedSupervisorList(value) {
+    const currentSupervisorId = String(getCurrentUserId() || '').trim();
+    const next = Array.isArray(value) ? [...value] : splitList(value);
+    if (currentSupervisorId && !next.includes(currentSupervisorId)) {
+      next.push(currentSupervisorId);
+    }
+    return next;
   }
 
   function resolveUserName(userId) {
@@ -1124,6 +1156,10 @@
     return raw;
   }
 
+  function getPriorityLabel(value) {
+    return normalizePriorityLabel(value || 'Low');
+  }
+
   function priorityRank(value) {
     const label = normalizePriorityLabel(value);
     if (label === 'High') return 0;
@@ -1220,6 +1256,25 @@
     return diff >= 0 && diff <= 7;
   }
 
+  function deadlineTimestamp(val) {
+    const s = String(val || '').trim();
+    if (!s) return Number.POSITIVE_INFINITY;
+    const d = /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(`${s}T00:00:00`) : new Date(s);
+    const ts = d.getTime();
+    return Number.isFinite(ts) ? ts : Number.POSITIVE_INFINITY;
+  }
+
+  function compareUpcomingDeadlineProjects(a, b) {
+    const aValue = a?.timeline_end || a?.deadline || '';
+    const bValue = b?.timeline_end || b?.deadline || '';
+    const aCompleted = canonicalStatusLabel(a?.status) === 'Completed';
+    const bCompleted = canonicalStatusLabel(b?.status) === 'Completed';
+    if (aCompleted !== bCompleted) return aCompleted ? 1 : -1;
+    const byDate = deadlineTimestamp(aValue) - deadlineTimestamp(bValue);
+    if (byDate !== 0) return byDate;
+    return String(a?.title || '').localeCompare(String(b?.title || ''));
+  }
+
   function teamLabel(project) {
     const count = splitList(project?.members).length;
     if (!count) return ICONS.emDash;
@@ -1287,11 +1342,15 @@
   }
 
   function toggleSupervisor(value) {
+    const currentSupervisorId = String(getCurrentUserId() || '').trim();
+    if (currentSupervisorId && String(value || '').trim() === currentSupervisorId) {
+      return;
+    }
     const next = Array.isArray(projectForm.supervisor) ? [...projectForm.supervisor] : [];
     const idx = next.indexOf(value);
     if (idx === -1) next.push(value);
     else next.splice(idx, 1);
-    projectForm = { ...projectForm, supervisor: next };
+    projectForm = { ...projectForm, supervisor: ensureCreatorIncludedSupervisorList(next) };
   }
 
   function toggleMembersDropdown() {
@@ -1329,7 +1388,9 @@
       title: String(target.title || target.proj_name || '').trim(),
       description: String(target.description || '').trim(),
       members: Array.isArray(target.members) ? [...target.members] : splitList(target.members),
-      supervisor: Array.isArray(target.supervisors) ? [...target.supervisors] : splitList(target.supervisor),
+      supervisor: ensureCreatorIncludedSupervisorList(
+        Array.isArray(target.supervisors) ? [...target.supervisors] : splitList(target.supervisor)
+      ),
       timeline_start: String(target.timeline_start || '').trim(),
       timeline_end: String(target.timeline_end || target.deadline || '').trim(),
       status: canonicalStatusLabel(target.status || 'Not Started')
@@ -1377,6 +1438,7 @@
     try {
       const isEditing = Boolean(editingProjectId);
       const action = editingProjectId ? 'update_proj_supervisor' : 'create_proj_supervisor';
+      const supervisorSelection = ensureCreatorIncludedSupervisorList(projectForm.supervisor);
       const result = await callApiAction(action, {
         user_id: supervisorId,
         proj_id: editingProjectId || '',
@@ -1385,7 +1447,7 @@
         priority: projectForm.priority_level,
         status: canonicalStatusLabel(projectForm.status),
         members: projectForm.members,
-        supervisor: projectForm.supervisor,
+        supervisor: supervisorSelection,
         start_date: projectForm.timeline_start,
         end_date: projectForm.timeline_end
       });
@@ -1403,7 +1465,7 @@
         priority: projectForm.priority_level,
         status: canonicalStatusLabel(projectForm.status),
         members: Array.isArray(result.members) ? result.members : projectForm.members,
-        supervisor: Array.isArray(result.supervisor) ? result.supervisor : projectForm.supervisor,
+        supervisor: Array.isArray(result.supervisor) ? result.supervisor : supervisorSelection,
         start_date: projectForm.timeline_start,
         end_date: projectForm.timeline_end,
         created_at: new Date().toISOString(),
@@ -1433,7 +1495,7 @@
       filterStatus = 'all';
       filterIntern = 'all';
       if (!isEditing) {
-        searchQuery = String(updatedProject.title || '').trim();
+        searchQuery = '';
       }
       closeAddProjectModal();
       setFlashMessage(isEditing ? 'Project updated successfully.' : 'Project added successfully.');
@@ -1602,22 +1664,28 @@
     searchQuery = String(project.title || '').trim();
   }
 
+  function showOverviewView() {
+    activeView = 'Overview';
+    closeProjectModal();
+  }
+
+  function showProjectsView() {
+    activeView = 'Projects';
+    closeProjectModal();
+  }
+
+  function showArchiveView() {
+    activeView = 'Archive';
+    closeProjectModal();
+  }
+
   function viewProject(project) {
     if (!project) return;
-    if (viewingProjectId === project.id) {
-      viewingProjectId = null;
-      try { localStorage.removeItem('projects.viewingProjectId'); } catch (e) {}
-    } else {
-      viewingProjectId = project.id;
-      viewingProjectTab = 'Details';
-      try { localStorage.setItem('projects.viewingProjectId', String(project.id)); } catch (e) {}
-      if (!project.folders || project.folders === null) loadProjectFolders(project.id);
-      if (!project.milestones || project.milestones === null) loadProjectMilestones(project.id);
-    }
-    activeView = 'Projects';
-    filterStatus = 'all';
-    filterPriority = 'all';
-    filterIntern = 'all';
+    viewingProjectId = project.id;
+    viewingProjectTab = 'Details';
+    try { localStorage.setItem('projects.viewingProjectId', String(project.id)); } catch (e) {}
+    if (!project.folders || project.folders === null) loadProjectFolders(project.id);
+    if (!project.milestones || project.milestones === null) loadProjectMilestones(project.id);
   }
 
   function closeProjectModal() {
@@ -1814,11 +1882,22 @@
   $: selectedSupervisorOptions = (projectForm.supervisor || []).map((id) => (
     SUPERVISOR_OPTIONS.find((option) => option.value === id) || { value: id, label: id, initials: getInitials(id) }
   ));
-  $: memberChipList = selectedMemberOptions.slice(0, MAX_ASSIGNMENT_CHIPS);
+  $: memberChipList = selectedMemberOptions;
   $: supervisorChipList = selectedSupervisorOptions.slice(0, MAX_ASSIGNMENT_CHIPS);
   $: filteredMemberOptions = filterAssignmentOptions(MEMBER_OPTIONS, memberSearch);
   $: filteredSupervisorOptions = filterAssignmentOptions(SUPERVISOR_OPTIONS, supervisorSearch);
-  $: isProjectFormValid = String(projectForm.title || '').trim() && String(projectForm.timeline_start || '').trim() && String(projectForm.timeline_end || '').trim();
+  $: isProjectFormValid =
+    String(projectForm.title || '').trim() &&
+    String(projectForm.timeline_start || '').trim() &&
+    String(projectForm.timeline_end || '').trim() &&
+    String(projectForm.timeline_end || '').trim() >= String(projectForm.timeline_start || '').trim();
+  $: if (
+    String(projectForm.timeline_start || '').trim() &&
+    String(projectForm.timeline_end || '').trim() &&
+    String(projectForm.timeline_end || '').trim() < String(projectForm.timeline_start || '').trim()
+  ) {
+    projectForm = { ...projectForm, timeline_end: projectForm.timeline_start };
+  }
 
   $: activeProjects = allProjects.filter((p) => !p.archived);
   $: archivedProjects = allProjects.filter((p) => p.archived);
@@ -1850,23 +1929,45 @@
   $: reviewCount = activeProjects.filter((p) => statusGroup(p.status) === 'review').length;
   $: internCount = uniqueInterns.length;
   $: archivedCount = archivedProjects.length;
-  $: workloadRows = Object.entries(
+  $: workloadRows = Object.values(
     activeProjects.reduce((acc, project) => {
-      const internName = String(project.owner_name || resolveUserName(project.created_by) || '').trim() || 'Unknown intern';
-      acc[internName] = (acc[internName] || 0) + 1;
+      const memberIds = Array.isArray(project.members) ? project.members : splitList(project.members);
+      const fallbackName = String(project.owner_name || resolveUserName(project.created_by) || '').trim() || 'Unknown intern';
+      const participantNames = memberIds.length
+        ? memberIds
+            .map((memberId) => {
+              const normalizedId = String(memberId || '').trim();
+              const userRecord = (Array.isArray(users) ? users : []).find((user) => getUserId(user) === normalizedId);
+              return isInternUser(userRecord) ? resolveUserName(normalizedId) : '';
+            })
+            .filter(Boolean)
+        : [fallbackName];
+
+      participantNames.forEach((internName) => {
+        if (!acc[internName]) {
+          acc[internName] = {
+            internName,
+            totalAssigned: 0,
+            completedCount: 0
+          };
+        }
+        acc[internName].totalAssigned += 1;
+        if (canonicalStatusLabel(project.status) === 'Completed') {
+          acc[internName].completedCount += 1;
+        }
+      });
       return acc;
     }, {})
   )
-    .map(([internName, count]) => ({
-      internName,
-      count,
-      pct: totalProjects > 0 ? Math.round((count / totalProjects) * 100) : 0
+    .map((row) => ({
+      ...row,
+      pct: row.totalAssigned > 0 ? Math.round((row.completedCount / row.totalAssigned) * 100) : 0
     }))
-    .sort((a, b) => b.count - a.count || a.internName.localeCompare(b.internName))
+    .sort((a, b) => b.completedCount - a.completedCount || b.totalAssigned - a.totalAssigned || a.internName.localeCompare(b.internName))
     .slice(0, 4);
   $: upcomingDeadlines = activeProjects
     .filter((p) => String(p.timeline_end || p.deadline || '').trim())
-    .sort((a, b) => String(a.timeline_end || a.deadline || '').localeCompare(String(b.timeline_end || b.deadline || '')))
+    .sort(compareUpcomingDeadlineProjects)
     .slice(0, 5);
   $: overviewSnippets = activeProjects;
   $: selectedViewingProject = allProjects.find((p) => p.id === viewingProjectId) || null;
@@ -1949,26 +2050,26 @@
   <section class="quick-panel">
     <div class="quick-head">
       <div class="view-controls">
-        <button type="button" class="btn btn-ghost" class:active={activeView === 'Overview'} on:click={() => activeView = 'Overview'}>
+        <button type="button" class="btn btn-ghost" class:active={activeView === 'Overview'} on:click={showOverviewView}>
           <Grid size={14} />
           <span>Overview</span>
         </button>
-        <button type="button" class="btn btn-ghost" class:active={activeView === 'Projects'} on:click={() => activeView = 'Projects'}>
+        <button type="button" class="btn btn-ghost" class:active={activeView === 'Projects'} on:click={showProjectsView}>
           <FolderOpen size={14} />
           <span>Projects</span>
         </button>
-        <button type="button" class="btn btn-ghost" class:active={activeView === 'Archive'} on:click={() => activeView = 'Archive'}>
+        <button type="button" class="btn btn-ghost" class:active={activeView === 'Archive'} on:click={showArchiveView}>
           <Archive size={14} />
           <span>Archive</span>
         </button>
       </div>
 
       <div class="quick-actions">
-        <label class="search-wrap">
-          <input class="search-input" type="text" placeholder="Search" bind:value={searchQuery} />
-        </label>
-
         {#if activeView === 'Projects'}
+          <label class="search-wrap">
+            <input class="search-input" type="text" placeholder="Search" bind:value={searchQuery} />
+          </label>
+
           <select class="quick-status" bind:value={filterStatus} aria-label="Filter by status">
             <option value="all">All Status</option>
             {#each STATUS_OPTIONS as s}
@@ -2091,8 +2192,10 @@
               {#each pagedTaggedSnippets as p (p.id)}
                 {@const sm = getStatusMeta(p.status)}
                 {@const pl = normalizePriorityLabel(p.priority_level)}
-              {@const pct = p.progress_percent != null ? Number(p.progress_percent) : statusToProgress(p.status)}
+                {@const pct = p.progress_percent != null ? Number(p.progress_percent) : statusToProgress(p.status)}
                 {@const past = isDeadlinePast(p.timeline_end || p.deadline)}
+                {@const near = !past && isDeadlineNear(p.timeline_end || p.deadline)}
+                {@const ownerName = String(p.owner_name || resolveUserName(p.created_by) || '').trim() || 'Unassigned intern'}
                 <div
                   class="ov-snippet-card"
                   role="button"
@@ -2106,43 +2209,55 @@
                     }
                   }}
                 >
-                <div class="ov-snippet-top">
-                  <div class="ov-snippet-name">{p.title}</div>
-                  <div class="ov-snippet-top-right">
-                    <span class={"proj-status-pill " + sm.cls}>{sm.label}</span>
-                    <span class={"proj-priority-pill priority-" + pl.toLowerCase()}>{pl}</span>
+                  <div class="ov-snippet-top">
+                    <div class="ov-snippet-headline">
+                      <div class="ov-snippet-name">{p.title}</div>
+                      <div class="ov-snippet-owner">
+                        <Users2 size={12} /> {ownerName}
+                      </div>
+                    </div>
+                    <div class="ov-snippet-top-right">
+                      <span class={"proj-status-pill " + sm.cls}>{sm.label}</span>
+                      <span class={"proj-priority-pill priority-" + pl.toLowerCase()}>{pl}</span>
+                    </div>
                   </div>
-                </div>
-                <div class="ov-snippet-progress">
-                  <div class="progress-bar-outer">
-                    <div class="progress-bar-inner" style="width:{pct}%"></div>
+                  <div class="ov-snippet-progress">
+                    <div class="progress-bar-outer">
+                      <div class="progress-bar-inner" style="width:{pct}%"></div>
+                    </div>
+                    <span class="ov-snippet-pct">{pct}%</span>
                   </div>
-                  <span class="ov-snippet-pct">{pct}%</span>
-                </div>
-                {#if p.timeline_end || p.deadline}
-                  <div class="ov-snippet-due" class:ov-date-past={past}>
-                    <CalendarDays size={11} /> Due: {formatDate(p.timeline_end || p.deadline)}
-                  </div>
-                {/if}
-                <div class="ov-snippet-actions">
-                  {#if showArchiveProject(p)}
-                    <button
-                      class="sub-action-btn"
-                      class:sub-action-btn-busy={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
-                      class:sub-action-btn-disabled={!canArchiveProject(p)}
-                      title={archivingProjectIds.has(String(p.id || p.proj_id || '').trim()) ? 'Archiving...' : canArchiveProject(p) ? 'Archive project' : 'Archive available when project is completed'}
-                      disabled={archivingProjectIds.has(String(p.id || p.proj_id || '').trim()) || !canArchiveProject(p)}
-                      on:click|stopPropagation={() => archiveProject(p)}
-                    >
-                      {#if archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
-                        <Loader2 size={12} class="spin" /> Archiving...
-                      {:else}
-                        <Archive size={12} /> Archive
-                      {/if}
-                    </button>
+                  {#if p.timeline_end || p.deadline}
+                    <div class="ov-snippet-meta-row">
+                      <div class="ov-snippet-due" class:ov-date-past={past} class:ov-date-near={near}>
+                        <CalendarDays size={11} />
+                        <span>{past ? 'Past due' : near ? 'Due soon' : 'Due'}:</span>
+                        <strong>{formatDate(p.timeline_end || p.deadline)}</strong>
+                      </div>
+                      <div class="ov-snippet-date-chip" class:ov-snippet-date-chip-past={past} class:ov-snippet-date-chip-near={near}>
+                        {formatShortMonthDay(p.timeline_end || p.deadline)}
+                      </div>
+                    </div>
                   {/if}
+                  <div class="ov-snippet-actions">
+                    {#if showArchiveProject(p)}
+                      <button
+                        class="sub-action-btn"
+                        class:sub-action-btn-busy={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                        class:sub-action-btn-disabled={!canArchiveProject(p)}
+                        title={archivingProjectIds.has(String(p.id || p.proj_id || '').trim()) ? 'Archiving...' : canArchiveProject(p) ? 'Archive project' : 'Archive available when project is completed'}
+                        disabled={archivingProjectIds.has(String(p.id || p.proj_id || '').trim()) || !canArchiveProject(p)}
+                        on:click|stopPropagation={() => archiveProject(p)}
+                      >
+                        {#if archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                          <Loader2 size={12} class="spin" /> Archiving...
+                        {:else}
+                          <Archive size={12} /> Archive
+                        {/if}
+                      </button>
+                    {/if}
+                  </div>
                 </div>
-              </div>
             {/each}
           </div>
         {/if}
@@ -2170,19 +2285,22 @@
       <div class="ov-top-grid">
         <section class="card ov-card ov-card-tight">
           <div class="ov-card-head">
-            <div class="ov-card-title">Workload Snapshot</div>
+            <div class="ov-card-title">Project Completion Summary</div>
           </div>
           {#if workloadRows.length === 0}
-            <div class="ov-empty">No active workload yet.</div>
+            <div class="ov-empty">No intern project progress to summarize yet.</div>
           {:else}
-            <div class="ov-status-bars">
+            <div class="ov-status-bars ov-completion-bars">
               {#each workloadRows as row}
-                <div class="ov-bar-row">
-                  <span class="ov-bar-label">{row.internName}</span>
-                  <div class="ov-bar-track">
-                    <div class="progress-bar-inner" style="width:{row.pct}%"></div>
+                <div class="ov-bar-row ov-completion-row">
+                  <div class="ov-bar-main">
+                    <div class="ov-bar-label">{row.internName}</div>
+                    <div class="ov-bar-meta">{row.completedCount} completed of {row.totalAssigned} assigned</div>
                   </div>
-                  <span class="ov-bar-count"><span class="ov-ms-done">{row.count}</span>/{totalProjects}</span>
+                  <div class="ov-bar-track ov-completion-track">
+                    <div class="progress-bar-inner ov-completion-fill" style="width:{row.pct}%"></div>
+                  </div>
+                  <span class="ov-bar-count ov-completion-count">{row.pct}%</span>
                 </div>
               {/each}
             </div>
@@ -2463,68 +2581,146 @@
 
       <div class="proj-detail-body proj-view-body">
         {#if viewingProjectTab === 'Details'}
+          {@const detailProgress = p.progress_percent != null ? p.progress_percent : statusToProgress(p.status)}
+          {@const pl = getPriorityLabel(p.priority_level) || 'Low'}
+          {@const detailMembers = buildProjectPersonList(p.members)}
+          {@const detailSupervisors = buildProjectPersonList(p.supervisors)}
           <div class="proj-detail-read">
-            <div class="pdr-group">
-              <div class="pdr-label">Project Title</div>
-              <div class="pdr-box title">{p.title || ICONS.emDash}</div>
-            </div>
-
-            <div class="detail-row-full">
-              <div class="detail-label">Description</div>
-              <div class="pdr-box pdr-box-desc" class:collapsed={p.description && p.description.length > 220 && expandedDescriptionId !== p.id}>
-                {p.description || ICONS.emDash}
-              </div>
-              {#if p.description && p.description.length > 220}
-                <div style="margin-top:6px">
-                  <button class="btn-link" on:click={() => toggleDescription(p.id)}>{expandedDescriptionId === p.id ? 'Show less' : 'Show more'}</button>
+            <div class="pdr-layout">
+              <div class="pdr-main">
+                <div class="pdr-group">
+                  <div class="pdr-label">Project Title</div>
+                  <div class="pdr-box pdr-box-hero">{p.title || ICONS.emDash}</div>
                 </div>
-              {/if}
-            </div>
 
-            <div class="pdr-row-2">
-              <div class="pdr-group">
-                <div class="pdr-label">Members</div>
-                <div class="pdr-box">{(p.members && p.members.length) ? p.members.map(m => resolveUserName(m)).join(', ') : ICONS.emDash}</div>
-              </div>
-              <div class="pdr-group">
-                <div class="pdr-label">Supervisor</div>
-                <div class="pdr-box">{(p.supervisors && p.supervisors.length) ? p.supervisors.map(s => resolveUserName(s)).join(', ') : ICONS.emDash}</div>
-              </div>
-            </div>
+                <div class="pdr-group">
+                  <div class="pdr-label">Description</div>
+                  <div class="pdr-box pdr-box-desc">
+                    <div class="detail-description" class:collapsed={p.description && p.description.length > 220 && expandedDescriptionId !== p.id}>{p.description || ICONS.emDash}</div>
+                    {#if p.description && p.description.length > 220}
+                      <div style="margin-top:6px">
+                        <button class="btn-link" on:click={() => toggleDescription(p.id)}>{expandedDescriptionId === p.id ? 'Show less' : 'Show more'}</button>
+                      </div>
+                    {/if}
+                  </div>
+                </div>
 
-            <div class="pdr-row-2">
-              <div class="pdr-group">
-                <div class="pdr-label">Priority Level</div>
-                <div class="pdr-box">{normalizePriorityLabel(p.priority_level)}</div>
-              </div>
-              <div class="pdr-group">
-                <div class="pdr-label">Status</div>
-                <div class="pdr-box">{(STATUS_META[p.status] || {}).label || p.status || ICONS.emDash}</div>
-              </div>
-            </div>
+                <div class="pdr-row-2">
+                  <div class="pdr-group">
+                    <div class="pdr-label">Priority Level</div>
+                    <div class="pdr-box pdr-box-inline">
+                      <span class="pdr-priority-dot priority-{pl.toLowerCase()}"></span>
+                      <span>{pl}</span>
+                    </div>
+                  </div>
+                  <div class="pdr-group">
+                    <div class="pdr-label">Status</div>
+                    <div class="pdr-box pdr-box-inline pdr-box-muted">{(STATUS_META[p.status] || {}).label || p.status || ICONS.emDash}</div>
+                  </div>
+                </div>
 
-            <div class="pdr-row-2">
-              <div class="pdr-group">
-                <div class="pdr-label">Timeline (Start)</div>
-                <div class="pdr-box">{p.timeline_start ? formatDate(p.timeline_start) : ICONS.emDash}</div>
-              </div>
-              <div class="pdr-group">
-                <div class="pdr-label">Timeline (End)</div>
-                <div class="pdr-box">{p.timeline_end ? formatDate(p.timeline_end) : ICONS.emDash}</div>
-              </div>
-            </div>
+                <div class="pdr-row-2">
+                  <div class="pdr-group">
+                    <div class="pdr-label">Timeline Start</div>
+                    <div class="pdr-box pdr-box-inline">
+                      <CalendarDays size={14} class="pdr-inline-icon pdr-inline-icon-primary" />
+                      <span>{p.timeline_start ? formatDate(p.timeline_start) : ICONS.emDash}</span>
+                    </div>
+                  </div>
+                  <div class="pdr-group">
+                    <div class="pdr-label">Timeline End</div>
+                    <div class="pdr-box pdr-box-inline">
+                      <CalendarDays size={14} class="pdr-inline-icon" />
+                      <span>{p.timeline_end ? formatDate(p.timeline_end) : ICONS.emDash}</span>
+                    </div>
+                  </div>
+                </div>
 
-            <div>
-              <div class="progress-bar-outer" style="margin-top:8px">
-                <div class="progress-bar-inner" style="width:{p.progress_percent != null ? Number(p.progress_percent) : statusToProgress(p.status)}%"></div>
+                <div class="pdr-group">
+                  <div class="pdr-label">Progress</div>
+                  <div class="pdr-progress-stack">
+                    <div class="progress-bar-outer"><div class="progress-bar-inner" style="width:{detailProgress}%"></div></div>
+                    <div class="pdr-progress-meta">
+                      <span>{detailProgress} / 100%</span>
+                      <span>{detailProgress}% complete</span>
+                    </div>
+                  </div>
+                </div>
+
+                {#if canManage}
+                  <div class="pdr-footer">
+                    <button class="pdr-edit-btn" on:click={() => openEditProjectModal(p)}>
+                      <Pencil size={14} />
+                      <span>Edit</span>
+                    </button>
+                  </div>
+                {/if}
               </div>
-              <div style="display:flex; justify-content:flex-end; margin-top:6px; font-weight:700; font-size:0.86rem">{p.progress_percent != null ? Number(p.progress_percent) : statusToProgress(p.status)}%</div>
+
+              <aside class="pdr-sidebar">
+                <div class="pdr-side-card">
+                  <div class="pdr-side-title">
+                    <Users2 size={13} />
+                    <span>Members</span>
+                  </div>
+                  {#if detailMembers.length}
+                    {#each detailMembers as member}
+                      <div class="pdr-person-row">
+                        <span class="pdr-avatar" aria-hidden="true">
+                          {#if member.photoUrl}
+                            <img src={member.photoUrl} alt="" />
+                          {:else}
+                            <span>{member.initials}</span>
+                          {/if}
+                        </span>
+                        <span class="pdr-person-name">{member.label}</span>
+                      </div>
+                    {/each}
+                  {:else}
+                    <div class="pdr-empty-copy">No members assigned</div>
+                  {/if}
+                </div>
+
+                <div class="pdr-side-card">
+                  <div class="pdr-side-title">
+                    <UserCheck size={13} />
+                    <span>Supervisors</span>
+                  </div>
+                  {#if detailSupervisors.length}
+                    {#each detailSupervisors as supervisor}
+                      <div class="pdr-person-row">
+                        <span class="pdr-avatar pdr-avatar-supervisor" aria-hidden="true">
+                          {#if supervisor.photoUrl}
+                            <img src={supervisor.photoUrl} alt="" />
+                          {:else}
+                            <span>{supervisor.initials}</span>
+                          {/if}
+                        </span>
+                        <span class="pdr-person-name">{supervisor.label}</span>
+                      </div>
+                    {/each}
+                  {:else}
+                    <div class="pdr-empty-copy">No supervisors assigned</div>
+                  {/if}
+                </div>
+
+                <div class="pdr-side-card">
+                  <div class="pdr-side-title">
+                    <Clock3 size={13} />
+                    <span>Timeline</span>
+                  </div>
+                  <div class="pdr-mini-timeline">
+                    <div class="pdr-mini-dot"></div>
+                    <div class="pdr-mini-line"></div>
+                    <div class="pdr-mini-dot pdr-mini-dot-end"></div>
+                  </div>
+                  <div class="pdr-mini-labels">
+                    <span>{p.timeline_start ? formatShortMonthDay(p.timeline_start) : 'Start'}</span>
+                    <span>{p.timeline_end ? formatShortMonthDay(p.timeline_end) : 'End'}</span>
+                  </div>
+                </div>
+              </aside>
             </div>
-            {#if canManage}
-              <div class="detail-manage-footer">
-                <button class="sub-action-btn" on:click={() => openEditProjectModal(p)}>Edit Project</button>
-              </div>
-            {/if}
           </div>
         {:else if viewingProjectTab === 'Submissions'}
           {#if canManage}
@@ -2740,9 +2936,7 @@
 {/if}
 
 {#if showAddProjectModal}
-  <!-- svelte-ignore a11y-click-events-have-key-events -->
-  <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div class="modal-overlay" on:click={closeAddProjectModal}>
+  <div class="modal-overlay">
     <div class="modal-box large" on:click|stopPropagation>
       <div class="modal-title">{editingProjectId ? 'Edit Project' : 'Add New Project'}</div>
       <div class="modal-content">
@@ -2781,14 +2975,12 @@
               <div class="members-value">
                 {#if (projectForm.members || []).length === 0}
                   <span class="members-placeholder">Select members</span>
-                {:else if (projectForm.members || []).length <= MAX_ASSIGNMENT_CHIPS}
+                {:else}
                   <div class="members-chips">
                     {#each memberChipList as member (member.value)}
                       <span class="member-chip" title={member.label}>{member.label}</span>
                     {/each}
                   </div>
-                {:else}
-                  <span class="members-count-text">{(projectForm.members || []).length} members selected</span>
                 {/if}
               </div>
               <div class="muted">{(projectForm.members || []).length}</div>
@@ -2853,8 +3045,14 @@
                     <span class="members-empty">{assignmentEmptyMessage('supervisor')}</span>
                   {:else if filteredSupervisorOptions.length}
                     {#each filteredSupervisorOptions as supervisor}
+                      {@const isCreatorSupervisor = String(supervisor.value || '').trim() === String(getCurrentUserId() || '').trim()}
                       <label class="members-item">
-                        <input type="checkbox" checked={(projectForm.supervisor || []).includes(supervisor.value)} on:change={() => toggleSupervisor(supervisor.value)} />
+                        <input
+                          type="checkbox"
+                          checked={(projectForm.supervisor || []).includes(supervisor.value)}
+                          disabled={isCreatorSupervisor}
+                          on:change={() => toggleSupervisor(supervisor.value)}
+                        />
                         <span class="member-avatar" aria-hidden="true">
                           {#if supervisor.photoUrl}
                             <img src={supervisor.photoUrl} alt="" />
@@ -2862,7 +3060,12 @@
                             <span>{supervisor.initials}</span>
                           {/if}
                         </span>
-                        <span class="members-name">{supervisor.label}</span>
+                        <span class="members-name">
+                          {supervisor.label}
+                          {#if isCreatorSupervisor}
+                            <span class="members-lock-hint">(Creator)</span>
+                          {/if}
+                        </span>
                       </label>
                     {/each}
                   {:else}
@@ -2897,20 +3100,36 @@
         <div class="row-2">
           <div class="form-group">
             <label class="form-label" for="sup-proj-start">Timeline Start <span class="req">*</span></label>
-            <input id="sup-proj-start" type="date" class="form-input" bind:value={projectForm.timeline_start} />
+            <input
+              id="sup-proj-start"
+              type="date"
+              class="form-input"
+              bind:value={projectForm.timeline_start}
+              max={projectForm.timeline_end || undefined}
+            />
           </div>
 
           <div class="form-group">
             <label class="form-label" for="sup-proj-end">Timeline End <span class="req">*</span></label>
-            <input id="sup-proj-end" type="date" class="form-input" bind:value={projectForm.timeline_end} />
+            <input
+              id="sup-proj-end"
+              type="date"
+              class="form-input"
+              bind:value={projectForm.timeline_end}
+              min={projectForm.timeline_start || undefined}
+            />
           </div>
         </div>
       </div>
 
-      <div class="modal-footer modal-footer-sticky">
-        <button class="btn-secondary" on:click={closeAddProjectModal}>Cancel</button>
+      <div class="modal-footer modal-footer-sticky modal-footer-centered">
+        <button class="btn-secondary" on:click={closeAddProjectModal} disabled={isSubmittingProject}>Cancel</button>
         <button class="btn-submit" on:click={submitProject} disabled={isSubmittingProject || !isProjectFormValid}>
-          {isSubmittingProject ? 'Saving...' : (editingProjectId ? 'Save Changes' : 'Add Project')}
+          {#if isSubmittingProject}
+            <Loader2 size={14} class="spin" /> Saving...
+          {:else}
+            {editingProjectId ? 'Save Changes' : 'Add Project'}
+          {/if}
         </button>
       </div>
     </div>
@@ -3189,7 +3408,7 @@
   .ov-status-bars {
     display: flex;
     flex-direction: column;
-    gap: 0.42rem;
+    gap: 0.75rem;
     flex: 1;
     overflow-y: auto;
     min-height: 0;
@@ -3211,11 +3430,54 @@
     flex-direction: column;
     gap: 6px;
   }
-  .ov-bar-row { display: grid; grid-template-columns: 6.8rem 1fr 2.2rem; align-items: center; gap: 0.55rem; }
-  .ov-bar-label { font-size: 0.75rem; color: var(--color-heading); white-space: nowrap; }
-  .ov-bar-track { height: 7px; background: var(--color-border); border-radius: 999px; overflow: hidden; }
-  .ov-bar-count { font-size: 0.78rem; color: var(--color-heading); text-align: right; white-space: nowrap; }
+  .ov-bar-row { display: grid; grid-template-columns: minmax(0, 1fr) 13rem 3rem; align-items: center; gap: 0.85rem; }
+  .ov-bar-main { min-width: 0; display: flex; flex-direction: column; gap: 0.18rem; }
+  .ov-bar-label {
+    font-size: 0.83rem;
+    color: var(--color-heading);
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ov-bar-meta {
+    font-size: 0.74rem;
+    color: var(--color-sidebar-text);
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ov-bar-track { height: 8px; background: rgba(148, 163, 184, 0.2); border-radius: 999px; overflow: hidden; }
+  .ov-bar-count { font-size: 0.78rem; color: var(--color-heading); text-align: right; white-space: nowrap; font-weight: 700; }
   .ov-ms-done { font-weight: 700; color: var(--color-heading); }
+  .ov-completion-bars { gap: 0.95rem; }
+  .ov-completion-row {
+    padding: 0.8rem 0.85rem;
+    border-radius: 0.95rem;
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015));
+  }
+  .ov-completion-track {
+    height: 10px;
+    background: rgba(71, 85, 105, 0.45);
+    box-shadow: inset 0 1px 1px rgba(15, 23, 42, 0.28);
+  }
+  .ov-completion-fill {
+    background: linear-gradient(90deg, #34d399 0%, #60a5fa 100%);
+    box-shadow: 0 0 18px rgba(96, 165, 250, 0.18);
+  }
+  .ov-completion-count { color: #dbe7ff; }
+  :global(body.dark) .ov-bar-meta { color: #8da2c0; }
+  :global(body.dark) .ov-completion-row {
+    background: linear-gradient(180deg, rgba(30, 41, 59, 0.38), rgba(15, 23, 42, 0.24));
+    border-color: rgba(148, 163, 184, 0.12);
+  }
+  :global(body.dark) .ov-completion-count { color: #f8fafc; }
+  @media (max-width: 900px) {
+    .ov-bar-row { grid-template-columns: 1fr; gap: 0.55rem; }
+    .ov-bar-count { text-align: left; }
+  }
   .ov-archived-note { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.75rem; color: var(--color-sidebar-text); }
 
   .ov-deadline-list {
@@ -3265,27 +3527,72 @@
   .ov-snippet-card {
     display: flex;
     flex-direction: column;
-    gap: 0.6rem;
+    gap: 0.85rem;
     padding: 1.1rem 1.2rem;
     border: 1px solid var(--color-border);
-    border-radius: 0.75rem;
-    background: var(--color-soft);
-    transition: border-color 140ms, box-shadow 140ms;
+    border-radius: 1rem;
+    background:
+      radial-gradient(circle at top right, rgba(59, 130, 246, 0.07), transparent 42%),
+      linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015)),
+      var(--color-soft);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+    transition: border-color 140ms, box-shadow 140ms, transform 140ms;
   }
-  .ov-snippet-card:hover { border-color: var(--color-accent); box-shadow: 0 6px 18px -14px rgba(15,23,42,.3); }
-  .ov-snippet-top { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+  .ov-snippet-card:hover { border-color: var(--color-accent); box-shadow: 0 16px 28px -24px rgba(15,23,42,.38); transform: translateY(-1px); }
+  .ov-snippet-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; }
+  .ov-snippet-headline { min-width: 0; display: flex; flex-direction: column; gap: 0.38rem; }
   .ov-snippet-name { font-size: 0.88rem; font-weight: 700; color: var(--color-heading); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ov-snippet-owner {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.74rem;
+    font-weight: 600;
+    color: var(--color-sidebar-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .ov-snippet-top-right { display: flex; align-items: center; gap: 0.5rem; }
   .ov-snippet-progress { display: flex; align-items: center; gap: 0.55rem; }
   .ov-snippet-progress .progress-bar-outer { flex: 1; }
   .ov-snippet-pct { font-size: 0.78rem; font-weight: 700; color: var(--color-heading); white-space: nowrap; width: 32px; text-align: right; }
-  .ov-snippet-due { font-size: 0.77rem; color: var(--color-sidebar-text); display: flex; align-items: center; gap: 4px; }
-  .ov-snippet-actions { display: flex; gap: 0.4rem; margin-top: 0.1rem; }
+  .ov-snippet-meta-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.7rem;
+  }
+  .ov-snippet-due {
+    font-size: 0.77rem;
+    color: var(--color-sidebar-text);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ov-snippet-due strong { color: var(--color-heading); font-weight: 700; }
+  .ov-snippet-date-chip {
+    flex: 0 0 auto;
+    padding: 0.28rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #c7d8f8;
+    background: rgba(59, 130, 246, 0.12);
+    border: 1px solid rgba(96, 165, 250, 0.18);
+  }
+  .ov-snippet-date-chip-near { color: #fbbf24; background: rgba(245, 158, 11, 0.12); border-color: rgba(245, 158, 11, 0.2); }
+  .ov-snippet-date-chip-past { color: #fca5a5; background: rgba(239, 68, 68, 0.12); border-color: rgba(239, 68, 68, 0.2); }
+  .ov-snippet-actions { display: flex; gap: 0.4rem; margin-top: auto; padding-top: 0.05rem; }
   .ov-snippet-actions .sub-action-btn {
     flex: 1;
     justify-content: center;
     font-size: 0.78rem;
-    padding: 0.3rem 0.6rem;
+    padding: 0.38rem 0.7rem;
   }
   .proj-page-nav {
     display: flex;
@@ -3595,7 +3902,14 @@
   :global(body.dark) .alert-error { background: #2d0a0a; border-color: #7f1d1d; color: #f87171; }
   :global(body.dark) .retry-btn { background: #1d4ed8; }
   :global(body.dark) .ov-card { background: #161c27 !important; border-color: #ffffff0f !important; }
-  :global(body.dark) .ov-snippet-card { background: #0d1117 !important; border-color: #ffffff0f !important; }
+  :global(body.dark) .ov-snippet-card {
+    background:
+      radial-gradient(circle at top right, rgba(96, 165, 250, 0.08), transparent 42%),
+      linear-gradient(180deg, rgba(15, 23, 42, 0.85), rgba(15, 23, 42, 0.65)),
+      #0d1117 !important;
+    border-color: #ffffff0f !important;
+  }
+  :global(body.dark) .ov-snippet-owner { color: #8da2c0; }
   :global(body.dark) .sub-action-btn { background: #161c27; border-color: #ffffff10; }
   :global(body.dark) .proj-table-panel { background: #0d1117 !important; border-color: #ffffff0f !important; }
   :global(body.dark) .proj-table-header { background: #161c27 !important; border-bottom-color: #ffffff0f !important; color: #e5edf8 !important; }
@@ -3623,6 +3937,7 @@
     .quick-actions .primary { width: 100%; }
     .search-input { width: 100%; }
     .ov-snippets-grid { grid-template-columns: 1fr; }
+    .ov-snippet-meta-row { align-items: flex-start; flex-direction: column; }
     .proj-page-footer { justify-content: center; }
     .project-meta { flex-direction: column; align-items: flex-start; gap: 6px; }
     .row-2 { grid-template-columns: 1fr; }
@@ -3675,9 +3990,12 @@
   .proj-detail-body { padding: 1rem 1.25rem; min-height: 5rem; }
   .proj-detail-empty { font-size: 0.83rem; color: var(--color-muted, var(--color-sidebar-text)); }
   .proj-view-overlay {
+    position: fixed;
+    inset: 0;
     padding: 22px;
     background: rgba(3, 7, 18, 0.64);
     backdrop-filter: blur(8px);
+    z-index: 260;
   }
   .proj-view-modal {
     width: min(1120px, calc(100vw - 44px));
@@ -3831,6 +4149,9 @@
     justify-content: flex-end;
     gap: 8px;
   }
+  .modal-footer-centered {
+    justify-content: center;
+  }
   .modal-footer.modal-footer-sticky {
     padding: 12px 22px 16px;
     border-top: 1px solid var(--color-border);
@@ -3922,6 +4243,13 @@
   }
   .members-item + .members-item { margin-top: 6px; }
   .members-item input[type="checkbox"] { width: 18px; height: 18px; accent-color: #60a5fa; }
+  .members-item input[type="checkbox"]:disabled { cursor: not-allowed; opacity: 0.8; }
+  .members-lock-hint {
+    margin-left: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--color-sidebar-text);
+  }
   .member-avatar {
     width: 26px;
     height: 26px;

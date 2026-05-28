@@ -51,8 +51,16 @@
   let isLoggedIn = false;
   let isDeletingEntry = false;
   let isExportingAttendance = false;
+  let showOverrideRequestModal = false;
+  let isSubmittingOverrideRequest = false;
   let exportMonth = '';
   let attendanceSheetRef = null;
+  let overrideRequestForm = {
+    date: '',
+    timeIn: DEFAULT_TIME_IN,
+    timeOut: DEFAULT_TIME_OUT,
+    reason: '',
+  };
 
   // Intern's custom schedule from supervisor assignment
   let internSchedule = {
@@ -254,6 +262,26 @@
     if (typeof window !== 'undefined') {
       window.localStorage.setItem('ojt_include_lunch', String(includeLunch));
     }
+  }
+
+  function resetOverrideRequestForm() {
+    overrideRequestForm = {
+      date: getTodayDateOnly(),
+      timeIn: DEFAULT_TIME_IN,
+      timeOut: DEFAULT_TIME_OUT,
+      reason: '',
+    };
+  }
+
+  function openOverrideRequestModal() {
+    resetOverrideRequestForm();
+    showOverrideRequestModal = true;
+    logSyncError = '';
+  }
+
+  function closeOverrideRequestModal() {
+    showOverrideRequestModal = false;
+    isSubmittingOverrideRequest = false;
   }
 
   function formatDate(value, options) {
@@ -562,6 +590,65 @@
       requiredHours = studentHours;
     } else {
       requiredHours = DEFAULT_REQUIRED_HOURS;
+    }
+  }
+
+  async function submitOverrideRequest() {
+    const user = authApi.getCurrentUser();
+    if (!user?.user_id) {
+      logSyncError = 'Please log in to submit an override request.';
+      return;
+    }
+
+    const requestDate = normalizeDateOnly(overrideRequestForm.date);
+    const requestTimeIn = normalizeTimeValue(overrideRequestForm.timeIn, '');
+    const requestTimeOut = normalizeTimeValue(overrideRequestForm.timeOut, '');
+    const requestReason = String(overrideRequestForm.reason || '').trim();
+    const todayDate = getTodayDateOnly();
+
+    if (!requestDate || !requestTimeIn || !requestTimeOut || !requestReason) {
+      logSyncError = 'Date, time in, time out, and reason are required for an override request.';
+      return;
+    }
+
+    if (requestDate > todayDate) {
+      logSyncError = 'Override requests are only allowed for today or past dates.';
+      return;
+    }
+
+    const startMinutes = timeToMinutes(requestTimeIn);
+    const endMinutes = timeToMinutes(requestTimeOut);
+    if (startMinutes === null || endMinutes === null || endMinutes <= startMinutes) {
+      logSyncError = 'Time out must be later than time in.';
+      return;
+    }
+
+    isSubmittingOverrideRequest = true;
+    logSyncError = '';
+
+    try {
+      const result = await authApi.callApiAction('create_request', {
+        user_id: user.user_id,
+        requester_name: user.full_name || user.name || '',
+        request_type: 'Time Log Override',
+        request_date: requestDate,
+        request_time: normalizeTimeValue(new Date(), ''),
+        start_time: requestTimeIn,
+        end_time: requestTimeOut,
+        total_hours: calculateHours(requestTimeIn, requestTimeOut, true),
+        reason: requestReason,
+      });
+
+      if (!result?.ok) {
+        logSyncError = result?.error || 'Failed to submit override request.';
+        return;
+      }
+
+      closeOverrideRequestModal();
+    } catch (err) {
+      logSyncError = err?.message || 'Failed to submit override request.';
+    } finally {
+      isSubmittingOverrideRequest = false;
     }
   }
 
@@ -1521,6 +1608,11 @@
             <span class="tl-status-dot"></span> Not logged in - use Time In first
           </div>
         {/if}
+
+        <button class="tl-override-btn tl-override-btn-block" type="button" on:click={openOverrideRequestModal}>
+          <Plus size={14} />
+          Request Missing Log
+        </button>
       </div>
 
     </div>
@@ -1689,6 +1781,55 @@
               Deleting...
             {:else}
               Delete Entry
+            {/if}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  {#if showOverrideRequestModal}
+    <div
+      class="tl-modal-overlay"
+      on:click|self={closeOverrideRequestModal}
+      role="button"
+      tabindex="0"
+      aria-label="Close override request dialog"
+    >
+      <div class="tl-modal" role="dialog" aria-modal="true" aria-labelledby="tl-override-title">
+        <div class="tl-modal-header">
+          <h2 id="tl-override-title" class="tl-modal-title">Request Missing Log</h2>
+          <button class="tl-modal-close" on:click={closeOverrideRequestModal} aria-label="Close">×</button>
+        </div>
+        <div class="tl-modal-body">
+          <p class="tl-modal-msg">Send a time log override request to your supervisor for a missed entry.</p>
+          <div class="tl-override-grid">
+            <div class="tl-field">
+              <label for="override-date">Date</label>
+              <input id="override-date" type="date" bind:value={overrideRequestForm.date} max={getTodayDateOnly()} />
+            </div>
+            <div class="tl-field">
+              <label for="override-time-in">Time In</label>
+              <input id="override-time-in" type="time" bind:value={overrideRequestForm.timeIn} />
+            </div>
+            <div class="tl-field">
+              <label for="override-time-out">Time Out</label>
+              <input id="override-time-out" type="time" bind:value={overrideRequestForm.timeOut} />
+            </div>
+            <div class="tl-field tl-field-full">
+              <label for="override-reason">Reason</label>
+              <textarea id="override-reason" bind:value={overrideRequestForm.reason} rows="4" placeholder="Explain why you need a manual time log entry..."></textarea>
+            </div>
+          </div>
+        </div>
+        <div class="tl-modal-footer">
+          <button class="tl-modal-cancel" on:click={closeOverrideRequestModal} disabled={isSubmittingOverrideRequest}>Cancel</button>
+          <button class="tl-modal-delete tl-modal-submit" on:click={submitOverrideRequest} disabled={isSubmittingOverrideRequest}>
+            {#if isSubmittingOverrideRequest}
+              <span class="tl-spin"><Loader2 size={14} /></span>
+              Submitting...
+            {:else}
+              Submit Request
             {/if}
           </button>
         </div>
@@ -2259,6 +2400,31 @@
     opacity: 0.55;
     cursor: not-allowed;
   }
+  .tl-override-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 34px;
+    padding: 0 14px;
+    border-radius: 8px;
+    border: 1px solid var(--tl-border);
+    background: var(--tl-surface2);
+    color: var(--tl-text);
+    font-family: 'DM Sans', inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .tl-override-btn:hover {
+    border-color: var(--tl-accent2);
+    color: var(--tl-accent);
+  }
+  .tl-override-btn-block {
+    width: 100%;
+    margin-top: 12px;
+  }
 
   .tl-attendance-print-root {
     position: fixed;
@@ -2472,6 +2638,12 @@
   .tl-modal-close:hover { background: var(--tl-surface2); color: var(--tl-text); }
   .tl-modal-body { padding: 20px 24px; }
   .tl-modal-msg { font-size: 14px; color: var(--tl-text); font-weight: 500; margin: 0 0 16px; }
+  .tl-override-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+  .tl-field-full { grid-column: 1 / -1; }
   .tl-modal-preview {
     background: var(--tl-surface2);
     border: 1px solid var(--tl-border);
@@ -2519,6 +2691,10 @@
     color: #fff;
     box-shadow: 0 4px 12px var(--tl-red-dim);
   }
+  .tl-modal-submit {
+    background: var(--tl-accent);
+    box-shadow: 0 4px 12px var(--tl-accent-glow);
+  }
   .tl-modal-delete:hover { opacity: 0.9; transform: translateY(-1px); }
   .tl-modal-cancel:disabled,
   .tl-modal-delete:disabled {
@@ -2526,6 +2702,18 @@
     cursor: not-allowed;
   }
   .tl-modal-delete:disabled { transform: none; box-shadow: none; }
+  .tl-field textarea {
+    width: 100%;
+    resize: vertical;
+    min-height: 110px;
+    border-radius: var(--tl-radius-sm);
+    border: 1px solid var(--tl-border);
+    background: var(--tl-surface2);
+    color: var(--tl-text);
+    padding: 12px 14px;
+    font: inherit;
+    box-sizing: border-box;
+  }
 
   /* ---- NEW SKELETON STYLES ---- */
   .skeleton, .skeleton-text, .skeleton-icon, .skeleton-field, .skeleton-btn, .skeleton-chart, .skeleton-progress-track, .skeleton-icon-sm {
