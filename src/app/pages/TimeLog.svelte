@@ -61,6 +61,12 @@
     timeOut: DEFAULT_TIME_OUT,
     reason: '',
   };
+  let overrideRequestIncludeLunch = true; // Independent lunch toggle for override requests
+
+  // Time Log History filter state
+  let timelogHistoryFilter = 'entries'; // 'entries' or 'overrides'
+  let overrideRequests = [];
+  let isLoadingOverrideRequests = false;
 
   // Intern's custom schedule from supervisor assignment
   let internSchedule = {
@@ -78,6 +84,9 @@
   
   let showDeleteConfirm = false;
   let deleteConfirmEntry = null;
+  let showDeleteOverrideConfirm = false;
+  let deleteConfirmOverride = null;
+  let isDeletingOverride = false;
   let unsubscribeAuth = null;
   let queuedAuthRefresh = false;
   let html2pdfLoaderPromise = null;
@@ -264,6 +273,10 @@
     }
   }
 
+  function handleOverrideLunchToggle() {
+    overrideRequestIncludeLunch = !overrideRequestIncludeLunch;
+  }
+
   function resetOverrideRequestForm() {
     overrideRequestForm = {
       date: getTodayDateOnly(),
@@ -271,6 +284,7 @@
       timeOut: DEFAULT_TIME_OUT,
       reason: '',
     };
+    overrideRequestIncludeLunch = true;
   }
 
   function openOverrideRequestModal() {
@@ -579,6 +593,20 @@
     ));
   }
 
+  function checkForConflictingTimeLogEntry(dateValue, timeInValue, timeOutValue) {
+    const normalizedDate = normalizeDateOnly(dateValue);
+    const normalizedTimeIn = normalizeTimeValue(timeInValue, '');
+    const normalizedTimeOut = normalizeTimeValue(timeOutValue, '');
+    
+    if (!normalizedDate || !normalizedTimeIn || !normalizedTimeOut) return false;
+    
+    // Check if there's any entry on the same date
+    return entries.some((entry) => {
+      const entryDate = normalizeDateOnly(entry?.date || '');
+      return entryDate === normalizedDate;
+    });
+  }
+
   function syncRequiredHoursFromAccount() {
     const user = authApi.getCurrentUser();
     const studentHours = Number(user?.ojt?.total_ojt_hours || 0);
@@ -620,6 +648,12 @@
     const endMinutes = timeToMinutes(requestTimeOut);
     if (startMinutes === null || endMinutes === null || endMinutes <= startMinutes) {
       logSyncError = 'Time out must be later than time in.';
+      return;
+    }
+
+    // Check for conflicting time log entries on the same date
+    if (checkForConflictingTimeLogEntry(requestDate, requestTimeIn, requestTimeOut)) {
+      logSyncError = `A time log entry already exists for ${formatLongDate(requestDate)}. You can only submit an override for a different date or time.`;
       return;
     }
 
@@ -864,6 +898,54 @@
     deleteConfirmEntry = null;
   }
 
+  async function handleDeleteOverride(id) {
+    const override = overrideRequests.find((r) => String(r.id) === String(id));
+    if (!override) return;
+    deleteConfirmOverride = override;
+    showDeleteOverrideConfirm = true;
+  }
+
+  async function confirmDeleteOverride() {
+    if (!deleteConfirmOverride) return;
+    isDeletingOverride = true;
+    logSyncError = '';
+    
+    const user = authApi.getCurrentUser();
+    if (!user?.user_id) {
+      logSyncError = 'Please log in again before deleting an override request.';
+      showDeleteOverrideConfirm = false;
+      deleteConfirmOverride = null;
+      isDeletingOverride = false;
+      return;
+    }
+
+    try {
+      const result = await authApi.callApiAction('delete_request', {
+        user_id: user.user_id,
+        request_id: deleteConfirmOverride.id,
+      });
+
+      if (result && result.ok) {
+        overrideRequests = overrideRequests.filter((r) => String(r.id) !== String(deleteConfirmOverride.id));
+        logSyncError = '';
+      } else {
+        logSyncError = result?.error || 'Unable to delete this override request.';
+      }
+    } catch (err) {
+      logSyncError = err?.message || 'Unable to delete this override request right now.';
+    } finally {
+      isDeletingOverride = false;
+      showDeleteOverrideConfirm = false;
+      deleteConfirmOverride = null;
+    }
+  }
+
+  function cancelDeleteOverride() {
+    if (isDeletingOverride) return;
+    showDeleteOverrideConfirm = false;
+    deleteConfirmOverride = null;
+  }
+
   async function checkForActiveSession() {
     const user = authApi.getCurrentUser();
     if (!user?.user_id) {
@@ -901,6 +983,7 @@
     syncRequiredHoursFromAccount();
     await loadApprovedAbsenceAdjustments();
     await loadEntriesFromApi();
+    await loadOverrideRequests();
     await checkForActiveSession();
     requestTlChartInit();
   }
@@ -1199,6 +1282,43 @@
       approvedAbsenceAdjustmentDays = countApprovedAbsenceAdjustments(requests, getTodayDateOnly());
     } catch (err) {
       console.error('Failed to load approved absence adjustments:', err);
+    }
+  }
+
+  async function loadOverrideRequests() {
+    isLoadingOverrideRequests = true;
+    const user = authApi.getCurrentUser();
+    if (!user?.user_id) {
+      overrideRequests = [];
+      isLoadingOverrideRequests = false;
+      return;
+    }
+    try {
+      const response = await authApi.callApiAction('list_requests_by_user', { user_id: user.user_id });
+      const requests = Array.isArray(response?.requests) ? response.requests : [];
+      overrideRequests = requests
+        .filter((request) => {
+          const requestType = String(request?.requestType || request?.request_type || '').trim().toLowerCase();
+          return requestType === 'time log override';
+        })
+        .map((request) => ({
+          id: request?.id || request?.request_id || '',
+          date: normalizeDateOnly(request?.date || request?.request_date || request?.applied_date || ''),
+          timeIn: normalizeTimeValue(request?.start_time || request?.startTime || '', DEFAULT_TIME_IN),
+          timeOut: normalizeTimeValue(request?.end_time || request?.endTime || '', DEFAULT_TIME_OUT),
+          hours: Number(request?.total_hours || 0),
+          reason: String(request?.reason || ''),
+          status: String(request?.status || '').toLowerCase(),
+          archivedStatus: String(request?.archived_previous_status || request?.archivedPreviousStatus || '').toLowerCase(),
+          createdAt: String(request?.created_at || request?.createdAt || ''),
+          requestType: 'Time Log Override',
+        }))
+        .sort((a, b) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime());
+    } catch (err) {
+      console.error('Failed to load override requests:', err);
+      overrideRequests = [];
+    } finally {
+      isLoadingOverrideRequests = false;
     }
   }
 
@@ -1635,23 +1755,54 @@
 
     <div class="tl-table-section">
       <div class="tl-table-header">
-        <span class="tl-table-title">Time Log History</span>
+        <span class="tl-table-title">Logged Activity</span>
         <div class="tl-table-tools">
-          <span class="tl-entry-count">{completedEntries.length} completed {completedEntries.length === 1 ? 'entry' : 'entries'}</span>
-          <label class="tl-export-month">
-            <span>Month</span>
-            <input type="month" bind:value={exportMonth} />
-          </label>
-          <button class="tl-export-btn" type="button" on:click={exportAttendanceSheetPdf} disabled={isExportingAttendance || attendanceEntriesForExport.length === 0}>
-            {#if isExportingAttendance}
-              <span class="tl-spin"><Loader2 size={14} /></span>
-              Exporting...
+          <span class="tl-entry-count">
+            {#if timelogHistoryFilter === 'entries'}
+              {completedEntries.length} completed {completedEntries.length === 1 ? 'entry' : 'entries'}
             {:else}
-              Export Attendance Sheet
+              {overrideRequests.length} override {overrideRequests.length === 1 ? 'request' : 'requests'}
             {/if}
-          </button>
+          </span>
+          {#if timelogHistoryFilter === 'entries'}
+            <label class="tl-export-month">
+              <span>Month</span>
+              <input type="month" bind:value={exportMonth} />
+            </label>
+            <button class="tl-export-btn" type="button" on:click={exportAttendanceSheetPdf} disabled={isExportingAttendance || attendanceEntriesForExport.length === 0}>
+              {#if isExportingAttendance}
+                <span class="tl-spin"><Loader2 size={14} /></span>
+                Exporting...
+              {:else}
+                Export Attendance Sheet
+              {/if}
+            </button>
+          {/if}
         </div>
       </div>
+
+      <div class="tl-history-filters">
+        <button 
+          class="tl-filter-tab" 
+          class:tl-filter-active={timelogHistoryFilter === 'entries'}
+          on:click={() => timelogHistoryFilter = 'entries'}
+        >
+          Time Entries
+        </button>
+        <button 
+          class="tl-filter-tab" 
+          class:tl-filter-active={timelogHistoryFilter === 'overrides'}
+          on:click={() => {
+            timelogHistoryFilter = 'overrides';
+            if (overrideRequests.length === 0) {
+              loadOverrideRequests();
+            }
+          }}
+        >
+          Override Requests
+        </button>
+      </div>
+
       <div class="tl-table-scroll">
         <table>
           <thead>
@@ -1661,37 +1812,93 @@
               <th>Time In</th>
               <th>Time Out</th>
               <th>Hours</th>
-              <th>Created</th>
+              <th>{timelogHistoryFilter === 'entries' ? 'Created' : 'Reason'}</th>
               <th>Status</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
-            {#each completedEntries as entry (entry.id)}
-              <tr>
-                <td class="tl-td-primary">{formatTableDate(entry.date)}</td>
-                <td><span class="tl-tag tl-tag-blue">TIME ENTRY</span></td>
-                <td class="tl-mono">{entry.timeIn}</td>
-                <td class="tl-mono">{entry.timeOut || '-'}</td>
-                <td class="tl-mono tl-hours-val">{formatHours(entry.hours)}h</td>
-                <td class="tl-mono tl-created-val">{entry.createdAt || '-'}</td>
-                <td>
-                  <span class="tl-tag tl-tag-green">
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                    Recorded
-                  </span>
-                </td>
-                <td>
-                  <button class="tl-del-btn" type="button" on:click={() => handleDelete(entry.id)} aria-label="Delete time entry" title="Delete this entry">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
-                  </button>
-                </td>
-              </tr>
-            {/each}
-            {#if completedEntries.length === 0}
-              <tr>
-                <td colspan="8" class="tl-empty-row">No time entries yet. Log in to start tracking your hours.</td>
-              </tr>
+            {#if timelogHistoryFilter === 'entries'}
+              {#each completedEntries as entry (entry.id)}
+                <tr>
+                  <td class="tl-td-primary">{formatTableDate(entry.date)}</td>
+                  <td><span class="tl-tag tl-tag-blue">TIME ENTRY</span></td>
+                  <td class="tl-mono">{entry.timeIn}</td>
+                  <td class="tl-mono">{entry.timeOut || '-'}</td>
+                  <td class="tl-mono tl-hours-val">{formatHours(entry.hours)}h</td>
+                  <td class="tl-mono tl-created-val">{entry.createdAt || '-'}</td>
+                  <td>
+                    <span class="tl-tag tl-tag-green">
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                      Recorded
+                    </span>
+                  </td>
+                  <td>
+                    <button class="tl-del-btn" type="button" on:click={() => handleDelete(entry.id)} aria-label="Delete time entry" title="Delete this entry">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+                    </button>
+                  </td>
+                </tr>
+              {/each}
+              {#if completedEntries.length === 0}
+                <tr>
+                  <td colspan="8" class="tl-empty-row">No time entries yet. Log in to start tracking your hours.</td>
+                </tr>
+              {/if}
+            {:else}
+              {#each overrideRequests as request (request.id)}
+                <tr>
+                  <td class="tl-td-primary">{formatTableDate(request.date)}</td>
+                  <td><span class="tl-tag tl-tag-purple">OVERRIDE</span></td>
+                  <td class="tl-mono">{request.timeIn}</td>
+                  <td class="tl-mono">{request.timeOut || '-'}</td>
+                  <td class="tl-mono tl-hours-val">{formatHours(request.hours)}h</td>
+                  <td class="tl-mono tl-status-val">
+                    <div class="tl-request-reason-tooltip" title={request.reason}>{request.reason || 'N/A'}</div>
+                  </td>
+                  <td>
+                    {#if request.status === 'approved'}
+                      <span class="tl-tag tl-tag-green">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                        Approved
+                      </span>
+                    {:else if request.status === 'pending'}
+                      <span class="tl-tag tl-tag-amber">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                        Pending
+                      </span>
+                    {:else if request.status === 'rejected'}
+                      <span class="tl-tag tl-tag-red">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        Rejected
+                      </span>
+                    {:else if request.status === 'archived' && request.archivedStatus === 'approved'}
+                      <span class="tl-tag tl-tag-green">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                        Approved
+                      </span>
+                    {:else}
+                      <span class="tl-tag tl-tag-gray">{request.status || 'Unknown'}</span>
+                    {/if}
+                  </td>
+                  <td>
+                    <button class="tl-del-btn" type="button" on:click={() => handleDeleteOverride(request.id)} aria-label="Delete override request" title="Delete this override request" disabled={request.status === 'approved' || request.status === 'archived'}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+                    </button>
+                  </td>
+                </tr>
+              {/each}
+              {#if overrideRequests.length === 0}
+                <tr>
+                  <td colspan="8" class="tl-empty-row">
+                    {#if isLoadingOverrideRequests}
+                      Loading override requests...
+                    {:else}
+                      No override requests yet.
+                    {/if}
+                  </td>
+                </tr>
+              {/if}
             {/if}
           </tbody>
         </table>
@@ -1798,11 +2005,13 @@
     >
       <div class="tl-modal" role="dialog" aria-modal="true" aria-labelledby="tl-override-title">
         <div class="tl-modal-header">
-          <h2 id="tl-override-title" class="tl-modal-title">Request Missing Log</h2>
+          <div>
+            <h2 id="tl-override-title" class="tl-modal-title">Request Missing Log</h2>
+            <p class="tl-modal-subtitle">Submit a time log override request to your supervisor</p>
+          </div>
           <button class="tl-modal-close" on:click={closeOverrideRequestModal} aria-label="Close">×</button>
         </div>
         <div class="tl-modal-body">
-          <p class="tl-modal-msg">Send a time log override request to your supervisor for a missed entry.</p>
           <div class="tl-override-grid">
             <div class="tl-field">
               <label for="override-date">Date</label>
@@ -1815,6 +2024,27 @@
             <div class="tl-field">
               <label for="override-time-out">Time Out</label>
               <input id="override-time-out" type="time" bind:value={overrideRequestForm.timeOut} />
+            </div>
+            <div class="tl-field">
+              <label for="override-duration" class="tl-label-text">Duration</label>
+              <div class="tl-duration-display">
+                <span class="tl-duration-value">{formatHours(calculateHours(overrideRequestForm.timeIn, overrideRequestForm.timeOut, overrideRequestIncludeLunch))}h</span>
+                <span class="tl-duration-label">hours</span>
+              </div>
+            </div>
+            <div class="tl-field tl-field-full">
+              <div class="tl-lunch-row">
+                <div class="tl-lunch-left">
+                  <span class="tl-lunch-icon">☕</span>
+                  <div>
+                    <div class="tl-lunch-label-simple">Include Lunch</div>
+                    <div class="tl-lunch-subtext">Not counted</div>
+                  </div>
+                </div>
+                <button type="button" class="tl-toggle-switch" class:tl-toggle-on={overrideRequestIncludeLunch} on:click={handleOverrideLunchToggle} aria-label="Toggle include lunch">
+                  <span class="tl-toggle-knob" class:tl-knob-on={overrideRequestIncludeLunch}></span>
+                </button>
+              </div>
             </div>
             <div class="tl-field tl-field-full">
               <label for="override-reason">Reason</label>
@@ -1830,6 +2060,51 @@
               Submitting...
             {:else}
               Submit Request
+            {/if}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  {#if showDeleteOverrideConfirm && deleteConfirmOverride}
+    <div
+      class="tl-modal-overlay"
+      on:click|self={cancelDeleteOverride}
+      on:keydown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          cancelDeleteOverride();
+        }
+      }}
+      role="button"
+      tabindex="0"
+      aria-label="Close delete confirmation"
+    >
+      <div class="tl-modal" role="dialog" aria-modal="true" aria-labelledby="tl-delete-override-title">
+        <div class="tl-modal-header">
+          <h2 id="tl-delete-override-title" class="tl-modal-title">Confirm Delete</h2>
+          <button class="tl-modal-close" on:click={cancelDeleteOverride} aria-label="Close">×</button>
+        </div>
+        <div class="tl-modal-body">
+          <p class="tl-modal-msg">Are you sure you want to delete this override request?</p>
+          <div class="tl-modal-preview">
+            <div class="tl-preview-row"><span class="tl-preview-label">Date</span><span class="tl-preview-val">{formatTableDate(deleteConfirmOverride.date)}</span></div>
+            <div class="tl-preview-row"><span class="tl-preview-label">Time In</span><span class="tl-preview-val">{deleteConfirmOverride.timeIn}</span></div>
+            <div class="tl-preview-row"><span class="tl-preview-label">Time Out</span><span class="tl-preview-val">{deleteConfirmOverride.timeOut || '-'}</span></div>
+            <div class="tl-preview-row"><span class="tl-preview-label">Reason</span><span class="tl-preview-val">{deleteConfirmOverride.reason || '-'}</span></div>
+            <div class="tl-preview-row"><span class="tl-preview-label">Status</span><span class="tl-preview-val">{deleteConfirmOverride.status || 'Unknown'}</span></div>
+          </div>
+          <p class="tl-modal-warning">This action cannot be undone.</p>
+        </div>
+        <div class="tl-modal-footer">
+          <button class="tl-modal-cancel" on:click={cancelDeleteOverride} disabled={isDeletingOverride}>Cancel</button>
+          <button class="tl-modal-delete" on:click={confirmDeleteOverride} disabled={isDeletingOverride}>
+            {#if isDeletingOverride}
+              <span class="tl-spin"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg></span>
+              Deleting...
+            {:else}
+              Delete Request
             {/if}
           </button>
         </div>
@@ -2272,7 +2547,9 @@
   }
   :global(.dark) .tl-lunch-icon { background: rgba(245,158,11,0.15); }
   .tl-lunch-label { font-size: 13px; font-weight: 500; color: var(--tl-text); }
+  .tl-lunch-label-simple { font-size: 13px; font-weight: 600; color: var(--tl-text); }
   .tl-lunch-sub   { font-size: 11px; color: var(--tl-text2); }
+  .tl-lunch-subtext { font-size: 11px; color: var(--tl-text2); }
   .tl-toggle-switch {
     width: 44px; height: 24px;
     background: var(--tl-border2);
@@ -2351,6 +2628,34 @@
     gap: 10px;
     flex-wrap: wrap;
     justify-content: flex-end;
+  }
+
+  .tl-history-filters {
+    display: flex;
+    gap: 2px;
+    padding: 8px 22px 0 22px;
+    border-bottom: 1px solid var(--tl-border);
+    background: var(--tl-surface2);
+  }
+  .tl-filter-tab {
+    padding: 10px 16px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--tl-text2);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .tl-filter-tab:hover:not(.tl-filter-active) {
+    color: var(--tl-text);
+  }
+  .tl-filter-active {
+    color: var(--tl-accent);
+    border-bottom-color: var(--tl-accent);
   }
   .tl-export-month {
     display: inline-flex;
@@ -2566,6 +2871,21 @@
   }
   .tl-tag-blue  { background: var(--tl-accent-glow); color: var(--tl-accent2); }
   .tl-tag-green { background: var(--tl-green-dim);  color: var(--tl-green); }
+  .tl-tag-purple { background: var(--tl-purple-dim); color: var(--tl-purple); }
+  .tl-tag-amber { background: var(--tl-amber-dim); color: var(--tl-amber); }
+  .tl-tag-red { background: var(--tl-red-dim); color: var(--tl-red); }
+  .tl-tag-gray { background: rgba(100, 116, 139, 0.12); color: var(--tl-text2); }
+  .tl-request-reason-tooltip {
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    color: var(--tl-text2);
+  }
+  .tl-status-val {
+    font-size: 12px !important;
+  }
   .tl-del-btn {
     width: 28px; height: 28px;
     border-radius: 6px;
@@ -2622,11 +2942,24 @@
   }
   @keyframes tlSlideIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
   .tl-modal-header {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 20px 24px 16px;
+    display: flex; align-items: flex-start; justify-content: space-between;
+    padding: 24px 24px 16px;
     border-bottom: 1px solid var(--tl-border);
+    gap: 12px;
   }
-  .tl-modal-title { font-size: 16px; font-weight: 600; color: var(--tl-text); margin: 0; }
+  .tl-modal-title { 
+    font-size: 18px; 
+    font-weight: 700; 
+    color: var(--tl-text); 
+    margin: 0 0 4px; 
+    letter-spacing: -0.3px;
+  }
+  .tl-modal-subtitle {
+    font-size: 13px;
+    color: var(--tl-text2);
+    margin: 0;
+    font-weight: 400;
+  }
   .tl-modal-close {
     background: none; border: none;
     font-size: 16px; color: var(--tl-text2);
@@ -2636,14 +2969,69 @@
     border-radius: 6px; transition: all 0.15s;
   }
   .tl-modal-close:hover { background: var(--tl-surface2); color: var(--tl-text); }
-  .tl-modal-body { padding: 20px 24px; }
+  .tl-modal-body { padding: 24px 24px; }
   .tl-modal-msg { font-size: 14px; color: var(--tl-text); font-weight: 500; margin: 0 0 16px; }
   .tl-override-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 14px;
+    gap: 16px;
   }
   .tl-field-full { grid-column: 1 / -1; }
+  .tl-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .tl-field label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--tl-text);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .tl-label-text {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--tl-text);
+  }
+  .tl-field input[type="date"],
+  .tl-field input[type="time"] {
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--tl-border);
+    background: var(--tl-surface);
+    color: var(--tl-text);
+    font-family: 'DM Sans', inherit;
+    font-size: 14px;
+    transition: all 0.2s;
+  }
+  .tl-field input[type="date"]:focus,
+  .tl-field input[type="time"]:focus {
+    outline: none;
+    border-color: var(--tl-accent);
+    box-shadow: 0 0 0 3px var(--tl-accent-glow);
+  }
+  .tl-duration-display {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    background: var(--tl-surface2);
+    border-radius: 8px;
+    border: 1px solid var(--tl-border);
+    min-height: 40px;
+  }
+  .tl-duration-value {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--tl-accent);
+    letter-spacing: -0.3px;
+  }
+  .tl-duration-label {
+    font-size: 12px;
+    color: var(--tl-text2);
+    font-weight: 500;
+  }
   .tl-modal-preview {
     background: var(--tl-surface2);
     border: 1px solid var(--tl-border);
@@ -2706,13 +3094,24 @@
     width: 100%;
     resize: vertical;
     min-height: 110px;
-    border-radius: var(--tl-radius-sm);
+    border-radius: 8px;
     border: 1px solid var(--tl-border);
-    background: var(--tl-surface2);
+    background: var(--tl-surface);
     color: var(--tl-text);
-    padding: 12px 14px;
+    padding: 10px 12px;
     font: inherit;
-    box-sizing: border-box;
+    font-size: 14px;
+    font-family: 'DM Sans', inherit;
+    line-height: 1.5;
+    transition: all 0.2s;
+  }
+  .tl-field textarea:focus {
+    outline: none;
+    border-color: var(--tl-accent);
+    box-shadow: 0 0 0 3px var(--tl-accent-glow);
+  }
+  .tl-field textarea::placeholder {
+    color: var(--tl-text3);
   }
 
   /* ---- NEW SKELETON STYLES ---- */
