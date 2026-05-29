@@ -2234,9 +2234,6 @@
                         <span>{past ? 'Past due' : near ? 'Due soon' : 'Due'}:</span>
                         <strong>{formatDate(p.timeline_end || p.deadline)}</strong>
                       </div>
-                      <div class="ov-snippet-date-chip" class:ov-snippet-date-chip-past={past} class:ov-snippet-date-chip-near={near}>
-                        {formatShortMonthDay(p.timeline_end || p.deadline)}
-                      </div>
                     </div>
                   {/if}
                   <div class="ov-snippet-actions">
