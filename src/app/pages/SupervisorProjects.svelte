@@ -56,6 +56,7 @@
   let membersSelectEl = null;
   let supervisorsSelectEl = null;
   const MAX_ASSIGNMENT_CHIPS = 3;
+  const TEMP_FOLDER_PREFIX = 'tmp-folder-';
   let showDeleteProjectModal = false;
   let projectToDelete = null;
   let isDeletingProject = false;
@@ -69,7 +70,6 @@
     timeline_end: '',
     status: 'Not Started'
   };
-  const FILE_TYPE_OPTIONS = ['Document', 'Powerpoint', 'PDF', 'Word'];
 
   function extToKind_(ext) {
     const e = String(ext || '').toLowerCase().replace('.', '');
@@ -103,6 +103,46 @@
     if (expandedFolderIds.has(folderId)) { expandedFolderIds.delete(folderId); }
     else { expandedFolderIds.add(folderId); }
     expandedFolderIds = new Set(expandedFolderIds);
+  }
+
+  function isTemporaryFolderId(folderId) {
+    return String(folderId || '').startsWith(TEMP_FOLDER_PREFIX);
+  }
+
+  function getProjectFolderById(projectId, folderId) {
+    const project = allProjects.find((p) => p.id === projectId);
+    return (project?.folders || []).find((folder) => folder.id === folderId) || null;
+  }
+
+  function replaceFolderIdAcrossUi(oldId, nextFolder) {
+    if (!oldId || !nextFolder?.id) return;
+
+    allProjects = allProjects.map((project) => ({
+      ...project,
+      folders: (project.folders || []).map((folder) =>
+        folder.id === oldId
+          ? { ...folder, ...nextFolder, id: nextFolder.id, folder_id: nextFolder.folder_id || nextFolder.id }
+          : folder
+      ),
+    }));
+
+    if (expandedFolderIds.has(oldId)) {
+      expandedFolderIds.delete(oldId);
+      expandedFolderIds.add(nextFolder.id);
+      expandedFolderIds = new Set(expandedFolderIds);
+    }
+
+    if (renamingFolderId === oldId) {
+      renamingFolderId = nextFolder.id;
+    }
+
+    if (activeLinkFolderId === oldId) {
+      activeLinkFolderId = nextFolder.id;
+    }
+
+    if (pendingUpload.folderId === oldId) {
+      pendingUpload = { ...pendingUpload, folderId: nextFolder.id };
+    }
   }
 
   function toggleLinkPanel(folderId) {
@@ -359,8 +399,27 @@
   async function addFolder(projectId) {
     const project = ensureManageableProject(projectId, 'add folders to this project');
     if (!project) return;
+    if (isSavingFolder) return;
     const uid = getCurrentUserId();
     const projId = String(project?.proj_id || projectId);
+    const tempId = `${TEMP_FOLDER_PREFIX}${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const tempFolder = {
+      id: tempId,
+      folder_id: tempId,
+      name: 'New Folder',
+      gdrive_link: '',
+      submissions: [],
+      isPending: true
+    };
+
+    allProjects = allProjects.map((p) => p.id === projectId
+      ? { ...p, folders: [...(p.folders || []), tempFolder] }
+      : p);
+    expandedFolderIds.add(tempId);
+    expandedFolderIds = new Set(expandedFolderIds);
+    renamingFolderId = tempId;
+    renamingFolderName = 'New Folder';
+
     isSavingFolder = true;
     try {
       const res = await callApiAction('create_proj_folder_supervisor', {
@@ -368,21 +427,59 @@
         folder_name: 'New Folder',
         user_id: uid
       });
-      if (!res?.ok) { formError = res?.error || 'Failed to create folder.'; return; }
+      if (!res?.ok) {
+        allProjects = allProjects.map((p) => p.id === projectId
+          ? { ...p, folders: (p.folders || []).filter((f) => f.id !== tempId) }
+          : p);
+        expandedFolderIds.delete(tempId);
+        expandedFolderIds = new Set(expandedFolderIds);
+        if (renamingFolderId === tempId) {
+          renamingFolderId = null;
+          renamingFolderName = '';
+        }
+        formError = res?.error || 'Failed to create folder.';
+        return;
+      }
       const newFolder = {
         id: res.folder_id,
         folder_id: res.folder_id,
         name: 'New Folder',
         gdrive_link: res.gdrive_link || '',
-        submissions: []
+        submissions: [],
+        isPending: false
       };
-      allProjects = allProjects.map(p => p.id === projectId
-        ? { ...p, folders: [...(p.folders || []), newFolder] } : p);
-      expandedFolderIds.add(res.folder_id);
-      expandedFolderIds = new Set(expandedFolderIds);
-      renamingFolderId = res.folder_id;
-      renamingFolderName = 'New Folder';
+      const folderStillExists = Boolean(getProjectFolderById(projectId, tempId));
+      if (!folderStillExists) {
+        await callApiAction('delete_proj_folder_supervisor', {
+          folder_id: res.folder_id,
+          user_id: uid
+        });
+        return;
+      }
+
+      replaceFolderIdAcrossUi(tempId, newFolder);
+
+      const currentFolderName = String(getProjectFolderById(projectId, res.folder_id)?.name || 'New Folder').trim() || 'New Folder';
+      if (currentFolderName !== 'New Folder') {
+        const renameRes = await callApiAction('update_proj_folder_supervisor', {
+          folder_id: res.folder_id,
+          folder_name: currentFolderName,
+          user_id: uid
+        });
+        if (!renameRes?.ok) {
+          formError = renameRes?.error || 'Rename failed.';
+        }
+      }
     } catch (e) {
+      allProjects = allProjects.map((p) => p.id === projectId
+        ? { ...p, folders: (p.folders || []).filter((f) => f.id !== tempId) }
+        : p);
+      expandedFolderIds.delete(tempId);
+      expandedFolderIds = new Set(expandedFolderIds);
+      if (renamingFolderId === tempId) {
+        renamingFolderId = null;
+        renamingFolderName = '';
+      }
       formError = e?.message || 'Failed to create folder.';
     } finally {
       isSavingFolder = false;
@@ -401,12 +498,14 @@
     const newName = String(renamingFolderName || '').trim() || 'New Folder';
     const uid = getCurrentUserId();
     const savedId = renamingFolderId;
+    const isTemporaryFolder = isTemporaryFolderId(savedId) || Boolean(getProjectFolderById(projectId, savedId)?.isPending);
     renamingFolderId = null;
     renamingFolderName = '';
     allProjects = allProjects.map(p => p.id === projectId ? {
       ...p,
       folders: (p.folders || []).map(f => f.id === savedId ? { ...f, name: newName } : f)
     } : p);
+    if (isTemporaryFolder) return;
     try {
       const res = await callApiAction('update_proj_folder_supervisor', {
         folder_id: savedId,
@@ -422,6 +521,7 @@
   async function deleteFolder(projectId, folderId) {
     const project = ensureManageableProject(projectId, 'delete folders from this project');
     if (!project) return;
+    const isTemporaryFolder = isTemporaryFolderId(folderId) || Boolean(getProjectFolderById(projectId, folderId)?.isPending);
     if (activeLinkFolderId === folderId) activeLinkFolderId = null;
     if (pendingUpload.folderId === folderId) cancelPendingUpload();
     allProjects = allProjects.map(p => p.id === projectId ? {
@@ -430,6 +530,7 @@
     } : p);
     expandedFolderIds.delete(folderId);
     expandedFolderIds = new Set(expandedFolderIds);
+    if (isTemporaryFolder) return;
     try {
       const res = await callApiAction('delete_proj_folder_supervisor', {
         folder_id: folderId,
@@ -1602,7 +1703,6 @@
             viewingProjectId = saved;
             viewingProjectTab = 'Details';
             if (!found.folders || found.folders === null) loadProjectFolders(saved);
-            if (!found.milestones || found.milestones === null) loadProjectMilestones(saved);
           }
         }
       } catch (e) {
@@ -1685,7 +1785,6 @@
     viewingProjectTab = 'Details';
     try { localStorage.setItem('projects.viewingProjectId', String(project.id)); } catch (e) {}
     if (!project.folders || project.folders === null) loadProjectFolders(project.id);
-    if (!project.milestones || project.milestones === null) loadProjectMilestones(project.id);
   }
 
   function closeProjectModal() {
@@ -2171,170 +2270,165 @@
       </div>
     </div>
   {:else if activeView === 'Overview'}
-    {#if activeProjects.length === 0}
-      <div class="empty-state">
-        <FolderOpen size={32} />
-        <div class="empty-title">No tagged projects yet</div>
-        <div class="empty-sub">
-          Projects tagged to your supervisor account will appear here once interns add them.
-        </div>
+    <section class="card ov-card">
+      <div class="ov-card-head">
+        <div class="ov-card-title">Tagged Projects</div>
+        <button class="ov-view-all-btn" on:click={() => activeView = 'Projects'}>View all -&gt;</button>
       </div>
-    {:else}
-      <section class="card ov-card">
-        <div class="ov-card-head">
-          <div class="ov-card-title">Tagged Projects</div>
-          <button class="ov-view-all-btn" on:click={() => activeView = 'Projects'}>View all -&gt;</button>
+      {#if overviewSnippets.length === 0}
+        <div class="ov-empty-state">
+          <FolderOpen size={22} />
+          <div class="ov-empty-title">No tagged projects yet</div>
+          <div class="ov-empty-copy">
+            Projects tagged to your supervisor account will appear here once interns add them.
+          </div>
         </div>
-        {#if overviewSnippets.length === 0}
-          <div class="ov-empty">No tagged projects yet.</div>
-        {:else}
-          <div class="ov-snippets-grid">
-              {#each pagedTaggedSnippets as p (p.id)}
-                {@const sm = getStatusMeta(p.status)}
-                {@const pl = normalizePriorityLabel(p.priority_level)}
-                {@const pct = p.progress_percent != null ? Number(p.progress_percent) : statusToProgress(p.status)}
-                {@const past = isDeadlinePast(p.timeline_end || p.deadline)}
-                {@const near = !past && isDeadlineNear(p.timeline_end || p.deadline)}
-                {@const ownerName = String(p.owner_name || resolveUserName(p.created_by) || '').trim() || 'Unassigned intern'}
-                <div
-                  class="ov-snippet-card"
-                  role="button"
-                  tabindex="0"
-                  aria-label={`Open project ${p.title}`}
-                  on:click={() => viewProject(p)}
-                  on:keydown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
-                      viewProject(p);
-                    }
-                  }}
-                >
-                  <div class="ov-snippet-top">
-                    <div class="ov-snippet-headline">
-                      <div class="ov-snippet-name">{p.title}</div>
-                      <div class="ov-snippet-owner">
-                        <Users2 size={12} /> {ownerName}
-                      </div>
-                    </div>
-                    <div class="ov-snippet-top-right">
-                      <span class={"proj-status-pill " + sm.cls}>{sm.label}</span>
-                      <span class={"proj-priority-pill priority-" + pl.toLowerCase()}>{pl}</span>
+      {:else}
+        <div class="ov-snippets-grid">
+            {#each pagedTaggedSnippets as p (p.id)}
+              {@const sm = getStatusMeta(p.status)}
+              {@const pl = normalizePriorityLabel(p.priority_level)}
+              {@const pct = p.progress_percent != null ? Number(p.progress_percent) : statusToProgress(p.status)}
+              {@const past = isDeadlinePast(p.timeline_end || p.deadline)}
+              {@const near = !past && isDeadlineNear(p.timeline_end || p.deadline)}
+              {@const ownerName = String(p.owner_name || resolveUserName(p.created_by) || '').trim() || 'Unassigned intern'}
+              <div
+                class="ov-snippet-card"
+                role="button"
+                tabindex="0"
+                aria-label={`Open project ${p.title}`}
+                on:click={() => viewProject(p)}
+                on:keydown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    viewProject(p);
+                  }
+                }}
+              >
+                <div class="ov-snippet-top">
+                  <div class="ov-snippet-headline">
+                    <div class="ov-snippet-name">{p.title}</div>
+                    <div class="ov-snippet-owner">
+                      <Users2 size={12} /> {ownerName}
                     </div>
                   </div>
-                  <div class="ov-snippet-progress">
-                    <div class="progress-bar-outer">
-                      <div class="progress-bar-inner" style="width:{pct}%"></div>
-                    </div>
-                    <span class="ov-snippet-pct">{pct}%</span>
-                  </div>
-                  {#if p.timeline_end || p.deadline}
-                    <div class="ov-snippet-meta-row">
-                      <div class="ov-snippet-due" class:ov-date-past={past} class:ov-date-near={near}>
-                        <CalendarDays size={11} />
-                        <span>{past ? 'Past due' : near ? 'Due soon' : 'Due'}:</span>
-                        <strong>{formatDate(p.timeline_end || p.deadline)}</strong>
-                      </div>
-                    </div>
-                  {/if}
-                  <div class="ov-snippet-actions">
-                    {#if showArchiveProject(p)}
-                      <button
-                        class="sub-action-btn"
-                        class:sub-action-btn-busy={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
-                        class:sub-action-btn-disabled={!canArchiveProject(p)}
-                        title={archivingProjectIds.has(String(p.id || p.proj_id || '').trim()) ? 'Archiving...' : canArchiveProject(p) ? 'Archive project' : 'Archive available when project is completed'}
-                        disabled={archivingProjectIds.has(String(p.id || p.proj_id || '').trim()) || !canArchiveProject(p)}
-                        on:click|stopPropagation={() => archiveProject(p)}
-                      >
-                        {#if archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
-                          <Loader2 size={12} class="spin" /> Archiving...
-                        {:else}
-                          <Archive size={12} /> Archive
-                        {/if}
-                      </button>
-                    {/if}
+                  <div class="ov-snippet-top-right">
+                    <span class={"proj-status-pill " + sm.cls}>{sm.label}</span>
+                    <span class={"proj-priority-pill priority-" + pl.toLowerCase()}>{pl}</span>
                   </div>
                 </div>
-            {/each}
+                <div class="ov-snippet-progress">
+                  <div class="progress-bar-outer">
+                    <div class="progress-bar-inner" style="width:{pct}%"></div>
+                  </div>
+                  <span class="ov-snippet-pct">{pct}%</span>
+                </div>
+                {#if p.timeline_end || p.deadline}
+                  <div class="ov-snippet-meta-row">
+                    <div class="ov-snippet-due" class:ov-date-past={past} class:ov-date-near={near}>
+                      <CalendarDays size={11} />
+                      <span>{past ? 'Past due' : near ? 'Due soon' : 'Due'}:</span>
+                      <strong>{formatDate(p.timeline_end || p.deadline)}</strong>
+                    </div>
+                  </div>
+                {/if}
+                <div class="ov-snippet-actions">
+                  {#if showArchiveProject(p)}
+                    <button
+                      class="sub-action-btn"
+                      class:sub-action-btn-busy={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                      class:sub-action-btn-disabled={!canArchiveProject(p)}
+                      title={archivingProjectIds.has(String(p.id || p.proj_id || '').trim()) ? 'Archiving...' : canArchiveProject(p) ? 'Archive project' : 'Archive available when project is completed'}
+                      disabled={archivingProjectIds.has(String(p.id || p.proj_id || '').trim()) || !canArchiveProject(p)}
+                      on:click|stopPropagation={() => archiveProject(p)}
+                    >
+                      {#if archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                        <Loader2 size={12} class="spin" /> Archiving...
+                      {:else}
+                        <Archive size={12} /> Archive
+                      {/if}
+                    </button>
+                  {/if}
+                </div>
+              </div>
+          {/each}
+        </div>
+      {/if}
+      {#if taggedProjectPageCount > 1}
+        <div class="proj-page-footer">
+          <div class="proj-page-nav">
+            <button
+              class="proj-page-btn"
+              disabled={taggedProjectsPage === 0}
+              on:click={() => taggedProjectsPage--}
+              aria-label="Previous page"
+            >&#8249;</button>
+            <span class="proj-page-indicator">{taggedProjectsPage + 1} / {taggedProjectPageCount}</span>
+            <button
+              class="proj-page-btn"
+              disabled={taggedProjectsPage >= taggedProjectPageCount - 1}
+              on:click={() => taggedProjectsPage++}
+              aria-label="Next page"
+            >&#8250;</button>
           </div>
-        {/if}
-        {#if taggedProjectPageCount > 1}
-          <div class="proj-page-footer">
-            <div class="proj-page-nav">
-              <button
-                class="proj-page-btn"
-                disabled={taggedProjectsPage === 0}
-                on:click={() => taggedProjectsPage--}
-                aria-label="Previous page"
-              >&#8249;</button>
-              <span class="proj-page-indicator">{taggedProjectsPage + 1} / {taggedProjectPageCount}</span>
-              <button
-                class="proj-page-btn"
-                disabled={taggedProjectsPage >= taggedProjectPageCount - 1}
-                on:click={() => taggedProjectsPage++}
-                aria-label="Next page"
-              >&#8250;</button>
-            </div>
+        </div>
+      {/if}
+    </section>
+
+    <div class="ov-top-grid">
+      <section class="card ov-card ov-card-tight">
+        <div class="ov-card-head">
+          <div class="ov-card-title">Project Completion Summary</div>
+        </div>
+        {#if workloadRows.length === 0}
+          <div class="ov-empty">No intern project progress to summarize yet.</div>
+        {:else}
+          <div class="ov-status-bars ov-completion-bars">
+            {#each workloadRows as row}
+              <div class="ov-bar-row ov-completion-row">
+                <div class="ov-bar-main">
+                  <div class="ov-bar-label">{row.internName}</div>
+                  <div class="ov-bar-meta">{row.completedCount} completed of {row.totalAssigned} assigned</div>
+                </div>
+                <div class="ov-bar-track ov-completion-track">
+                  <div class="progress-bar-inner ov-completion-fill" style="width:{row.pct}%"></div>
+                </div>
+                <span class="ov-bar-count ov-completion-count">{row.pct}%</span>
+              </div>
+            {/each}
           </div>
         {/if}
       </section>
 
-      <div class="ov-top-grid">
-        <section class="card ov-card ov-card-tight">
-          <div class="ov-card-head">
-            <div class="ov-card-title">Project Completion Summary</div>
-          </div>
-          {#if workloadRows.length === 0}
-            <div class="ov-empty">No intern project progress to summarize yet.</div>
-          {:else}
-            <div class="ov-status-bars ov-completion-bars">
-              {#each workloadRows as row}
-                <div class="ov-bar-row ov-completion-row">
-                  <div class="ov-bar-main">
-                    <div class="ov-bar-label">{row.internName}</div>
-                    <div class="ov-bar-meta">{row.completedCount} completed of {row.totalAssigned} assigned</div>
-                  </div>
-                  <div class="ov-bar-track ov-completion-track">
-                    <div class="progress-bar-inner ov-completion-fill" style="width:{row.pct}%"></div>
-                  </div>
-                  <span class="ov-bar-count ov-completion-count">{row.pct}%</span>
+      <section class="card ov-card ov-card-tight">
+        <div class="ov-card-head">
+          <div class="ov-card-title">Upcoming Deadlines</div>
+        </div>
+        {#if upcomingDeadlines.length === 0}
+          <div class="ov-empty">No upcoming deadlines.</div>
+        {:else}
+          <div class="ov-deadline-list">
+            {#each upcomingDeadlines as p}
+              {@const past = isDeadlinePast(p.timeline_end || p.deadline)}
+              {@const near = !past && isDeadlineNear(p.timeline_end || p.deadline)}
+              {@const sm = getStatusMeta(p.status)}
+              <div class="ov-deadline-row">
+                <div class="ov-deadline-icon" class:ov-deadline-icon-past={past} class:ov-deadline-icon-near={near && !past}>
+                  <CalendarDays size={13} />
                 </div>
-              {/each}
-            </div>
-          {/if}
-        </section>
-
-        <section class="card ov-card ov-card-tight">
-          <div class="ov-card-head">
-            <div class="ov-card-title">Upcoming Deadlines</div>
-          </div>
-          {#if upcomingDeadlines.length === 0}
-            <div class="ov-empty">No upcoming deadlines.</div>
-          {:else}
-            <div class="ov-deadline-list">
-              {#each upcomingDeadlines as p}
-                {@const past = isDeadlinePast(p.timeline_end || p.deadline)}
-                {@const near = !past && isDeadlineNear(p.timeline_end || p.deadline)}
-                {@const sm = getStatusMeta(p.status)}
-                <div class="ov-deadline-row">
-                  <div class="ov-deadline-icon" class:ov-deadline-icon-past={past} class:ov-deadline-icon-near={near && !past}>
-                    <CalendarDays size={13} />
+                <div class="ov-deadline-body">
+                  <div class="ov-deadline-name">{p.title}</div>
+                  <div class="ov-deadline-date" class:ov-date-past={past} class:ov-date-near={near && !past}>
+                    <CalendarDays size={11} /> {formatDate(p.timeline_end || p.deadline)}
                   </div>
-                  <div class="ov-deadline-body">
-                    <div class="ov-deadline-name">{p.title}</div>
-                    <div class="ov-deadline-date" class:ov-date-past={past} class:ov-date-near={near && !past}>
-                      <CalendarDays size={11} /> {formatDate(p.timeline_end || p.deadline)}
-                    </div>
-                  </div>
-                  <span class={"proj-status-pill " + sm.cls}>{sm.label}</span>
                 </div>
-              {/each}
-            </div>
-          {/if}
-        </section>
-      </div>
-
-    {/if}
+                <span class={"proj-status-pill " + sm.cls}>{sm.label}</span>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      </section>
+    </div>
   {:else if activeView === 'Archive'}
     <section class="proj-table-panel archive-view">
       <header class="proj-table-header">
@@ -2381,21 +2475,6 @@
       {/if}
     </section>
   {:else if activeView === 'Projects'}
-    {#if activeProjects.length === 0}
-      <div class="empty-state">
-        <FolderOpen size={32} />
-        <div class="empty-title">No tagged projects yet</div>
-        <div class="empty-sub">
-          Projects tagged to your supervisor account will appear here once interns add them.
-        </div>
-      </div>
-    {:else if filteredProjects.length === 0}
-      <div class="empty-state">
-        <FolderOpen size={22} />
-        <div class="empty-title">No projects match the selected filters.</div>
-        <div class="empty-sub">Try a different search, priority, or status.</div>
-      </div>
-    {:else}
     <section class="proj-table-panel supervisor-projects-list">
       <header class="proj-table-header">
         <span class="proj-col-name">Project Name</span>
@@ -2405,6 +2484,21 @@
         <span class="proj-col-actions">Actions</span>
       </header>
       <div class="proj-table-body">
+        {#if activeProjects.length === 0}
+          <div class="proj-table-empty">
+            <FolderOpen size={24} />
+            <div class="empty-title">No tagged projects yet</div>
+            <div class="empty-sub">
+              Projects tagged to your supervisor account will appear here once interns add them.
+            </div>
+          </div>
+        {:else if filteredProjects.length === 0}
+          <div class="proj-table-empty">
+            <FolderOpen size={20} />
+            <div class="empty-title">No projects match the selected filters.</div>
+            <div class="empty-sub">Try a different search, priority, or status.</div>
+          </div>
+        {:else}
           {#each filteredProjects as p (p.id)}
             {@const sm = getStatusMeta(p.status)}
             {@const past = isDeadlinePast(p.timeline_end || p.deadline)}
@@ -2461,76 +2555,78 @@
               </span>
             </div>
           {/each}
+        {/if}
       </div>
     </section>
 
-    <div class="projects-cards-mobile">
-      {#each filteredProjects as p (p.id)}
-        {@const pc = PRIORITY_COLORS[normalizePriorityLabel(p.priority_level)] || DEFAULT_PRIORITY_COLOR}
-        {@const sm = getStatusMeta(p.status)}
-        {@const past = isDeadlinePast(p.deadline)}
-        {@const near = !past && isDeadlineNear(p.deadline)}
-        {@const canManage = canManageProject(p)}
-        {@const canArchive = canArchiveProject(p)}
-        <div
-          class="project-card"
-          role="button"
-          tabindex="0"
-          aria-label={`Open project ${p.title}`}
-          on:click={() => viewProject(p)}
-          on:keydown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault();
-              viewProject(p);
-            }
-          }}
-        >
-          <div class="project-card-header">
-            <div
-              class="priority-badge"
-              style="background:{pc.bg};color:{pc.text};border-color:{pc.border}"
-            >
-              <Tag size={10} /> {normalizePriorityLabel(p.priority_level)}
-            </div>
-            <span class={"status-badge " + sm.cls}>{sm.label}</span>
-          </div>
-          <div class="project-title">{p.title}</div>
-          {#if p.description}
-            <p class="project-desc">{p.description}</p>
-          {/if}
-          <div class="project-meta">
-            {#if p.deadline}
-              <div class="meta-item" class:deadline-past={past} class:deadline-near={near}>
-                <CalendarDays size={12} /> {formatDate(p.deadline)}
-                {#if past}
-                  <span class="deadline-tag">Overdue</span>
-                {:else if near}
-                  <span class="deadline-tag near">Soon</span>
-                {/if}
-              </div>
-            {/if}
-            <div class="meta-item team-chip"><Users2 size={12} /> {teamLabel(p)}</div>
-          </div>
-          <div class="project-card-footer">
-            {#if showArchiveProject(p)}
-              <button
-                class="sub-action-btn"
-                class:sub-action-btn-busy={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
-                class:sub-action-btn-disabled={!canArchiveProject(p)}
-                disabled={archivingProjectIds.has(String(p.id || p.proj_id || '').trim()) || !canArchiveProject(p)}
-                on:click|stopPropagation={() => archiveProject(p)}
+    {#if filteredProjects.length > 0}
+      <div class="projects-cards-mobile">
+        {#each filteredProjects as p (p.id)}
+          {@const pc = PRIORITY_COLORS[normalizePriorityLabel(p.priority_level)] || DEFAULT_PRIORITY_COLOR}
+          {@const sm = getStatusMeta(p.status)}
+          {@const past = isDeadlinePast(p.deadline)}
+          {@const near = !past && isDeadlineNear(p.deadline)}
+          {@const canManage = canManageProject(p)}
+          {@const canArchive = canArchiveProject(p)}
+          <div
+            class="project-card"
+            role="button"
+            tabindex="0"
+            aria-label={`Open project ${p.title}`}
+            on:click={() => viewProject(p)}
+            on:keydown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                viewProject(p);
+              }
+            }}
+          >
+            <div class="project-card-header">
+              <div
+                class="priority-badge"
+                style="background:{pc.bg};color:{pc.text};border-color:{pc.border}"
               >
-                {#if archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
-                  <Loader2 size={12} class="spin" /> Archiving...
-                {:else}
-                  <Archive size={12} /> Archive
-                {/if}
-              </button>
+                <Tag size={10} /> {normalizePriorityLabel(p.priority_level)}
+              </div>
+              <span class={"status-badge " + sm.cls}>{sm.label}</span>
+            </div>
+            <div class="project-title">{p.title}</div>
+            {#if p.description}
+              <p class="project-desc">{p.description}</p>
             {/if}
+            <div class="project-meta">
+              {#if p.deadline}
+                <div class="meta-item" class:deadline-past={past} class:deadline-near={near}>
+                  <CalendarDays size={12} /> {formatDate(p.deadline)}
+                  {#if past}
+                    <span class="deadline-tag">Overdue</span>
+                  {:else if near}
+                    <span class="deadline-tag near">Soon</span>
+                  {/if}
+                </div>
+              {/if}
+              <div class="meta-item team-chip"><Users2 size={12} /> {teamLabel(p)}</div>
+            </div>
+            <div class="project-card-footer">
+              {#if showArchiveProject(p)}
+                <button
+                  class="sub-action-btn"
+                  class:sub-action-btn-busy={archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                  class:sub-action-btn-disabled={!canArchiveProject(p)}
+                  disabled={archivingProjectIds.has(String(p.id || p.proj_id || '').trim()) || !canArchiveProject(p)}
+                  on:click|stopPropagation={() => archiveProject(p)}
+                >
+                  {#if archivingProjectIds.has(String(p.id || p.proj_id || '').trim())}
+                    <Loader2 size={12} class="spin" /> Archiving...
+                  {:else}
+                    <Archive size={12} /> Archive
+                  {/if}
+                </button>
+              {/if}
+            </div>
           </div>
-        </div>
-      {/each}
-    </div>
+        {/each}
+      </div>
     {/if}
   {/if}
 </section>
@@ -2572,7 +2668,6 @@
       <div class="proj-detail-tabs">
         <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Details'} on:click={() => viewingProjectTab = 'Details'}>Details</button>
         <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Submissions'} on:click={() => { viewingProjectTab = 'Submissions'; if (!p.folders) loadProjectFolders(p.id); }}>Submissions</button>
-        <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Milestones'} on:click={() => { viewingProjectTab = 'Milestones'; if (!p.milestones || p.milestones === null) loadProjectMilestones(p.id); }}>Milestones</button>
         <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Feedback'} on:click={() => { viewingProjectTab = 'Feedback'; if (!feedbackMap[p.id]) loadFeedback(p.id); }}>Feedback</button>
       </div>
 
@@ -2722,8 +2817,8 @@
         {:else if viewingProjectTab === 'Submissions'}
           {#if canManage}
             <div class="sub-action-bar">
-              <button class="sub-action-btn" disabled={isSavingFolder} on:click={() => addFolder(p.id)}>
-                {#if isSavingFolder}<Loader2 size={13} class="spin" />{:else}<FolderOpen size={13} />{/if} New Folder
+              <button class="sub-action-btn" on:click={() => addFolder(p.id)}>
+                <FolderOpen size={13} /> New Folder
               </button>
             </div>
           {/if}
@@ -2786,9 +2881,6 @@
                             <div class="sub-file-icon">{ICONS.file}</div>
                             <div class="submission-meta">
                               <input class="sub-input" bind:value={pendingUpload.name} placeholder="File name" />
-                              <select class="sub-input" bind:value={pendingUpload.type}>
-                                {#each FILE_TYPE_OPTIONS as t}<option value={t}>{t}</option>{/each}
-                              </select>
                               <div class="submission-info">Selected: {pendingUpload.file ? pendingUpload.file.name : ''} ({pendingUpload.file ? (pendingUpload.file.size / (1024*1024)).toFixed(2) + ' MB' : ''})</div>
                             </div>
                           </div>
@@ -2845,47 +2937,6 @@
                 </div>
               {/each}
             </div>
-          {/if}
-        {:else if viewingProjectTab === 'Milestones'}
-          {#if p.milestones && p.milestones.length > 0}
-            <div class="milestone-list">
-              {#each p.milestones as m}
-                <div class="ms-card" class:ms-expanded={expandedMilestoneIds.has(m.id)}>
-                  <div class="ms-header" on:click={() => toggleMilestoneExpand(m.id)} role="button" tabindex="0" on:keydown={(e)=>{ if(e.key==='Enter'||e.key===' ') toggleMilestoneExpand(m.id); }}>
-                    <span class={"ms-icon " + (STATUS_META[m.status]?.cls || STATUS_META['Not Started'].cls)}></span>
-                    <span class="ms-title">{m.milestone}</span>
-                    {#if m.date}<span class="ms-due">Due: {formatDate(m.date)}</span>{/if}
-                    <span class="ms-chevron">{expandedMilestoneIds.has(m.id) ? ICONS.chevronDown : ICONS.chevronRight}</span>
-                  </div>
-                  {#if expandedMilestoneIds.has(m.id)}
-                    <div class="ms-body">
-                      {#if parseMilestoneFiles(m).length > 0}
-                        <div class="ms-linked-section">
-                          <div class="ms-linked-label">Linked Files:</div>
-                          <ul class="ms-linked-list">
-                            {#each parseMilestoneFiles(m) as lf}
-                              <li class="ms-linked-item">
-                                <span>{ICONS.file} {lf.name}</span>
-                                {#if lf.drive_url}<a href={lf.drive_url} target="_blank" rel="noopener" class="ms-open-link">Open</a>{/if}
-                              </li>
-                            {/each}
-                          </ul>
-                        </div>
-                      {:else}
-                        <div class="ms-no-links">No linked files yet.</div>
-                      {/if}
-                      <div class="ms-actions">
-                        <span class={"proj-status-pill " + (STATUS_META[m.status]?.cls || STATUS_META['Not Started'].cls)}>
-                          {STATUS_META[m.status]?.label || STATUS_META['Not Started'].label}
-                        </span>
-                      </div>
-                    </div>
-                  {/if}
-                </div>
-              {/each}
-            </div>
-          {:else}
-            <div class="proj-detail-empty">No milestones yet.</div>
           {/if}
         {:else if viewingProjectTab === 'Feedback'}
           <div class="feedback-wrap">
@@ -3119,7 +3170,7 @@
         </div>
       </div>
 
-      <div class="modal-footer modal-footer-sticky modal-footer-centered">
+      <div class="modal-footer modal-footer-sticky">
         <button class="btn-secondary" on:click={closeAddProjectModal} disabled={isSubmittingProject}>Cancel</button>
         <button class="btn-submit" on:click={submitProject} disabled={isSubmittingProject || !isProjectFormValid}>
           {#if isSubmittingProject}
@@ -3401,6 +3452,27 @@
     gap: 4px;
   }
   .ov-empty { font-size: 0.83rem; color: var(--color-sidebar-text); padding: 0.25rem 0.1rem; }
+  .ov-empty-state {
+    min-height: 12.5rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    padding: 1rem;
+    text-align: center;
+    color: var(--color-sidebar-text);
+  }
+  .ov-empty-title {
+    font-size: 0.92rem;
+    font-weight: 700;
+    color: var(--color-heading);
+  }
+  .ov-empty-copy {
+    max-width: 30rem;
+    font-size: 0.82rem;
+    line-height: 1.5;
+  }
 
   .ov-status-bars {
     display: flex;
@@ -3722,12 +3794,27 @@
     background: var(--color-surface);
     border-bottom: 1px solid var(--color-border);
     color: var(--color-heading);
-    font-size: 0.88rem;
+    font-size: 0.77rem;
     font-weight: 700;
-    letter-spacing: -0.01em;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
   }
   .proj-table-header > .proj-col-actions { justify-self: end; }
   .proj-table-body { display: grid; background: var(--color-soft); padding: 0.4rem; gap: 0.4rem; }
+  .proj-table-empty {
+    min-height: 13rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    padding: 1.4rem 1rem;
+    border: 1px dashed var(--color-border);
+    border-radius: 0.65rem;
+    background: var(--color-surface);
+    text-align: center;
+    color: var(--color-sidebar-text);
+  }
   .proj-table-row {
     display: grid;
     grid-template-columns: minmax(0,1fr) 3.5rem;
@@ -3751,6 +3838,12 @@
   .supervisor-projects-list .proj-col-actions {
     justify-self: center;
     text-align: center;
+    color: #6f86af;
+  }
+  .supervisor-projects-list .proj-col-name { color: #6f86af; }
+  .archive-view .proj-table-header > .proj-col-name,
+  .archive-view .proj-table-header > .proj-col-actions {
+    color: #6f86af;
   }
   .proj-col-timeline {
     white-space: nowrap;
@@ -3783,6 +3876,7 @@
     color: #3b82f6 !important;
   }
   .proj-arc-title { font-size: 0.88rem; font-weight: 600; color: var(--color-heading); }
+  .archive-view .proj-arc-title { color: #e5edf8; }
   .proj-arc-meta { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.35rem; color: var(--color-sidebar-text); font-size: 0.77rem; }
   .proj-arc-date { font-weight: 700; color: var(--color-heading); }
   .proj-arc-corner { display: flex; justify-content: flex-end; }
@@ -3911,6 +4005,7 @@
   :global(body.dark) .proj-table-panel { background: #0d1117 !important; border-color: #ffffff0f !important; }
   :global(body.dark) .proj-table-header { background: #161c27 !important; border-bottom-color: #ffffff0f !important; color: #e5edf8 !important; }
   :global(body.dark) .proj-table-body { background: #0d1117 !important; }
+  :global(body.dark) .proj-table-empty { background: #161c27 !important; border-color: #ffffff12 !important; }
   :global(body.dark) .proj-table-row { background: #161c27 !important; border-color: #ffffff0f !important; }
   :global(body.dark) .icon-btn { background: #161c27; border-color: #ffffff10; }
 
@@ -4329,7 +4424,7 @@
   .pdr-sidebar { min-width: 0; }
   .pdr-main { display: flex; flex-direction: column; gap: 0.95rem; }
   .pdr-sidebar { display: flex; flex-direction: column; gap: 0.85rem; }
-  .pdr-group { display: flex; flex-direction: column; gap: 0.38rem; }
+  .pdr-group { display: flex; flex-direction: column; gap: 0.45rem; }
   .pdr-label {
     font-size: 0.77rem;
     font-weight: 700;
@@ -4339,51 +4434,44 @@
   }
   :global(body.dark) .pdr-label { color: #475569; }
   .pdr-box {
-    font-size: 0.9rem;
-    color: #0f172a;
-    background: #ffffff;
-    border: 1px solid rgba(148, 163, 184, 0.16);
-    border-radius: 0.82rem;
-    padding: 0.9rem 1rem;
-    width: 100%;
-    box-sizing: border-box;
-    min-height: 3rem;
-    box-shadow:
-      0 14px 28px -30px rgba(15, 23, 42, 0.22),
-      inset 0 1px 0 rgba(255,255,255,0.78);
+    font-size: 0.9rem; font-family: inherit; color: var(--color-text);
+    background: #ffffff; border: 1px solid rgba(148, 163, 184, 0.08);
+    border-radius: 0.8rem; padding: 0.72rem 0.9rem; width: 100%; box-sizing: border-box;
+    min-height: 2.1rem;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.75);
   }
   :global(body.dark) .pdr-box {
-    color: #e5edf8;
     background: #161926;
-    border-color: rgba(148, 163, 184, 0.14);
-    box-shadow:
-      0 16px 30px -32px rgba(2, 6, 23, 0.72),
-      inset 0 1px 0 rgba(255,255,255,0.03);
+    border-color: rgba(148, 163, 184, 0.08);
+    color: #cbd5e1;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
   }
-  .pdr-box-hero { font-size: 1rem; font-weight: 700; }
-  .pdr-box-desc { white-space: normal; line-height: 1.5; }
+  .pdr-box-hero { font-weight: 600; }
+  .pdr-box-desc { white-space: pre-wrap; line-height: 1.6; min-height: 4rem; }
   .detail-description { white-space: pre-wrap; }
   .detail-description.collapsed { display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; line-clamp:3; overflow:hidden; }
   .pdr-inline-link { margin-top: 0.45rem; align-self: flex-start; }
-  .pdr-row-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.85rem; }
+  .pdr-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
   .pdr-box-inline {
     display: inline-flex;
     align-items: center;
-    gap: 0.55rem;
-    font-weight: 600;
+    gap: 0.5rem;
+    color: #334155;
   }
   .pdr-box-muted { color: #64748b; }
+  :global(body.dark) .pdr-box-inline { color: #cbd5e1; }
   :global(body.dark) .pdr-box-muted { color: #94a3b8; }
   .pdr-inline-icon { color: #64748b; flex: 0 0 auto; }
-  .pdr-inline-icon-primary { color: #2563eb; }
-  :global(body.dark) .pdr-inline-icon { color: #64748b; }
-  :global(body.dark) .pdr-inline-icon-primary { color: #60a5fa; }
+  .pdr-inline-icon-primary { color: #3b82f6; }
+  :global(body.dark) .pdr-inline-icon { color: #475569; }
+  :global(body.dark) .pdr-inline-icon-primary { color: #3b82f6; }
   .pdr-priority-dot {
-    width: 0.5rem;
-    height: 0.5rem;
+    width: 8px;
+    height: 8px;
     border-radius: 999px;
     display: inline-block;
     flex: 0 0 auto;
+    background: #94a3b8;
   }
   .pdr-priority-dot.priority-low { background: #38bdf8; }
   .pdr-priority-dot.priority-medium { background: #10b981; }
