@@ -4145,7 +4145,7 @@ let restoringTaskMap = {};
     overflow-y: auto;
     overflow-x: hidden;
     padding: 0.85rem;
-    background: var(--color-soft);
+    background: var(--color-surface);
   }
 
   .intern-task-scroll-body::-webkit-scrollbar {
@@ -4183,7 +4183,7 @@ let restoringTaskMap = {};
     font-size: 0.84rem;
     border-radius: 0.95rem;
     border: 1px solid var(--color-border);
-    background: var(--color-surface);
+    background: var(--color-soft);
     transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
   }
 
@@ -4300,12 +4300,12 @@ let restoringTaskMap = {};
   }
 
   :global(html.dark) .intern-task-scroll-body {
-    background: #0d1117;
+    background: #161c27;
   }
 
   :global(html.dark) .task-scroll-row {
     border-color: #ffffff0f;
-    background: #0d1117;
+    background: #1e2736;
   }
 
   :global(html.dark) .task-scroll-row:hover {
@@ -4886,7 +4886,7 @@ let restoringTaskMap = {};
   }
 
   .archived-row {
-    background: var(--color-surface);
+    background: var(--color-soft);
   }
 
   .task-name {

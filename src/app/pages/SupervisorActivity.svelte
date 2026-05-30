@@ -1722,9 +1722,6 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
   {#if activeView === 'List'}
   <section class="panel intern-panel tasks-scroll-panel">
     <div class="panel-head fullwidth">
-      <div class="panel-head-inner">
-        <h3>Tasks</h3>
-      </div>
       <div class="filters">
         <div class="tasks-controls-header" aria-hidden="true">
           <div class="col col-title">Tasks</div>
@@ -2427,10 +2424,14 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
   }
 
   .overview-scroll-panel,
-  .archive-worklogs-panel,
-  .tasks-scroll-panel {
+  .archive-worklogs-panel {
     height: 420px;
     min-height: 420px;
+  }
+
+  .tasks-scroll-panel {
+    height: 500px;
+    min-height: 500px;
   }
 
   .archive-tasks-panel {
@@ -2778,7 +2779,7 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
   /* tasks table header and columns */
   .tasks-table { display:block }
   .tasks-header { display:none }
-  .tasks-controls-header { display:grid; grid-template-columns: 1fr 160px 120px 160px; gap:0.6rem; align-items:center }
+  .tasks-controls-header { display:grid; grid-template-columns: 1fr 160px 120px 160px; gap:0.6rem; align-items:center; width:100% }
   .tasks-controls-header .col { text-align: center }
   .task-row { display:grid; grid-template-columns: 1fr 160px 120px 160px; gap:0.6rem; padding:0.65rem 0.8rem; align-items:center }
   .col { font-size:0.95rem }
@@ -2786,8 +2787,7 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
   .task-row .col-actions { text-align:center }
 
 
-  .intern-panel .panel-head-inner { padding-left: 1.05rem }
-  .intern-panel .filters { padding-right: 1.05rem }
+  .intern-panel .filters { flex:1; padding: 0 1.05rem }
   .intern-menu { position:absolute; right:0; top:calc(100% + 6px); background:var(--surface); border:1px solid var(--border); border-radius:0.45rem; padding:0.3rem; z-index:80 }
 
   @media (min-width: 720px) {
@@ -3745,6 +3745,17 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
     text-align: left;
   }
 
+  .overview-scroll-panel .panel-head h3,
+  .archive-tasks-panel .panel-head h3,
+  .archive-worklogs-panel .panel-head h3 {
+    color: var(--sa-muted);
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    text-shadow: none;
+  }
+
   .log-list.panel-scroll-body,
   .progress-list.panel-scroll-body,
   .tasks-list-panel.panel-scroll-body,
@@ -3855,6 +3866,19 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
   :global(body.dark) .tasks-controls-header .col,
   :global(html.dark) .tasks-controls-header .col {
     color: #94a3b8;
+  }
+
+  :global(.dark) .overview-scroll-panel .panel-head h3,
+  :global(.dark) .archive-tasks-panel .panel-head h3,
+  :global(.dark) .archive-worklogs-panel .panel-head h3,
+  :global(body.dark) .overview-scroll-panel .panel-head h3,
+  :global(body.dark) .archive-tasks-panel .panel-head h3,
+  :global(body.dark) .archive-worklogs-panel .panel-head h3,
+  :global(html.dark) .overview-scroll-panel .panel-head h3,
+  :global(html.dark) .archive-tasks-panel .panel-head h3,
+  :global(html.dark) .archive-worklogs-panel .panel-head h3 {
+    color: #94a3b8;
+    text-shadow: none;
   }
 
   :global(.dark) .empty,
