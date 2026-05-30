@@ -20,9 +20,11 @@
   let viewingProjectTab = 'Details';
   let feedbackMap = {};
   let feedbackLoading = {};
+  let feedbackLoadTokens = {};
   let postingFeedback = {};
   let replySubmitting = {};
   let newFeedbackText = {};
+  const FEEDBACK_CACHE_PREFIX = 'projects.feedback.';
   // expand/collapse for description in read view
   let expandedDescriptionId = null;
   // Folder-based Submissions (copied concept from ProjectsIntern)
@@ -99,6 +101,29 @@
   function writeCachedFolders(projectId, folders) {
     try {
       localStorage.setItem(folderCacheKey(projectId), JSON.stringify(Array.isArray(folders) ? folders : []));
+    } catch (e) {
+      // ignore storage errors
+    }
+  }
+
+  function feedbackCacheKey(projectId) {
+    return `${FEEDBACK_CACHE_PREFIX}${String(projectId || '').trim()}`;
+  }
+
+  function readCachedFeedback(projectId) {
+    try {
+      const raw = localStorage.getItem(feedbackCacheKey(projectId));
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function writeCachedFeedback(projectId, feedback) {
+    try {
+      localStorage.setItem(feedbackCacheKey(projectId), JSON.stringify(Array.isArray(feedback) ? feedback : []));
     } catch (e) {
       // ignore storage errors
     }
@@ -861,51 +886,31 @@
     const uid  = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
     const role = String(currentUser?.role || getCurrentUser()?.role || 'Supervisor');
     const activeUser = currentUser || getCurrentUser() || {};
-    const optimisticId = `TMP_FEED_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const optimisticItem = {
-      feedback_id: optimisticId,
-      proj_id: String(projectId),
-      parent_id: '',
-      commenter_id: uid,
-      commenter_role: role,
-      comment_text: text,
-      created_at: new Date().toISOString(),
-      commenter_name: getDisplayName(activeUser) || uid,
-      _optimistic: true
-    };
     postingFeedback = { ...postingFeedback, [projectId]: true };
-    feedbackMap = {
-      ...feedbackMap,
-      [projectId]: [...(feedbackMap[projectId] || []), optimisticItem]
-    };
-    newFeedbackText = { ...newFeedbackText, [projectId]: '' };
     try {
       const res = await callApiAction('create_feedback', { proj_id: String(projectId), user_id: uid, commenter_role: role, comment_text: text });
       if (!res?.ok) {
         setFlashError(res?.error || 'Failed to post comment.');
-        feedbackMap = {
-          ...feedbackMap,
-          [projectId]: (feedbackMap[projectId] || []).filter((item) => String(item?.feedback_id || '') !== optimisticId)
-        };
-        newFeedbackText = { ...newFeedbackText, [projectId]: text };
         return;
       }
-      feedbackMap = {
-        ...feedbackMap,
-        [projectId]: (feedbackMap[projectId] || []).map((item) => (
-          String(item?.feedback_id || '') === optimisticId
-            ? { ...item, feedback_id: String(res.feedback_id || optimisticId), created_at: String(res.created_at || item.created_at || ''), _optimistic: false }
-            : item
-        ))
+      feedbackLoadTokens = { ...feedbackLoadTokens, [projectId]: (feedbackLoadTokens[projectId] || 0) + 1 };
+      const createdItem = {
+        feedback_id: String(res.feedback_id || `feedback-${Date.now()}`),
+        proj_id: String(projectId),
+        parent_id: '',
+        commenter_id: uid,
+        commenter_role: role,
+        comment_text: text,
+        created_at: String(res.created_at || new Date().toISOString()),
+        commenter_name: getDisplayName(activeUser) || uid,
+        _localPending: true
       };
-      void loadFeedback(projectId, { silent: true });
+      const nextFeedback = [...(feedbackMap[projectId] || []), createdItem];
+      feedbackMap = { ...feedbackMap, [projectId]: nextFeedback };
+      writeCachedFeedback(projectId, nextFeedback);
+      newFeedbackText = { ...newFeedbackText, [projectId]: '' };
     } catch (e) {
       setFlashError(e?.message || 'Failed to post comment.');
-      feedbackMap = {
-        ...feedbackMap,
-        [projectId]: (feedbackMap[projectId] || []).filter((item) => String(item?.feedback_id || '') !== optimisticId)
-      };
-      newFeedbackText = { ...newFeedbackText, [projectId]: text };
     }
     finally {
       postingFeedback = { ...postingFeedback, [projectId]: false };
@@ -918,13 +923,28 @@
     if (replySubmitting[projectId]) return;
     const uid  = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
     const role = String(currentUser?.role || getCurrentUser()?.role || 'Supervisor');
+    const activeUser = currentUser || getCurrentUser() || {};
     replySubmitting = { ...replySubmitting, [projectId]: true };
     try {
       const res = await callApiAction('create_feedback', { proj_id: String(projectId), parent_id: String(parentId), user_id: uid, commenter_role: role, comment_text: text });
       if (!res?.ok) { setFlashError(res?.error || 'Failed to post reply.'); return; }
-      replyText    = { ...replyText,    [projectId]: '' };
-      replyingTo   = { ...replyingTo,   [projectId]: null };
-      await loadFeedback(projectId, { silent: true });
+      feedbackLoadTokens = { ...feedbackLoadTokens, [projectId]: (feedbackLoadTokens[projectId] || 0) + 1 };
+      const createdItem = {
+        feedback_id: String(res.feedback_id || `feedback-${Date.now()}`),
+        proj_id: String(projectId),
+        parent_id: String(parentId),
+        commenter_id: uid,
+        commenter_role: role,
+        comment_text: text,
+        created_at: String(res.created_at || new Date().toISOString()),
+        commenter_name: getDisplayName(activeUser) || uid,
+        _localPending: true
+      };
+      const nextFeedback = [...(feedbackMap[projectId] || []), createdItem];
+      feedbackMap = { ...feedbackMap, [projectId]: nextFeedback };
+      writeCachedFeedback(projectId, nextFeedback);
+      replyText = { ...replyText, [projectId]: '' };
+      replyingTo = { ...replyingTo, [projectId]: null };
     } catch (e) { setFlashError(e?.message || 'Failed to post reply.'); }
     finally {
       replySubmitting = { ...replySubmitting, [projectId]: false };
@@ -1727,13 +1747,20 @@
           : new Error(String(projectsResult.reason || 'Unable to load supervisor projects.'));
       }
 
-      allProjects = (result?.projects || []).map(normalizeProject).map((project) => ({
-        ...project,
-        folders: readCachedFolders(project.id) || project.folders || null
-      })).sort(sortProjects);
+      allProjects = (result?.projects || []).map(normalizeProject).map((project) => {
+        const cachedFeedback = readCachedFeedback(project.id);
+        if (cachedFeedback && !(project.id in feedbackMap)) {
+          feedbackMap = { ...feedbackMap, [project.id]: cachedFeedback };
+        }
+        return {
+          ...project,
+          folders: readCachedFolders(project.id) || project.folders || null
+        };
+      }).sort(sortProjects);
 
       for (const project of allProjects) {
         void loadProjectFolders(project.id, { showSpinner: false, hydrateFromCache: false });
+        void loadFeedback(project.id, { silent: true, hydrateFromCache: false });
       }
 
       try {
@@ -1909,16 +1936,40 @@
     }
   }
 
-  async function loadFeedback(projectId, { silent = false } = {}) {
+  async function loadFeedback(projectId, { silent = false, hydrateFromCache = true } = {}) {
+    const token = (feedbackLoadTokens[projectId] || 0) + 1;
+    feedbackLoadTokens = { ...feedbackLoadTokens, [projectId]: token };
+    if (hydrateFromCache && !(projectId in feedbackMap)) {
+      const cachedFeedback = readCachedFeedback(projectId);
+      feedbackMap = { ...feedbackMap, [projectId]: cachedFeedback || [] };
+    }
     if (!silent) feedbackLoading = { ...feedbackLoading, [projectId]: true };
     try {
       const res = await callApiAction('list_feedback', { proj_id: String(projectId) });
-      if (res?.ok) feedbackMap = { ...feedbackMap, [projectId]: res.feedback || [] };
-      else feedbackMap = { ...feedbackMap, [projectId]: [] };
+      if (feedbackLoadTokens[projectId] !== token) return;
+      if (res?.ok) {
+        const serverFeedback = res.feedback || [];
+        const serverIds = new Set(serverFeedback.map((item) => String(feedbackIdOf(item) || '').trim()).filter(Boolean));
+        const localPending = (feedbackMap[projectId] || []).filter((item) => item?._localPending);
+        const mergedFeedback = [
+          ...serverFeedback.map((item) => ({ ...item, _localPending: false })),
+          ...localPending.filter((item) => !serverIds.has(String(feedbackIdOf(item) || '').trim()))
+        ];
+        feedbackMap = { ...feedbackMap, [projectId]: mergedFeedback };
+        writeCachedFeedback(projectId, mergedFeedback);
+      } else {
+        feedbackMap = { ...feedbackMap, [projectId]: [] };
+        writeCachedFeedback(projectId, []);
+      }
     } catch (e) {
-      feedbackMap = { ...feedbackMap, [projectId]: [] };
+      if (feedbackLoadTokens[projectId] !== token) return;
+      if (!(projectId in feedbackMap)) {
+        feedbackMap = { ...feedbackMap, [projectId]: [] };
+      }
     } finally {
-      if (!silent) feedbackLoading = { ...feedbackLoading, [projectId]: false };
+      if (!silent && feedbackLoadTokens[projectId] === token) {
+        feedbackLoading = { ...feedbackLoading, [projectId]: false };
+      }
     }
   }
 
@@ -2727,10 +2778,10 @@
       <div class="proj-detail-tabs">
         <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Details'} on:click={() => viewingProjectTab = 'Details'}>Details</button>
         <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Submissions'} on:click={() => { viewingProjectTab = 'Submissions'; if (!p.folders) loadProjectFolders(p.id, { showSpinner: false }); }}>Submissions</button>
-        <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Feedback'} on:click={() => { viewingProjectTab = 'Feedback'; if (!feedbackMap[p.id]) loadFeedback(p.id); }}>Feedback</button>
+        <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Feedback'} on:click={() => { viewingProjectTab = 'Feedback'; if (!(p.id in feedbackMap)) feedbackMap = { ...feedbackMap, [p.id]: [] }; void loadFeedback(p.id, { silent: true }); }}>Feedback</button>
       </div>
 
-      <div class="proj-detail-body proj-view-body">
+      <div class="proj-detail-body proj-view-body" class:feedback-scroll-transparent={viewingProjectTab === 'Feedback'}>
         {#if viewingProjectTab === 'Details'}
           {@const detailProgress = p.progress_percent != null ? p.progress_percent : statusToProgress(p.status)}
           {@const pl = getPriorityLabel(p.priority_level) || 'Low'}
@@ -2997,42 +3048,40 @@
           {/if}
         {:else if viewingProjectTab === 'Feedback'}
           <div class="feedback-wrap">
-            {#if !feedbackLoading[p.id]}
-              {#each (feedbackMap[p.id] || []).filter(f => !f.parent_id) as thread (feedbackIdOf(thread))}
-                <FeedbackThread
-                  item={thread}
-                  projectId={p.id}
-                  depth={0}
-                  {replyingTo}
-                  {replyText}
-                  {replySubmitting}
-                  {currentUser}
-                  {getCurrentUser}
-                  getChildren={feedbackChildren}
-                  resolveUserName={resolveUserName}
-                  onToggleReply={toggleReply}
-                  onReplyText={updateReplyText}
-                  onSubmitReply={submitReply}
-                  onCancelReply={cancelReply}
-                  onDelete={deleteFeedback}
-                />
-              {/each}
-              {#if !(feedbackMap[p.id] || []).filter(f => !f.parent_id).length}
-                <div class="proj-detail-empty">No feedback yet. Be the first to comment.</div>
-              {/if}
-              <div class="fb-new-comment">
-                <textarea class="fb-reply-input" rows="3" placeholder="Add a comment..." value={newFeedbackText[p.id] || ''} on:input={(e) => { newFeedbackText = { ...newFeedbackText, [p.id]: e.currentTarget.value }; }}></textarea>
-                <button class="sub-action-btn fb-post-btn" class:sub-action-btn-busy={!!postingFeedback[p.id]} disabled={!!postingFeedback[p.id]} on:click={() => submitFeedback(p.id)} aria-label="Post comment">
-                  {#if postingFeedback[p.id]}
-                    <Loader2 size={14} class="spin" />
-                    <span>Posting...</span>
-                  {:else}
-                    <Send size={14} />
-                    <span>Post Comment</span>
-                  {/if}
-                </button>
-              </div>
+            {#each (feedbackMap[p.id] || []).filter(f => !f.parent_id) as thread (feedbackIdOf(thread))}
+              <FeedbackThread
+                item={thread}
+                projectId={p.id}
+                depth={0}
+                {replyingTo}
+                {replyText}
+                {replySubmitting}
+                {currentUser}
+                {getCurrentUser}
+                getChildren={feedbackChildren}
+                resolveUserName={resolveUserName}
+                onToggleReply={toggleReply}
+                onReplyText={updateReplyText}
+                onSubmitReply={submitReply}
+                onCancelReply={cancelReply}
+                onDelete={deleteFeedback}
+              />
+            {/each}
+            {#if !(feedbackMap[p.id] || []).filter(f => !f.parent_id).length}
+              <div class="proj-detail-empty">No feedback yet. Be the first to comment.</div>
             {/if}
+            <div class="fb-new-comment">
+              <textarea class="fb-reply-input" rows="3" placeholder="Add a comment..." value={newFeedbackText[p.id] || ''} on:input={(e) => { newFeedbackText = { ...newFeedbackText, [p.id]: e.currentTarget.value }; }}></textarea>
+              <button class="sub-action-btn fb-post-btn" class:sub-action-btn-busy={!!postingFeedback[p.id]} disabled={!!postingFeedback[p.id]} on:click={() => submitFeedback(p.id)} aria-label="Post comment">
+                {#if postingFeedback[p.id]}
+                  <Loader2 size={14} class="spin" />
+                  <span>Posting...</span>
+                {:else}
+                  <Send size={14} />
+                  <span>Post Comment</span>
+                {/if}
+              </button>
+            </div>
           </div>
         {/if}
       </div>
@@ -4184,6 +4233,27 @@
     overflow: auto;
     padding-bottom: 1.2rem;
   }
+  .feedback-scroll-transparent {
+    scrollbar-color: rgba(148, 163, 184, 0.24) transparent;
+  }
+  .feedback-scroll-transparent::-webkit-scrollbar {
+    width: 12px;
+  }
+  .feedback-scroll-transparent::-webkit-scrollbar-track,
+  .feedback-scroll-transparent::-webkit-scrollbar-corner,
+  .feedback-scroll-transparent::-webkit-scrollbar-button {
+    background: transparent;
+  }
+  .feedback-scroll-transparent::-webkit-scrollbar-button {
+    height: 0;
+    width: 0;
+  }
+  .feedback-scroll-transparent::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.24);
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: 999px;
+  }
   :global(body.dark) .proj-view-modal {
     background: #161c27;
     border-color: rgba(148, 163, 184, 0.24);
@@ -4854,9 +4924,11 @@
     transform: translateY(0);
   }
   .fb-post-btn.sub-action-btn-busy {
-    background: #1d4ed8 !important;
-    border-color: #1d4ed8 !important;
-    color: #ffffff !important;
+    background: transparent !important;
+    border-color: var(--color-border) !important;
+    color: var(--color-sidebar-text) !important;
+    opacity: 1;
+    box-shadow: none;
   }
 
   /* Milestones card styles (adopted from ProjectsIntern, adjusted sizes for Supervisor) */
