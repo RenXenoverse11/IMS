@@ -3840,7 +3840,8 @@
     text-align: center;
     color: #6f86af;
   }
-  .supervisor-projects-list .proj-col-name { color: #6f86af; }
+  .supervisor-projects-list .proj-table-header > .proj-col-name { color: #6f86af; }
+  .supervisor-projects-list .proj-name-cell { color: #e5edf8; }
   .archive-view .proj-table-header > .proj-col-name,
   .archive-view .proj-table-header > .proj-col-actions {
     color: #6f86af;
