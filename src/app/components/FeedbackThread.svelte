@@ -1,6 +1,6 @@
 <script>
   // @ts-nocheck
-  import { Trash2 } from 'lucide-svelte';
+  import { Loader2, Trash2 } from 'lucide-svelte';
 
   export let item = null;
   export let projectId = '';
@@ -37,7 +37,7 @@
       <span class="fb-role-badge" class:fb-badge-sup={String(item?.commenter_role || '').trim() === 'Supervisor'}>{commenterName}</span>
       <div style="flex:1"></div>
       {#if canDelete}
-        <button class="icon-btn" title="Delete" on:click={() => onDelete(projectId, itemId)}><Trash2 size={13} /></button>
+        <button class="icon-btn fb-delete-btn" title="Delete" on:click={() => onDelete(projectId, itemId)}><Trash2 size={13} /></button>
       {/if}
     </div>
 
@@ -57,8 +57,13 @@
           on:input={(e) => onReplyText(projectId, e.currentTarget.value)}
         ></textarea>
         <div class="fb-action-btns">
-          <button class="fb-send-btn" disabled={!!replySubmitting?.[projectId]} on:click={() => onSubmitReply(projectId, itemId)}>
-            {replySubmitting?.[projectId] ? 'Sending...' : 'Send'}
+          <button class="fb-send-btn" class:fb-send-btn-busy={!!replySubmitting?.[projectId]} disabled={!!replySubmitting?.[projectId]} on:click={() => onSubmitReply(projectId, itemId)}>
+            {#if replySubmitting?.[projectId]}
+              <Loader2 size={13} class="spin" />
+              <span>Sending...</span>
+            {:else}
+              <span>Send</span>
+            {/if}
           </button>
           <button class="fb-cancel-btn" on:click={() => onCancelReply(projectId)}>Cancel</button>
         </div>
@@ -220,6 +225,12 @@
     transition: background 0.15s;
   }
 
+  .fb-send-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+
   .fb-send-btn:hover,
   .fb-cancel-btn:hover {
     background: var(--color-hover);
@@ -232,5 +243,61 @@
     background: var(--color-surface);
     border-color: var(--color-border);
     color: var(--color-sidebar-text);
+  }
+
+  .fb-send-btn.fb-send-btn-busy,
+  .fb-send-btn.fb-send-btn-busy:disabled {
+    opacity: 1;
+    background: transparent;
+    border-color: var(--color-border);
+    color: var(--color-sidebar-text);
+  }
+
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 6px;
+    border-radius: 8px;
+    margin: 0;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    color: var(--color-accent);
+    cursor: pointer;
+    transition: transform 0.12s, background 0.12s, border-color 0.12s;
+  }
+
+  .icon-btn:hover {
+    background: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface));
+    border-color: var(--color-accent);
+    transform: translateY(-1px);
+  }
+
+  .icon-btn:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+    transform: none;
+    background: var(--color-surface);
+    border-color: var(--color-border);
+    color: var(--color-sidebar-text);
+  }
+
+  .fb-delete-btn {
+    color: #ef4444 !important;
+    border-color: rgba(239, 68, 68, 0.38) !important;
+    background: rgba(239, 68, 68, 0.08) !important;
+    transition: opacity 0.16s ease, transform 0.12s ease, filter 0.16s ease;
+  }
+
+  .fb-delete-btn:hover:not(:disabled) {
+    border-color: rgba(239, 68, 68, 0.62) !important;
+    background: rgba(239, 68, 68, 0.14) !important;
+    opacity: 0.9;
+  }
+
+  .icon-btn :global(svg) {
+    display: block;
   }
 </style>
