@@ -1,7 +1,7 @@
 <script>
   // @ts-nocheck
   import { onDestroy, onMount } from 'svelte';
-  import { Users, Clock3, CheckCircle, FileText, Download, ExternalLink, Eye, Archive, RotateCcw, Loader2 } from 'lucide-svelte';
+  import { Users, Clock3, CheckCircle, FileText, Download, ExternalLink, Eye, Archive, RotateCcw, Loader2, LayoutGrid, List } from 'lucide-svelte';
 
   export let currentUser = null;
 
@@ -1245,10 +1245,19 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
   <!-- Task creation / quick panel -->
   <section class="card quick-panel">
     <div class="quick-head">
-      <div class="view-controls">
-        <button class="btn btn-ghost" class:active={activeView === 'Overview'} on:click={() => activeView = 'Overview'}>Overview</button>
-        <button class="btn btn-ghost" class:active={activeView === 'List'} on:click={() => activeView = 'List'}>List</button>
-        <button class="btn btn-ghost" class:active={activeView === 'Archive'} on:click={() => activeView = 'Archive'}>Archive</button>
+      <div class="view-controls" role="tablist" aria-label="View mode">
+        <button class="btn btn-ghost" role="tab" class:active={activeView === 'Overview'} aria-selected={activeView === 'Overview'} on:click={() => activeView = 'Overview'}>
+          <LayoutGrid size={14} />
+          <span>Overview</span>
+        </button>
+        <button class="btn btn-ghost" role="tab" class:active={activeView === 'List'} aria-selected={activeView === 'List'} on:click={() => activeView = 'List'}>
+          <List size={14} />
+          <span>List</span>
+        </button>
+        <button class="btn btn-ghost" role="tab" class:active={activeView === 'Archive'} aria-selected={activeView === 'Archive'} on:click={() => activeView = 'Archive'}>
+          <Archive size={14} />
+          <span>Archive</span>
+        </button>
       </div>
 
       <div class="quick-actions">
@@ -1718,10 +1727,10 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
       </div>
       <div class="filters">
         <div class="tasks-controls-header" aria-hidden="true">
-          <div class="col col-title"></div>
-          <div class="col col-due"><strong>Due Date</strong></div>
-          <div class="col col-status"><strong>Status</strong></div>
-          <div class="col col-actions"><strong>Actions</strong></div>
+          <div class="col col-title">Tasks</div>
+          <div class="col col-due">Due Date</div>
+          <div class="col col-status">Status</div>
+          <div class="col col-actions">Actions</div>
         </div>
       </div>
     </div>
@@ -3638,11 +3647,12 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
   }
 
   .quick-panel {
-    background: var(--sa-panel-bg) !important;
-    border: 1px solid var(--sa-border) !important;
-    border-radius: 14px;
-    padding: 14px 16px;
-    box-shadow: var(--sa-shadow) !important;
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0;
+    padding: 0;
+    margin-bottom: 0;
+    box-shadow: none !important;
   }
 
   .view-controls {
@@ -3658,19 +3668,25 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
     gap: 0.4rem;
     border-radius: 0.7rem;
     padding: 0.32rem 0.72rem;
-    background: var(--sa-panel-bg);
+    background: transparent;
     border: 1px solid var(--sa-border);
     font-size: 0.84rem;
+    font-family: 'DM Sans', sans-serif;
     height: 2.15rem;
     line-height: 1;
     color: var(--sa-muted);
     font-weight: 600;
+    letter-spacing: 0;
   }
 
   .view-controls .btn.active {
     background: var(--sa-subtle-bg);
     color: var(--sa-text);
     border-color: var(--sa-border);
+  }
+
+  .view-controls .btn :global(svg) {
+    flex: 0 0 auto;
   }
 
   .search-input,
@@ -3708,7 +3724,26 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
     border-top-right-radius: 14px;
   }
 
-  .panel-head h3 { font-size: 14px; color: var(--sa-text); }
+  .panel-head h3 {
+    margin: 0;
+    color: var(--sa-text);
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    text-shadow: 0 1px 2px rgba(17, 24, 39, 0.08);
+  }
+
+  .tasks-controls-header .col {
+    color: var(--sa-muted);
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+  }
+
+  .tasks-controls-header .col-title {
+    text-align: left;
+  }
 
   .log-list.panel-scroll-body,
   .progress-list.panel-scroll-body,
@@ -3787,6 +3822,22 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
     color: var(--sa-text);
   }
 
+  :global(.dark) .view-controls .btn:hover,
+  :global(body.dark) .view-controls .btn:hover,
+  :global(html.dark) .view-controls .btn:hover {
+    background: #1e2736;
+    border-color: #ffffff1a;
+    color: #e5edf8;
+  }
+
+  :global(.dark) .view-controls .btn.active,
+  :global(body.dark) .view-controls .btn.active,
+  :global(html.dark) .view-controls .btn.active {
+    background: #1e2736;
+    color: #e5edf8;
+    border-color: #ffffff1a;
+  }
+
   :global(.dark) .kpi-value,
   :global(.dark) .panel-head h3,
   :global(.dark) .log-user strong,
@@ -3798,6 +3849,12 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
 
   :global(.dark) .kpi-title {
     color: #ffffff;
+  }
+
+  :global(.dark) .tasks-controls-header .col,
+  :global(body.dark) .tasks-controls-header .col,
+  :global(html.dark) .tasks-controls-header .col {
+    color: #94a3b8;
   }
 
   :global(.dark) .empty,

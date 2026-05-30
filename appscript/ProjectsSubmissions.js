@@ -131,7 +131,7 @@ function findProjSubmissionRecordById_(submissionId) {
 function handleCreateProjFolderSupervisor_(payload) {
   var projId = String(payload.proj_id || '').trim();
   var supervisorUserId = String(payload.user_id || payload.supervisor_user_id || '').trim();
-  var access = assertSupervisorOwnsProject_(supervisorUserId, projId);
+  var access = assertSupervisorCanAccessProject_(supervisorUserId, projId);
   if (!access.ok) return access;
   return handleCreateProjFolder_(payload);
 }
@@ -146,7 +146,7 @@ function handleUpdateProjFolderSupervisor_(payload) {
     return { ok: false, error: 'Folder not found: ' + folderId };
   }
 
-  var access = assertSupervisorOwnsProject_(supervisorUserId, folderRecord.folder.proj_id);
+  var access = assertSupervisorCanAccessProject_(supervisorUserId, folderRecord.folder.proj_id);
   if (!access.ok) return access;
   return handleUpdateProjFolder_(payload);
 }
@@ -161,7 +161,7 @@ function handleDeleteProjFolderSupervisor_(payload) {
     return { ok: false, error: 'Folder not found: ' + folderId };
   }
 
-  var access = assertSupervisorOwnsProject_(supervisorUserId, folderRecord.folder.proj_id);
+  var access = assertSupervisorCanAccessProject_(supervisorUserId, folderRecord.folder.proj_id);
   if (!access.ok) return access;
   return handleDeleteProjFolder_(payload);
 }
@@ -170,7 +170,7 @@ function handleCreateProjSubmissionSupervisor_(payload) {
   var projId = String(payload.proj_id || '').trim();
   var folderId = String(payload.folder_id || '').trim();
   var supervisorUserId = String(payload.user_id || payload.supervisor_user_id || '').trim();
-  var access = assertSupervisorOwnsProject_(supervisorUserId, projId);
+  var access = assertSupervisorCanAccessProject_(supervisorUserId, projId);
   if (!access.ok) return access;
 
   if (folderId) {
@@ -196,7 +196,7 @@ function handleDeleteProjSubmissionSupervisor_(payload) {
     return { ok: false, error: 'Submission not found: ' + submissionId };
   }
 
-  var access = assertSupervisorOwnsProject_(supervisorUserId, submissionRecord.submission.proj_id);
+  var access = assertSupervisorCanAccessProject_(supervisorUserId, submissionRecord.submission.proj_id);
   if (!access.ok) return access;
   return handleDeleteProjSubmission_(payload);
 }

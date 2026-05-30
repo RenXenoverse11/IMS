@@ -680,10 +680,6 @@
       if (!p.folders || p.folders === null) {
         loadProjectFolders(p.id);
       }
-      // Load milestones if not yet fetched
-      if (!p.milestones || p.milestones === null) {
-        loadProjectMilestones(p.id);
-      }
     }
   }
 
@@ -2450,7 +2446,6 @@
                       <div class="proj-detail-tabs proj-detail-tabs-modal" class:proj-detail-tabs-no-divider={viewingProjectTab === 'Feedback'}>
                         <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Details'} on:click={() => viewingProjectTab = 'Details'}>Details</button>
                         <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Submissions'} on:click={() => { viewingProjectTab = 'Submissions'; if (!p.folders) loadProjectFolders(p.id); }}>Submissions</button>
-                        <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Milestones'} on:click={() => { viewingProjectTab = 'Milestones'; if (!p.milestones || p.milestones === null) loadProjectMilestones(p.id); }}>Milestones</button>
                         <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Feedback'} on:click={() => { viewingProjectTab = 'Feedback'; if (!feedbackMap[p.id]) loadFeedback(p.id); }}>Feedback</button>
                       </div>
                       <div class="proj-detail-body proj-detail-body-modal">
@@ -2869,174 +2864,6 @@
                             </div>
                           {/each}
                         </div>
-                      {/if}
-                    <!-- Progress Logs tab removed; progress is shown inline in Details -->
-                    {:else if viewingProjectTab === 'Milestones'}
-                      <div style="margin-bottom:8px">
-                        <div style="display:flex;gap:8px;align-items:center">
-                          <button class="add-milestone-btn" on:click={() => toggleAddMilestone(p.id)}>
-                            <span class="icon">➕</span> Add Milestone
-                          </button>
-                        </div>
-                        {#if showAddMilestoneFor[p.id]}
-                          <div class="add-milestone-bar" style="padding:0.5rem 0.75rem; display:flex; flex-direction:column; gap:8px; margin-top:8px">
-                            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
-                              <input type="text" placeholder="Milestone" value={newMilestoneInputs[p.id]?.milestone || ''} on:input={(e) => { newMilestoneInputs = { ...newMilestoneInputs, [p.id]: { ...(newMilestoneInputs[p.id] || {}), milestone: e.target.value } }; }} class="input" />
-                              <input type="date" value={newMilestoneInputs[p.id]?.date || ''} on:input={(e) => { newMilestoneInputs = { ...newMilestoneInputs, [p.id]: { ...(newMilestoneInputs[p.id] || {}), date: e.target.value } }; }} class="input" style="width:170px" />
-                            </div>
-
-                            <div class="ms-linked-section">
-                              <div class="ms-linked-label">Linked Files:</div>
-                              {#if (newMilestoneLinkedFiles[p.id] || []).length > 0}
-                                <ul class="ms-linked-list">
-                                  {#each (newMilestoneLinkedFiles[p.id] || []) as lf}
-                                    <li class="ms-linked-item">
-                                      <span>📄 {lf.name}</span>
-                                      {#if lf.drive_url}<a href={lf.drive_url} target="_blank" rel="noopener" class="ms-open-link">Open</a>{/if}
-                                      <button class="ms-unlink-btn" title="Remove file" on:click={() => toggleNewMilestoneFile(p.id, lf)}>✕</button>
-                                    </li>
-                                  {/each}
-                                </ul>
-                              {:else}
-                                <div class="ms-no-links">No linked files yet.</div>
-                              {/if}
-                            </div>
-
-                            <div class="ms-actions">
-                              <button class="sub-action-btn" class:sub-action-btn-active={newMilestoneFilePicker[p.id]} disabled={isCreatingMilestone} on:click={() => toggleNewMilestoneFilePicker(p.id)}>
-                                📎 {newMilestoneFilePicker[p.id] ? 'Close Picker' : 'Link Files'}
-                              </button>
-                              <div style="flex:1"></div>
-                              <button class="sub-action-btn" class:sub-action-btn-busy={isCreatingMilestone} disabled={isCreatingMilestone} on:click={() => createMilestone(p.id)}>
-                                {#if isCreatingMilestone}<Loader2 size={13} class="spin" /> Saving…{:else}Save{/if}
-                              </button>
-                              <button class="sub-cancel-btn" disabled={isCreatingMilestone} on:click={() => { showAddMilestoneFor = { ...showAddMilestoneFor, [p.id]: false }; newMilestoneFilePicker = { ...newMilestoneFilePicker, [p.id]: false }; }}>Cancel</button>
-                            </div>
-
-                            {#if newMilestoneFilePicker[p.id]}
-                              <div class="ms-file-picker">
-                                <div class="ms-picker-label">Select files from submissions to link:</div>
-                                {#if projectFileSubmissions(p.id).length === 0}
-                                  <div class="ms-picker-empty">No files uploaded in the Submissions tab yet.</div>
-                                {:else}
-                                  {#each projectFileSubmissions(p.id) as sub}
-                                    <label class="ms-picker-item">
-                                      <input type="checkbox"
-                                        disabled={isCreatingMilestone}
-                                        checked={!!(newMilestoneLinkedFiles[p.id] || []).find(f => f.id === sub.id)}
-                                        on:change={() => toggleNewMilestoneFile(p.id, sub)} />
-                                      <span class="ms-picker-name">📄 {sub.name}</span>
-                                      <span class="ms-picker-folder">{sub.folder_name}</span>
-                                    </label>
-                                  {/each}
-                                {/if}
-                              </div>
-                            {/if}
-                          </div>
-                        {/if}
-                      </div>
-                      {#if p.milestones && p.milestones.length > 0}
-                        <div class="milestone-list">
-                          {#each p.milestones as m}
-                            <div class="ms-card" class:ms-expanded={expandedMilestoneIds.has(m.id)}>
-                              <!-- ── Collapsed header (always visible) ── -->
-                              <div class="ms-header" on:click={() => toggleMilestoneExpand(m.id)} role="button" tabindex="0" on:keydown={(e)=>{ if(e.key==='Enter'||e.key===' ') toggleMilestoneExpand(m.id); }}>
-                                <span class={"ms-icon " + (STATUS_META[m.status]?.cls || STATUS_META['Not Started'].cls)}></span>
-                                <span class="ms-title">{m.milestone}</span>
-                                {#if m.date}<span class="ms-due">Due: {formatDate(m.date)}</span>{/if}
-                                <span class="ms-chevron">{expandedMilestoneIds.has(m.id) ? '▲' : '▼'}</span>
-                              </div>
-
-                              <!-- ── Expanded body ── -->
-                              {#if expandedMilestoneIds.has(m.id)}
-                                <div class="ms-body">
-                                  <!-- Linked files list -->
-                                  {#if parseMilestoneFiles(m).length > 0}
-                                    <div class="ms-linked-section">
-                                      <div class="ms-linked-label">Linked Files:</div>
-                                      <ul class="ms-linked-list">
-                                        {#each parseMilestoneFiles(m) as lf}
-                                          <li class="ms-linked-item">
-                                            <span>📄 {lf.name}</span>
-                                            {#if lf.drive_url}<a href={lf.drive_url} target="_blank" rel="noopener" class="ms-open-link">Open</a>{/if}
-                                            {#if editingMilestoneId === m.id}
-                                              <button class="ms-unlink-btn" title="Unlink" on:click={() => toggleMilestoneFile(p.id, m.id, lf)}>✕</button>
-                                            {/if}
-                                          </li>
-                                        {/each}
-                                      </ul>
-                                    </div>
-                                  {:else}
-                                    <div class="ms-no-links">No linked files yet.</div>
-                                  {/if}
-
-                                  <!-- Action bar: read-only in view mode, controls in edit mode -->
-                                  <div class="ms-actions">
-                                    {#if editingMilestoneId === m.id}
-                                      <button class="sub-action-btn" on:click={() => toggleMilestoneFilePicker(m.id)}>
-                                        📎 {milestoneFilePicker[m.id] ? 'Close Picker' : 'Link Files'}
-                                      </button>
-                                      <select class="status-select" value={editingMilestoneInputs[m.id]?.status || m.status || 'Not Started'}
-                                        on:change={async (e) => {
-                                          const v = String(e.target.value || 'Not Started');
-                                          // keep local edit input in sync
-                                          editingMilestoneInputs = { ...editingMilestoneInputs, [m.id]: { ...(editingMilestoneInputs[m.id] || {}), status: v } };
-                                          await changeMilestoneStatus(p.id, m.id, v);
-                                        }}>
-                                        {#each STATUS_OPTIONS as so}
-                                          <option>{so}</option>
-                                        {/each}
-                                      </select>
-                                      <div style="flex:1"></div>
-                                      <button class="sub-action-btn" on:click={() => startEditMilestone(p.id, m)}>Edit</button>
-                                      <button class="sub-cancel-btn" on:click={() => deleteMilestone(p.id, m.id)}>Delete</button>
-                                    {:else}
-                                      <!-- view-only: show status pill matching project status style -->
-                                      <span class={"proj-status-pill " + (STATUS_META[m.status]?.cls || STATUS_META['Not Started'].cls)}>{STATUS_META[m.status]?.label || STATUS_META['Not Started'].label}</span>
-                                      <div style="flex:1"></div>
-                                      <button class="sub-action-btn" on:click={() => startEditMilestone(p.id, m)}>Edit</button>
-                                      <button class="sub-cancel-btn" on:click={() => deleteMilestone(p.id, m.id)}>Delete</button>
-                                    {/if}
-                                  </div>
-
-                                  <!-- Edit form -->
-                                  {#if editingMilestoneId === m.id}
-                                    <div class="add-milestone-bar" style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-                                      <input class="input" type="text" value={editingMilestoneInputs[m.id]?.milestone || ''} on:input={(e) => { editingMilestoneInputs = { ...editingMilestoneInputs, [m.id]: { ...(editingMilestoneInputs[m.id] || {}), milestone: e.target.value } }; }} placeholder="Milestone" />
-                                      <input class="input" type="date" value={editingMilestoneInputs[m.id]?.date || ''} on:input={(e) => { editingMilestoneInputs = { ...editingMilestoneInputs, [m.id]: { ...(editingMilestoneInputs[m.id] || {}), date: e.target.value } }; }} style="width:170px" />
-                                      <button class="sub-action-btn" class:sub-action-btn-busy={isSavingMilestone} disabled={isSavingMilestone} on:click={() => saveEditedMilestone(p.id, m.id)}>
-                                        {#if isSavingMilestone}<Loader2 size={13} class="spin" /> Saving…{:else}Save{/if}
-                                      </button>
-                                      <button class="sub-cancel-btn" disabled={isSavingMilestone} on:click={cancelEditMilestone}>Cancel</button>
-                                    </div>
-                                  {/if}
-
-                                  <!-- File picker -->
-                                  {#if milestoneFilePicker[m.id]}
-                                    <div class="ms-file-picker">
-                                      <div class="ms-picker-label">Select files from submissions to link:</div>
-                                      {#if projectFileSubmissions(p.id).length === 0}
-                                        <div class="ms-picker-empty">No files uploaded in the Submissions tab yet.</div>
-                                      {:else}
-                                        {#each projectFileSubmissions(p.id) as sub}
-                                          <label class="ms-picker-item">
-                                            <input type="checkbox"
-                                              checked={!!parseMilestoneFiles(m).find(f => f.id === sub.id)}
-                                              on:change={() => toggleMilestoneFile(p.id, m.id, sub)} />
-                                            <span class="ms-picker-name">📄 {sub.name}</span>
-                                            <span class="ms-picker-folder">{sub.folder_name}</span>
-                                          </label>
-                                        {/each}
-                                      {/if}
-                                    </div>
-                                  {/if}
-                                </div>
-                              {/if}
-                            </div>
-                          {/each}
-                        </div>
-                      {:else}
-                        <div class="proj-detail-empty">No milestones defined yet.</div>
                       {/if}
                     {:else if viewingProjectTab === 'Feedback'}
                       <!-- ── Feedback Tab ─────────────────────────────────── -->
@@ -3482,7 +3309,7 @@
       {/if}
       </div>
 
-      <div class="modal-footer modal-footer-sticky modal-footer-centered">
+      <div class="modal-footer modal-footer-sticky">
         <button class="btn-secondary" on:click={closeAddProjectModal}>Cancel</button>
         <button class="btn-submit" on:click={submitProject} disabled={isSubmitting || !isFormValid}>
           {#if isSubmitting}
@@ -3903,12 +3730,6 @@
 
   .submissions-list { display:flex; flex-direction:column; gap:0.6rem; padding:0.75rem 1.25rem 1rem; }
 
-  /* Milestones add bar styling */
-  .add-milestone-bar { background: var(--color-surface); border:1px solid var(--color-border); padding:0.6rem; border-radius:8px; align-items:flex-start; }
-  .add-milestone-bar .input { padding:0.45rem 0.75rem; border-radius:6px; border:1px solid var(--color-border); background:var(--color-surface); color:var(--color-heading); font-size:0.87rem; font-family:inherit; }
-  .add-milestone-btn { display:inline-flex; align-items:center; gap:0.5rem; padding:0.4rem 0.9rem; border-radius:8px; background:transparent; border:1px solid var(--color-border); color:var(--color-heading); font-size:0.87rem; font-family:inherit; }
-  .add-milestone-btn .icon { color:#7c3aed; }
-
   /* Status dropdown styling to match action buttons */
   .status-select {
     appearance: none; -webkit-appearance: none; -moz-appearance: none;
@@ -3928,9 +3749,6 @@
     font-size:0.78rem; height:28px; min-width:96px; text-align:center; box-sizing:border-box;
   }
   :global(body.dark) .status-pill { background: rgba(99,102,241,0.12); border-color: #ffffff20; color:#fff; }
-
-  /* Milestone text to match Details labels */
-  .milestone-text { font-size: 0.88rem; font-family: inherit; color: var(--color-text); }
 
   /* Ensure edit-mode inputs match view-mode text sizing */
 
@@ -4131,47 +3949,6 @@
   .log-check { background:transparent; color:#059669; border-radius:6px; padding:4px; font-size:0.95rem; line-height:1; border:1px solid rgba(5,150,105,0.12); display:inline-flex; align-items:center; justify-content:center; }
   .log-desc { color:var(--color-heading); font-size:0.9rem; font-family:inherit; }
   .log-entry-right { display:flex; gap:8px; align-items:center; }
-
-  /* Milestones */
-  .milestone-list { display:flex; flex-direction:column; gap:8px; padding:0.5rem 0.75rem; }
-  .milestone-row { display:flex; align-items:center; justify-content:space-between; padding:0.6rem 0.75rem; border-radius:8px; background:transparent; }
-  .milestone-left { display:flex; gap:12px; align-items:center; }
-  .milestone-icon { width:30px; height:30px; display:grid; place-items:center; border-radius:6px; font-size:0.95rem; }
-  .milestone-icon { border:1px solid rgba(255,255,255,0.04); }
-  .milestone-title { font-size:0.95rem; font-weight:600; color:var(--color-heading); }
-  .milestone-due { font-size:0.88rem; color:var(--color-sidebar-text); }
-
-  /* Collapsible milestone cards */
-  .ms-card { border:1px solid var(--color-border,rgba(255,255,255,0.08)); border-radius:10px; overflow:hidden; background:var(--color-card,rgba(255,255,255,0.03)); }
-  .ms-header { display:flex; align-items:center; gap:10px; padding:0.6rem 0.9rem; cursor:pointer; user-select:none; }
-  .ms-header:hover { background:rgba(255,255,255,0.04); }
-  /* small neutral status indicator */
-  .ms-icon { width:12px; height:12px; display:inline-block; border-radius:50%; border:1px solid rgba(255,255,255,0.06); background:transparent; box-shadow: none; }
-  .ms-icon.status-not-started { background: rgba(249,115,22,0.06); border-color: rgba(249,115,22,0.08); }
-  .ms-icon.status-in-progress { background: rgba(16,185,129,0.06); border-color: rgba(16,185,129,0.08); }
-  .ms-icon.status-submitted { background: rgba(124,58,237,0.06); border-color: rgba(124,58,237,0.08); }
-  .ms-icon.status-needs-revision { background: rgba(239,68,68,0.06); border-color: rgba(239,68,68,0.08); }
-  .ms-icon.status-approved { background: rgba(59,130,246,0.06); border-color: rgba(59,130,246,0.08); }
-  .ms-title { flex:1; font-size:0.95rem; font-weight:600; color:var(--color-heading); }
-  .ms-due { font-size:0.82rem; color:var(--color-sidebar-text); white-space:nowrap; }
-  .ms-chevron { font-size:0.75rem; color:var(--color-sidebar-text); margin-left:4px; }
-  .ms-body { padding:0.6rem 0.9rem 0.75rem; border-top:1px solid var(--color-border,rgba(255,255,255,0.06)); display:flex; flex-direction:column; gap:10px; }
-  .ms-linked-section { display:flex; flex-direction:column; gap:4px; }
-  .ms-linked-label { font-size:0.85rem; font-weight:600; color:var(--color-heading); }
-  .ms-linked-list { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:4px; }
-  .ms-linked-item { display:flex; align-items:center; gap:8px; font-size:0.85rem; color:var(--color-heading); }
-  .ms-open-link { font-size:0.78rem; color:var(--color-link,#60a5fa); text-decoration:none; }
-  .ms-open-link:hover { text-decoration:underline; }
-  .ms-unlink-btn { background:none; border:none; cursor:pointer; color:var(--color-muted,#9ca3af); font-size:0.75rem; padding:0 2px; }
-  .ms-no-links { font-size:0.82rem; color:var(--color-sidebar-text); }
-  .ms-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-  .ms-file-picker { border:1px solid var(--color-border,rgba(255,255,255,0.08)); border-radius:8px; padding:0.6rem 0.8rem; display:flex; flex-direction:column; gap:6px; background:var(--color-bg-alt,rgba(0,0,0,0.15)); }
-  .ms-picker-label { font-size:0.83rem; font-weight:600; color:var(--color-heading); }
-  .ms-picker-empty { font-size:0.82rem; color:var(--color-sidebar-text); }
-  .ms-picker-item { display:flex; align-items:center; gap:8px; cursor:pointer; padding:3px 0; }
-  .ms-picker-item input[type=checkbox] { accent-color:var(--color-primary,#6366f1); cursor:pointer; }
-  .ms-picker-name { font-size:0.85rem; color:var(--color-heading); flex:1; }
-  .ms-picker-folder { font-size:0.75rem; color:var(--color-sidebar-text); }
 
   /* Details grid */
   .proj-detail-grid { display:grid; grid-template-columns: 1fr; gap:0.75rem; padding:1rem 1.25rem; }
