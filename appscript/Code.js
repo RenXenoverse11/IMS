@@ -408,36 +408,6 @@ function dispatchAction_(payload) {
     return { ok: false, error: 'Handler not available: handleDeleteProjSubmissionSupervisor_' };
   }
 
-  // --- Milestones (intern) ---
-  if (action === 'list_milestones') {
-    if (typeof handleListMilestones_ === 'function') return handleListMilestones_(payload);
-    return { ok: false, error: 'Handler not available: handleListMilestones_' };
-  }
-  if (action === 'create_milestone') {
-    if (typeof handleCreateMilestone_ === 'function') return handleCreateMilestone_(payload);
-    return { ok: false, error: 'Handler not available: handleCreateMilestone_' };
-  }
-  if (action === 'create_milestone_supervisor') {
-    if (typeof handleCreateMilestoneSupervisor_ === 'function') return handleCreateMilestoneSupervisor_(payload);
-    return { ok: false, error: 'Handler not available: handleCreateMilestoneSupervisor_' };
-  }
-  if (action === 'update_milestone') {
-    if (typeof handleUpdateMilestone_ === 'function') return handleUpdateMilestone_(payload);
-    return { ok: false, error: 'Handler not available: handleUpdateMilestone_' };
-  }
-  if (action === 'update_milestone_supervisor') {
-    if (typeof handleUpdateMilestoneSupervisor_ === 'function') return handleUpdateMilestoneSupervisor_(payload);
-    return { ok: false, error: 'Handler not available: handleUpdateMilestoneSupervisor_' };
-  }
-  if (action === 'delete_milestone') {
-    if (typeof handleDeleteMilestone_ === 'function') return handleDeleteMilestone_(payload);
-    return { ok: false, error: 'Handler not available: handleDeleteMilestone_' };
-  }
-  if (action === 'delete_milestone_supervisor') {
-    if (typeof handleDeleteMilestoneSupervisor_ === 'function') return handleDeleteMilestoneSupervisor_(payload);
-    return { ok: false, error: 'Handler not available: handleDeleteMilestoneSupervisor_' };
-  }
-
   // --- Feedback (intern) ---
   if (action === 'list_feedback') {
     if (typeof handleListFeedback_ === 'function') return handleListFeedback_(payload);

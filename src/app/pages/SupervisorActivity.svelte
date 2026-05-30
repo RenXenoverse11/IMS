@@ -1,7 +1,7 @@
 <script>
   // @ts-nocheck
   import { onDestroy, onMount } from 'svelte';
-  import { Users, Clock3, CheckCircle, FileText, Download, ExternalLink, Eye, Archive, RotateCcw, Loader2 } from 'lucide-svelte';
+  import { Users, Clock3, CheckCircle, FileText, Download, ExternalLink, Eye, Archive, RotateCcw, Loader2, LayoutGrid, List } from 'lucide-svelte';
 
   export let currentUser = null;
 
@@ -1245,10 +1245,19 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
   <!-- Task creation / quick panel -->
   <section class="card quick-panel">
     <div class="quick-head">
-      <div class="view-controls">
-        <button class="btn btn-ghost" class:active={activeView === 'Overview'} on:click={() => activeView = 'Overview'}>Overview</button>
-        <button class="btn btn-ghost" class:active={activeView === 'List'} on:click={() => activeView = 'List'}>List</button>
-        <button class="btn btn-ghost" class:active={activeView === 'Archive'} on:click={() => activeView = 'Archive'}>Archive</button>
+      <div class="view-controls" role="tablist" aria-label="View mode">
+        <button class="btn btn-ghost" role="tab" class:active={activeView === 'Overview'} aria-selected={activeView === 'Overview'} on:click={() => activeView = 'Overview'}>
+          <LayoutGrid size={14} />
+          <span>Overview</span>
+        </button>
+        <button class="btn btn-ghost" role="tab" class:active={activeView === 'List'} aria-selected={activeView === 'List'} on:click={() => activeView = 'List'}>
+          <List size={14} />
+          <span>List</span>
+        </button>
+        <button class="btn btn-ghost" role="tab" class:active={activeView === 'Archive'} aria-selected={activeView === 'Archive'} on:click={() => activeView = 'Archive'}>
+          <Archive size={14} />
+          <span>Archive</span>
+        </button>
       </div>
 
       <div class="quick-actions">
@@ -1576,7 +1585,7 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
         {:else}
           <ul style="list-style:none; margin:0; padding:0; display:grid; gap:0.6rem;">
             {#each archivedSupervisorTasks as a}
-              <li style="display:flex; justify-content:space-between; align-items:center; padding:0.6rem; border-radius:0.75rem; background:var(--sa-subtle-bg); border:1px solid var(--sa-border);">
+              <li class="archive-task-item">
                 <div style="min-width:0">
                   <div class="archive-task-title">{a.title}</div>
                   <div class="muted" style="font-size:0.9rem">{formatDateToMMDDYYYY(a.due_date) || ''} — {a.status || ''}</div>
@@ -1713,15 +1722,12 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
   {#if activeView === 'List'}
   <section class="panel intern-panel tasks-scroll-panel">
     <div class="panel-head fullwidth">
-      <div class="panel-head-inner">
-        <h3>Tasks</h3>
-      </div>
       <div class="filters">
         <div class="tasks-controls-header" aria-hidden="true">
-          <div class="col col-title"></div>
-          <div class="col col-due"><strong>Due Date</strong></div>
-          <div class="col col-status"><strong>Status</strong></div>
-          <div class="col col-actions"><strong>Actions</strong></div>
+          <div class="col col-title">Tasks</div>
+          <div class="col col-due">Due Date</div>
+          <div class="col col-status">Status</div>
+          <div class="col col-actions">Actions</div>
         </div>
       </div>
     </div>
@@ -2417,11 +2423,19 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
     gap: 0.9rem;
   }
 
+  .archive-worklogs-panel .log-list {
+    gap: 0.5rem;
+  }
+
   .overview-scroll-panel,
-  .archive-worklogs-panel,
-  .tasks-scroll-panel {
+  .archive-worklogs-panel {
     height: 420px;
     min-height: 420px;
+  }
+
+  .tasks-scroll-panel {
+    height: 500px;
+    min-height: 500px;
   }
 
   .archive-tasks-panel {
@@ -2473,6 +2487,23 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
     color: var(--ink);
     position: relative;
     padding-bottom: 1rem;
+  }
+
+  .archive-worklogs-panel .log-card {
+    border-radius: 0.8rem;
+    padding: 0.72rem 0.9rem;
+    padding-bottom: 0.8rem;
+  }
+
+  .archive-worklogs-panel .log-card.collapsed {
+    min-height: 0;
+  }
+
+  .archive-worklogs-panel .status-pill {
+    top: 0.72rem;
+    right: 0.9rem;
+    padding: 0.18rem 0.6rem;
+    font-size: 0.69rem;
   }
 
 
@@ -2567,7 +2598,7 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
 
   /* full-row clickable intern task */
   .intern-row-button {
-    display:flex; align-items:center; justify-content:space-between; gap:0.75rem; width:100%; background:var(--soft); border:1px solid var(--border); text-align:left; padding:0.9rem 1rem; border-radius:0.9rem; cursor:pointer; color: var(--ink); transition: background 0.18s ease, border-color 0.18s ease, transform 0.12s ease
+    display:flex; align-items:center; justify-content:space-between; gap:0.6rem; width:100%; background:var(--soft); border:1px solid var(--border); text-align:left; padding:0.65rem 0.8rem; border-radius:0.6rem; cursor:pointer; color: var(--ink); transition: background 0.18s ease, border-color 0.18s ease, transform 0.12s ease
   }
   .intern-row-button:hover { background: color-mix(in srgb, var(--accent) 6%, var(--soft)); border-color: color-mix(in srgb, var(--accent) 12%, var(--border)); transform: translateY(-1px); }
   .intern-row-button:focus-visible { outline:none; border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent); }
@@ -2726,7 +2757,7 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
 
   .progress-list {
     display: grid;
-    gap: 1rem;
+    gap: 0.45rem;
   }
 
   .progress-row {
@@ -2769,7 +2800,7 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
   /* tasks table header and columns */
   .tasks-table { display:block }
   .tasks-header { display:none }
-  .tasks-controls-header { display:grid; grid-template-columns: 1fr 160px 120px 160px; gap:0.6rem; align-items:center }
+  .tasks-controls-header { display:grid; grid-template-columns: 1fr 160px 120px 160px; gap:0.6rem; align-items:center; width:100% }
   .tasks-controls-header .col { text-align: center }
   .task-row { display:grid; grid-template-columns: 1fr 160px 120px 160px; gap:0.6rem; padding:0.65rem 0.8rem; align-items:center }
   .col { font-size:0.95rem }
@@ -2777,8 +2808,7 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
   .task-row .col-actions { text-align:center }
 
 
-  .intern-panel .panel-head-inner { padding-left: 1.05rem }
-  .intern-panel .filters { padding-right: 1.05rem }
+  .intern-panel .filters { flex:1; padding: 0 1.05rem }
   .intern-menu { position:absolute; right:0; top:calc(100% + 6px); background:var(--surface); border:1px solid var(--border); border-radius:0.45rem; padding:0.3rem; z-index:80 }
 
   @media (min-width: 720px) {
@@ -2880,6 +2910,16 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
     height: 0.82rem;
     border-color: color-mix(in srgb, var(--muted) 20%, transparent);
     border-top-color: var(--accent);
+  }
+  .archive-task-item {
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:0.6rem;
+    padding:0.6rem;
+    border-radius:0.75rem;
+    background:var(--sa-subtle-bg);
+    border:1px solid var(--sa-border);
   }
   .quick-actions { display:flex; gap:0.45rem; align-items:center }
   .search-input { padding:0.34rem 0.6rem; border-radius:999px; border:1px solid var(--border); background:var(--soft); min-width:200px; font-size:0.95rem }
@@ -3638,11 +3678,12 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
   }
 
   .quick-panel {
-    background: var(--sa-panel-bg) !important;
-    border: 1px solid var(--sa-border) !important;
-    border-radius: 14px;
-    padding: 14px 16px;
-    box-shadow: var(--sa-shadow) !important;
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0;
+    padding: 0;
+    margin-bottom: 0;
+    box-shadow: none !important;
   }
 
   .view-controls {
@@ -3658,19 +3699,25 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
     gap: 0.4rem;
     border-radius: 0.7rem;
     padding: 0.32rem 0.72rem;
-    background: var(--sa-panel-bg);
+    background: transparent;
     border: 1px solid var(--sa-border);
     font-size: 0.84rem;
+    font-family: 'DM Sans', sans-serif;
     height: 2.15rem;
     line-height: 1;
     color: var(--sa-muted);
     font-weight: 600;
+    letter-spacing: 0;
   }
 
   .view-controls .btn.active {
     background: var(--sa-subtle-bg);
     color: var(--sa-text);
     border-color: var(--sa-border);
+  }
+
+  .view-controls .btn :global(svg) {
+    flex: 0 0 auto;
   }
 
   .search-input,
@@ -3708,7 +3755,37 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
     border-top-right-radius: 14px;
   }
 
-  .panel-head h3 { font-size: 14px; color: var(--sa-text); }
+  .panel-head h3 {
+    margin: 0;
+    color: var(--sa-text);
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    text-shadow: 0 1px 2px rgba(17, 24, 39, 0.08);
+  }
+
+  .tasks-controls-header .col {
+    color: var(--sa-muted);
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+  }
+
+  .tasks-controls-header .col-title {
+    text-align: left;
+  }
+
+  .overview-scroll-panel .panel-head h3,
+  .archive-tasks-panel .panel-head h3,
+  .archive-worklogs-panel .panel-head h3 {
+    color: var(--sa-muted);
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    text-shadow: none;
+  }
 
   .log-list.panel-scroll-body,
   .progress-list.panel-scroll-body,
@@ -3787,6 +3864,22 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
     color: var(--sa-text);
   }
 
+  :global(.dark) .view-controls .btn:hover,
+  :global(body.dark) .view-controls .btn:hover,
+  :global(html.dark) .view-controls .btn:hover {
+    background: #1e2736;
+    border-color: #ffffff1a;
+    color: #e5edf8;
+  }
+
+  :global(.dark) .view-controls .btn.active,
+  :global(body.dark) .view-controls .btn.active,
+  :global(html.dark) .view-controls .btn.active {
+    background: #1e2736;
+    color: #e5edf8;
+    border-color: #ffffff1a;
+  }
+
   :global(.dark) .kpi-value,
   :global(.dark) .panel-head h3,
   :global(.dark) .log-user strong,
@@ -3798,6 +3891,25 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
 
   :global(.dark) .kpi-title {
     color: #ffffff;
+  }
+
+  :global(.dark) .tasks-controls-header .col,
+  :global(body.dark) .tasks-controls-header .col,
+  :global(html.dark) .tasks-controls-header .col {
+    color: #94a3b8;
+  }
+
+  :global(.dark) .overview-scroll-panel .panel-head h3,
+  :global(.dark) .archive-tasks-panel .panel-head h3,
+  :global(.dark) .archive-worklogs-panel .panel-head h3,
+  :global(body.dark) .overview-scroll-panel .panel-head h3,
+  :global(body.dark) .archive-tasks-panel .panel-head h3,
+  :global(body.dark) .archive-worklogs-panel .panel-head h3,
+  :global(html.dark) .overview-scroll-panel .panel-head h3,
+  :global(html.dark) .archive-tasks-panel .panel-head h3,
+  :global(html.dark) .archive-worklogs-panel .panel-head h3 {
+    color: #94a3b8;
+    text-shadow: none;
   }
 
   :global(.dark) .empty,
