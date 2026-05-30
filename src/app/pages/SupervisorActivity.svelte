@@ -1585,7 +1585,7 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
         {:else}
           <ul style="list-style:none; margin:0; padding:0; display:grid; gap:0.6rem;">
             {#each archivedSupervisorTasks as a}
-              <li style="display:flex; justify-content:space-between; align-items:center; padding:0.6rem; border-radius:0.75rem; background:var(--sa-subtle-bg); border:1px solid var(--sa-border);">
+              <li class="archive-task-item">
                 <div style="min-width:0">
                   <div class="archive-task-title">{a.title}</div>
                   <div class="muted" style="font-size:0.9rem">{formatDateToMMDDYYYY(a.due_date) || ''} — {a.status || ''}</div>
@@ -2423,6 +2423,10 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
     gap: 0.9rem;
   }
 
+  .archive-worklogs-panel .log-list {
+    gap: 0.5rem;
+  }
+
   .overview-scroll-panel,
   .archive-worklogs-panel {
     height: 420px;
@@ -2483,6 +2487,23 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
     color: var(--ink);
     position: relative;
     padding-bottom: 1rem;
+  }
+
+  .archive-worklogs-panel .log-card {
+    border-radius: 0.8rem;
+    padding: 0.72rem 0.9rem;
+    padding-bottom: 0.8rem;
+  }
+
+  .archive-worklogs-panel .log-card.collapsed {
+    min-height: 0;
+  }
+
+  .archive-worklogs-panel .status-pill {
+    top: 0.72rem;
+    right: 0.9rem;
+    padding: 0.18rem 0.6rem;
+    font-size: 0.69rem;
   }
 
 
@@ -2577,7 +2598,7 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
 
   /* full-row clickable intern task */
   .intern-row-button {
-    display:flex; align-items:center; justify-content:space-between; gap:0.75rem; width:100%; background:var(--soft); border:1px solid var(--border); text-align:left; padding:0.9rem 1rem; border-radius:0.9rem; cursor:pointer; color: var(--ink); transition: background 0.18s ease, border-color 0.18s ease, transform 0.12s ease
+    display:flex; align-items:center; justify-content:space-between; gap:0.6rem; width:100%; background:var(--soft); border:1px solid var(--border); text-align:left; padding:0.65rem 0.8rem; border-radius:0.6rem; cursor:pointer; color: var(--ink); transition: background 0.18s ease, border-color 0.18s ease, transform 0.12s ease
   }
   .intern-row-button:hover { background: color-mix(in srgb, var(--accent) 6%, var(--soft)); border-color: color-mix(in srgb, var(--accent) 12%, var(--border)); transform: translateY(-1px); }
   .intern-row-button:focus-visible { outline:none; border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent); }
@@ -2736,7 +2757,7 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
 
   .progress-list {
     display: grid;
-    gap: 1rem;
+    gap: 0.45rem;
   }
 
   .progress-row {
@@ -2889,6 +2910,16 @@ $: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
     height: 0.82rem;
     border-color: color-mix(in srgb, var(--muted) 20%, transparent);
     border-top-color: var(--accent);
+  }
+  .archive-task-item {
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:0.6rem;
+    padding:0.6rem;
+    border-radius:0.75rem;
+    background:var(--sa-subtle-bg);
+    border:1px solid var(--sa-border);
   }
   .quick-actions { display:flex; gap:0.45rem; align-items:center }
   .search-input { padding:0.34rem 0.6rem; border-radius:999px; border:1px solid var(--border); background:var(--soft); min-width:200px; font-size:0.95rem }
