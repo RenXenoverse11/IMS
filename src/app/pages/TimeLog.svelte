@@ -14,6 +14,7 @@
   } from 'lucide-svelte';
   import * as authApi from '../lib/auth.js';
   import { formatWorkingDuration, getEstimatedCompletionDate } from '../lib/getEstimatedCompletionDate.js';
+  import { subscribeToSync } from '../lib/sync.js';
 
   const DEFAULT_REQUIRED_HOURS = 500;
   const AVERAGE_DAILY_HOURS = 8;
@@ -62,6 +63,7 @@
     reason: '',
   };
   let overrideRequestIncludeLunch = true; // Independent lunch toggle for override requests
+  let isOverrideRequestFormIncomplete = true;
 
   // Time Log History filter state
   let timelogHistoryFilter = 'entries'; // 'entries' or 'overrides'
@@ -88,6 +90,7 @@
   let deleteConfirmOverride = null;
   let isDeletingOverride = false;
   let unsubscribeAuth = null;
+  let unsubscribeSync = null;
   let queuedAuthRefresh = false;
   let html2pdfLoaderPromise = null;
 
@@ -600,10 +603,24 @@
     
     if (!normalizedDate || !normalizedTimeIn || !normalizedTimeOut) return false;
     
-    // Check if there's any entry on the same date
+    // Convert times to minutes for comparison
+    const requestStartMinutes = timeToMinutes(normalizedTimeIn);
+    const requestEndMinutes = timeToMinutes(normalizedTimeOut);
+    
+    if (requestStartMinutes === null || requestEndMinutes === null) return false;
+    
+    // Check if there's any overlapping entry on the same date
     return entries.some((entry) => {
       const entryDate = normalizeDateOnly(entry?.date || '');
-      return entryDate === normalizedDate;
+      if (entryDate !== normalizedDate) return false;
+      
+      const entryStartMinutes = timeToMinutes(entry?.timeIn || '');
+      const entryEndMinutes = timeToMinutes(entry?.timeOut || '');
+      
+      if (entryStartMinutes === null || entryEndMinutes === null) return false;
+      
+      // Check for time overlap
+      return !(requestEndMinutes <= entryStartMinutes || requestStartMinutes >= entryEndMinutes);
     });
   }
 
@@ -635,7 +652,7 @@
     const todayDate = getTodayDateOnly();
 
     if (!requestDate || !requestTimeIn || !requestTimeOut || !requestReason) {
-      logSyncError = 'Date, time in, time out, and reason are required for an override request.';
+      logSyncError = 'Please complete all required fields before submitting your request.';
       return;
     }
 
@@ -653,7 +670,29 @@
 
     // Check for conflicting time log entries on the same date
     if (checkForConflictingTimeLogEntry(requestDate, requestTimeIn, requestTimeOut)) {
-      logSyncError = `A time log entry already exists for ${formatLongDate(requestDate)}. You can only submit an override for a different date or time.`;
+      logSyncError = `Time overlap detected. A time log entry on ${formatLongDate(requestDate)} already exists during this time period. Please select a different time range.`;
+      return;
+    }
+
+    // Check for duplicate override requests on the same date with the same time range
+    const hasConflictingOverride = overrideRequests.some((req) => {
+      if (req.status !== 'pending') return false;
+      const reqDate = normalizeDateOnly(req.date || '');
+      if (reqDate !== requestDate) return false;
+      
+      const reqStartMinutes = timeToMinutes(req.timeIn || '');
+      const reqEndMinutes = timeToMinutes(req.timeOut || '');
+      const requestStartMinutes = timeToMinutes(requestTimeIn);
+      const requestEndMinutes = timeToMinutes(requestTimeOut);
+      
+      if (reqStartMinutes === null || reqEndMinutes === null || requestStartMinutes === null || requestEndMinutes === null) return false;
+      
+      // Check for time overlap with existing pending requests
+      return !(requestEndMinutes <= reqStartMinutes || requestStartMinutes >= reqEndMinutes);
+    });
+
+    if (hasConflictingOverride) {
+      logSyncError = `Cannot submit this request because you already have a pending override request on ${formatLongDate(requestDate)} for an overlapping time range.`;
       return;
     }
 
@@ -685,6 +724,11 @@
       isSubmittingOverrideRequest = false;
     }
   }
+
+  $: isOverrideRequestFormIncomplete = !normalizeDateOnly(overrideRequestForm.date)
+    || !normalizeTimeValue(overrideRequestForm.timeIn, '')
+    || !normalizeTimeValue(overrideRequestForm.timeOut, '')
+    || !String(overrideRequestForm.reason || '').trim();
 
   async function handleLogin() {
     syncDateToToday();
@@ -1333,6 +1377,9 @@
       }
       await refreshTimeLogForCurrentUser();
     });
+    unsubscribeSync = subscribeToSync(() => {
+      loadEntriesFromApi();
+    });
     // Watch for theme changes to redraw chart
     _themeObserver = new MutationObserver(() => requestTlChartInit());
     _themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
@@ -1341,6 +1388,7 @@
   
   onDestroy(() => {
     if (typeof unsubscribeAuth === 'function') unsubscribeAuth();
+    if (typeof unsubscribeSync === 'function') unsubscribeSync();
     if (_themeObserver) _themeObserver.disconnect();
     if (_chartInitRaf) cancelAnimationFrame(_chartInitRaf);
     if (_chartRetryTimer) clearTimeout(_chartRetryTimer);
@@ -1733,6 +1781,13 @@
           <Plus size={14} />
           Request Missing Log
         </button>
+
+        {#if logSyncError && !showOverrideRequestModal}
+          <div class="tl-error-message">
+            <AlertCircle size={16} />
+            <span>{logSyncError}</span>
+          </div>
+        {/if}
       </div>
 
     </div>
@@ -2012,18 +2067,24 @@
           <button class="tl-modal-close" on:click={closeOverrideRequestModal} aria-label="Close">×</button>
         </div>
         <div class="tl-modal-body">
+          {#if logSyncError}
+            <div class="tl-modal-error" role="alert" aria-live="polite">
+              <AlertCircle size={16} />
+              <span>{logSyncError}</span>
+            </div>
+          {/if}
           <div class="tl-override-grid">
             <div class="tl-field">
               <label for="override-date">Date</label>
-              <input id="override-date" type="date" bind:value={overrideRequestForm.date} max={getTodayDateOnly()} />
+              <input id="override-date" type="date" bind:value={overrideRequestForm.date} max={getTodayDateOnly()} required />
             </div>
             <div class="tl-field">
               <label for="override-time-in">Time In</label>
-              <input id="override-time-in" type="time" bind:value={overrideRequestForm.timeIn} />
+              <input id="override-time-in" type="time" bind:value={overrideRequestForm.timeIn} required />
             </div>
             <div class="tl-field">
               <label for="override-time-out">Time Out</label>
-              <input id="override-time-out" type="time" bind:value={overrideRequestForm.timeOut} />
+              <input id="override-time-out" type="time" bind:value={overrideRequestForm.timeOut} required />
             </div>
             <div class="tl-field">
               <label for="override-duration" class="tl-label-text">Duration</label>
@@ -2048,13 +2109,13 @@
             </div>
             <div class="tl-field tl-field-full">
               <label for="override-reason">Reason</label>
-              <textarea id="override-reason" bind:value={overrideRequestForm.reason} rows="4" placeholder="Explain why you need a manual time log entry..."></textarea>
+              <textarea id="override-reason" bind:value={overrideRequestForm.reason} rows="4" placeholder="Explain why you need a manual time log entry..." required></textarea>
             </div>
           </div>
         </div>
         <div class="tl-modal-footer">
           <button class="tl-modal-cancel" on:click={closeOverrideRequestModal} disabled={isSubmittingOverrideRequest}>Cancel</button>
-          <button class="tl-modal-delete tl-modal-submit" on:click={submitOverrideRequest} disabled={isSubmittingOverrideRequest}>
+          <button class="tl-modal-delete tl-modal-submit" on:click={submitOverrideRequest} disabled={isSubmittingOverrideRequest || isOverrideRequestFormIncomplete}>
             {#if isSubmittingOverrideRequest}
               <span class="tl-spin"><Loader2 size={14} /></span>
               Submitting...
@@ -3054,6 +3115,40 @@
     padding-top: 12px;
     border-top: 1px solid var(--tl-border);
     margin: 0;
+  }
+  .tl-modal-error {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 14px;
+    margin-bottom: 16px;
+    border-radius: var(--tl-radius-sm);
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.25);
+    color: #ef4444;
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  .tl-modal-error :global(svg) {
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .tl-error-message {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 14px;
+    margin-top: 12px;
+    border-radius: var(--tl-radius-sm);
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.25);
+    color: #ef4444;
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  .tl-error-message :global(svg) {
+    flex-shrink: 0;
+    margin-top: 2px;
   }
   .tl-modal-footer {
     display: flex; gap: 10px;

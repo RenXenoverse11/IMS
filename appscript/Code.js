@@ -247,6 +247,14 @@ function dispatchAction_(payload) {
     return handleUpdateRequestStatus_(payload);
   }
 
+  if (action === 'approve_request') {
+    return handleApproveRequest_(payload);
+  }
+
+  if (action === 'reject_request') {
+    return handleRejectRequest_(payload);
+  }
+
   if (action === 'delete_request') {
     return handleDeleteRequest_(payload);
   }
@@ -2526,6 +2534,32 @@ function handleCreateRequest_(payload) {
     }
   }
 
+  if (requestType === 'Time Log Override') {
+    if (!startTime || !endTime) {
+      return { ok: false, error: 'Start time and end time are required for time log override requests.' };
+    }
+
+    var normalizedOverrideStartMinutes = normalizeTimeToMinutes_(startTime);
+    var normalizedOverrideEndMinutes = normalizeTimeToMinutes_(endTime);
+    if (
+      normalizedOverrideStartMinutes === null ||
+      normalizedOverrideEndMinutes === null ||
+      normalizedOverrideEndMinutes <= normalizedOverrideStartMinutes
+    ) {
+      return { ok: false, error: 'Time out must be later than time in for override requests.' };
+    }
+
+    var existingTimeLogError = getTimeLogEntryOverlapError_(userId, requestDate, startTime, endTime);
+    if (existingTimeLogError) {
+      return { ok: false, error: existingTimeLogError };
+    }
+
+    var duplicateOverrideError = getTimeLogOverrideDuplicateOverlapError_(userId, requestDate, startTime, endTime, payload.request_id);
+    if (duplicateOverrideError) {
+      return { ok: false, error: duplicateOverrideError };
+    }
+  }
+
   // Absence-specific validation
   if (requestType === 'Absence') {
     var absenceError = checkAbsenceOnDayOff_(requestDate, userDaysOff);
@@ -3388,6 +3422,264 @@ function handleUpdateRequestStatus_(payload) {
   return { ok: true, message: 'Request status updated.', status: effectiveStatus };
 }
 
+function resolvePendingRequestIdForSupervisorAction_(payload) {
+  var directRequestId = String(payload.request_id || payload.id || '').trim();
+  if (directRequestId) {
+    return directRequestId;
+  }
+
+  var studentUserId = String(payload.student_user_id || payload.request_user_id || '').trim();
+  var requestDate = formatDateValue_(payload.request_date || payload.date || '');
+  var startTime = normalizeTimeForCompare_(payload.start_time || payload.time_in || '');
+  var endTime = normalizeTimeForCompare_(payload.end_time || payload.time_out || '');
+  var reason = String(payload.reason || '').trim();
+
+  if (!studentUserId || !requestDate || !startTime || !endTime) {
+    return '';
+  }
+
+  var rows = readSheetObjects_(getRequestsSheet_());
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i] || {};
+    if (String(row.user_id || '').trim() !== studentUserId) continue;
+    if (String(row.request_type || '').trim().toLowerCase() !== 'time log override') continue;
+    if (String(row.status || '').trim().toLowerCase() !== 'pending') continue;
+    if (formatDateValue_(row.request_date) !== requestDate) continue;
+    if (normalizeTimeForCompare_(row.start_time) !== startTime) continue;
+    if (normalizeTimeForCompare_(row.end_time) !== endTime) continue;
+    if (reason && String(row.reason || '').trim() !== reason) continue;
+    return String(row.request_id || '').trim();
+  }
+
+  return '';
+}
+
+function handleApproveRequest_(payload) {
+  var requestId = resolvePendingRequestIdForSupervisorAction_(payload);
+  var supervisorUserId = String(payload.supervisor_user_id || payload.user_id || '').trim();
+
+  if (!requestId || !supervisorUserId) {
+    return { ok: false, error: 'request_id and supervisor_user_id are required.' };
+  }
+
+  // First, get the request details
+  var sheet = getRequestsSheet_();
+  var rows = getSheetValues_(sheet);
+  var headers = getHeaders_(sheet);
+  var requestIdColIndex = findColumnIndex_(headers, 'request_id');
+  var userIdColIndex = findColumnIndex_(headers, 'user_id');
+  var requestTypeColIndex = findColumnIndex_(headers, 'request_type');
+  var statusColIndex = findColumnIndex_(headers, 'status');
+  var dateColIndex = findColumnIndex_(headers, 'request_date');
+  var startTimeColIndex = findColumnIndex_(headers, 'start_time');
+  var endTimeColIndex = findColumnIndex_(headers, 'end_time');
+  var totalHoursColIndex = findColumnIndex_(headers, 'total_hours');
+  var reasonColIndex = findColumnIndex_(headers, 'reason');
+
+  // Find the request
+  var requestRowIndex = -1;
+  for (var i = 1; i < rows.length; i++) {
+    if (String(rows[i][requestIdColIndex - 1] || '').trim() === requestId) {
+      requestRowIndex = i;
+      break;
+    }
+  }
+
+  if (requestRowIndex === -1) {
+    return { ok: false, error: 'Request not found.' };
+  }
+
+  var studentUserId = String(rows[requestRowIndex][userIdColIndex - 1] || '').trim();
+  var requestType = String(rows[requestRowIndex][requestTypeColIndex - 1] || '').trim().toLowerCase();
+  var currentStatus = String(rows[requestRowIndex][statusColIndex - 1] || '').trim().toLowerCase();
+
+  // Only process time log override requests
+  if (requestType !== 'time log override') {
+    return { ok: false, error: 'Only time log override requests can be approved.' };
+  }
+
+  if (currentStatus !== 'pending') {
+    return { ok: false, error: 'Only pending requests can be approved.' };
+  }
+
+  // Check if supervisor is assigned to this student
+  if (!isStudentAssignedToSupervisor_(supervisorUserId, studentUserId)) {
+    return { ok: false, error: 'You are not assigned to this student.' };
+  }
+
+  // Extract time log data from the request
+  var logDate = dateColIndex > 0 ? formatDateValue_(rows[requestRowIndex][dateColIndex - 1]) : '';
+  var timeIn = startTimeColIndex > 0 ? String(rows[requestRowIndex][startTimeColIndex - 1] || '').trim() : '';
+  var timeOut = endTimeColIndex > 0 ? String(rows[requestRowIndex][endTimeColIndex - 1] || '').trim() : '';
+  var hours = totalHoursColIndex > 0 ? Number(rows[requestRowIndex][totalHoursColIndex - 1] || 0) : 0;
+  var reason = reasonColIndex > 0 ? String(rows[requestRowIndex][reasonColIndex - 1] || '').trim() : '';
+
+  if (!logDate || !timeIn || !timeOut) {
+    return { ok: false, error: 'Request is missing required time information.' };
+  }
+
+  // Create a time log entry
+  try {
+    var timeLogSheet = getActiveSessionsSheet_();
+    var timeLogHeaders = getHeaders_(timeLogSheet);
+
+    var newSessionId = getNextSequenceId_(ACTIVE_SESSIONS_SHEET_, 'SES', 'session_id', 4);
+    var createdAtNow = formatDateTimeValue_(new Date());
+
+    var newRow = [];
+    for (var h = 0; h < timeLogHeaders.length; h++) {
+      var header = String(timeLogHeaders[h] || '').toLowerCase().trim();
+      if (header === 'session_id') {
+        newRow.push(newSessionId);
+      } else if (header === 'user_id') {
+        newRow.push(studentUserId);
+      } else if (header === 'log_date') {
+        newRow.push(logDate);
+      } else if (header === 'time_in') {
+        newRow.push(timeIn);
+      } else if (header === 'time_out') {
+        newRow.push(timeOut);
+      } else if (header === 'hours_rendered') {
+        newRow.push(hours);
+      } else if (header === 'actual_rendered_hours') {
+        newRow.push(hours);
+      } else if (header === 'notes') {
+        newRow.push('Approved override request: ' + reason);
+      } else if (header === 'created_at') {
+        newRow.push(createdAtNow);
+      } else {
+        newRow.push('');
+      }
+    }
+
+    timeLogSheet.appendRow(newRow);
+
+    // Update the request status to approved
+    var statusColIndex = findColumnIndex_(getHeaders_(sheet), 'status');
+    sheet.getRange(requestRowIndex + 1, statusColIndex).setValue('Approved');
+
+    // Update student's completed hours
+    try {
+      var profileSheet = getStudentOjtProfileSheet_();
+      var profileHeaders = getHeaders_(profileSheet);
+      var profileRows = getSheetValues_(profileSheet);
+      var profileUserIdColIndex = findColumnIndex_(profileHeaders, 'user_id');
+      var completedHoursColIndex = findColumnIndex_(profileHeaders, 'total_ojt_hours');
+
+      var profileRowIndex = -1;
+      for (var p = 1; p < profileRows.length; p++) {
+        if (String(profileRows[p][profileUserIdColIndex - 1] || '').trim() === studentUserId) {
+          profileRowIndex = p;
+          break;
+        }
+      }
+
+      if (profileRowIndex > -1 && completedHoursColIndex > 0) {
+        var currentHours = Number(profileRows[profileRowIndex][completedHoursColIndex - 1] || 0);
+        var newHours = currentHours + hours;
+        profileSheet.getRange(profileRowIndex + 1, completedHoursColIndex).setValue(newHours);
+      }
+    } catch (profileErr) {
+      Logger.log('Warning: Could not update student completed hours: ' + (profileErr && profileErr.message ? profileErr.message : String(profileErr)));
+    }
+
+    // Send notification to student
+    var requestDate = dateColIndex > 0 ? formatDateValue_(rows[requestRowIndex][dateColIndex - 1]) : '';
+    createNotification_(
+      studentUserId,
+      'Time Log Override Approved',
+      'Your override request for ' + requestDate + ' has been approved and added to your time log.',
+      'approval',
+      requestId
+    );
+
+    return { ok: true, message: 'Override request approved and time log created.', status: 'Approved' };
+  } catch (err) {
+    return { ok: false, error: 'Failed to approve request: ' + (err && err.message ? err.message : String(err)) };
+  }
+}
+
+function handleRejectRequest_(payload) {
+  var requestId = resolvePendingRequestIdForSupervisorAction_(payload);
+  var supervisorUserId = String(payload.supervisor_user_id || payload.user_id || '').trim();
+  var rejectionReason = String(payload.rejection_reason || '').trim();
+
+  if (!requestId || !supervisorUserId) {
+    return { ok: false, error: 'request_id and supervisor_user_id are required.' };
+  }
+
+  // Get the request details
+  var sheet = getRequestsSheet_();
+  var rows = getSheetValues_(sheet);
+  var headers = getHeaders_(sheet);
+  var requestIdColIndex = findColumnIndex_(headers, 'request_id');
+  var userIdColIndex = findColumnIndex_(headers, 'user_id');
+  var requestTypeColIndex = findColumnIndex_(headers, 'request_type');
+  var statusColIndex = findColumnIndex_(headers, 'status');
+  var dateColIndex = findColumnIndex_(headers, 'request_date');
+  var rejectionRemarksColIndex = findColumnIndex_(headers, 'rejection_remarks');
+
+  // Find the request
+  var requestRowIndex = -1;
+  for (var i = 1; i < rows.length; i++) {
+    if (String(rows[i][requestIdColIndex - 1] || '').trim() === requestId) {
+      requestRowIndex = i;
+      break;
+    }
+  }
+
+  if (requestRowIndex === -1) {
+    return { ok: false, error: 'Request not found.' };
+  }
+
+  var studentUserId = String(rows[requestRowIndex][userIdColIndex - 1] || '').trim();
+  var requestType = String(rows[requestRowIndex][requestTypeColIndex - 1] || '').trim().toLowerCase();
+  var currentStatus = String(rows[requestRowIndex][statusColIndex - 1] || '').trim().toLowerCase();
+
+  // Only process time log override requests
+  if (requestType !== 'time log override') {
+    return { ok: false, error: 'Only time log override requests can be rejected.' };
+  }
+
+  if (currentStatus !== 'pending') {
+    return { ok: false, error: 'Only pending requests can be rejected.' };
+  }
+
+  // Check if supervisor is assigned to this student
+  if (!isStudentAssignedToSupervisor_(supervisorUserId, studentUserId)) {
+    return { ok: false, error: 'You are not assigned to this student.' };
+  }
+
+  try {
+    // Update the request status to rejected
+    sheet.getRange(requestRowIndex + 1, statusColIndex).setValue('Rejected');
+
+    // Update rejection remarks if provided
+    if (rejectionRemarksColIndex > 0 && rejectionReason) {
+      sheet.getRange(requestRowIndex + 1, rejectionRemarksColIndex).setValue(rejectionReason);
+    }
+
+    // Send notification to student
+    var requestDate = dateColIndex > 0 ? formatDateValue_(rows[requestRowIndex][dateColIndex - 1]) : '';
+    var notificationMessage = 'Your override request for ' + requestDate + ' has been rejected.';
+    if (rejectionReason) {
+      notificationMessage += ' Reason: ' + rejectionReason;
+    }
+
+    createNotification_(
+      studentUserId,
+      'Time Log Override Rejected',
+      notificationMessage,
+      'rejection',
+      requestId
+    );
+
+    return { ok: true, message: 'Override request rejected.', status: 'Rejected' };
+  } catch (err) {
+    return { ok: false, error: 'Failed to reject request: ' + (err && err.message ? err.message : String(err)) };
+  }
+}
+
 function handleDeleteRequest_(payload) {
   var requestId = String(payload.request_id || '').trim();
   var userId = String(payload.user_id || '').trim();
@@ -4059,6 +4351,113 @@ function getOvertimeDuplicateOverlapError_(userId, requestDate, startTime, endTi
   return '';
 }
 
+function getTimeLogOverrideDuplicateOverlapError_(userId, requestDate, startTime, endTime, ignoreRequestId) {
+  var normalizedUserId = String(userId || '').trim();
+  var normalizedDate = formatDateValue_(requestDate);
+  var normalizedStart = normalizeTimeForCompare_(startTime);
+  var normalizedEnd = normalizeTimeForCompare_(endTime);
+  var ignoredId = String(ignoreRequestId || '').trim();
+
+  if (!normalizedUserId || !normalizedDate || !normalizedStart || !normalizedEnd) {
+    return '';
+  }
+
+  var requestedStartMinutes = normalizeTimeToMinutes_(normalizedStart);
+  var requestedEndMinutes = normalizeTimeToMinutes_(normalizedEnd);
+  if (requestedStartMinutes === null || requestedEndMinutes === null || requestedEndMinutes <= requestedStartMinutes) {
+    return '';
+  }
+
+  var rows = readSheetObjects_(getRequestsSheet_());
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i] || {};
+    if (String(row.user_id || '').trim() !== normalizedUserId) {
+      continue;
+    }
+
+    var requestId = String(row.request_id || '').trim();
+    if (ignoredId && requestId === ignoredId) {
+      continue;
+    }
+
+    var requestType = String(row.request_type || '').trim().toLowerCase();
+    if (requestType !== 'time log override') {
+      continue;
+    }
+
+    var statusLower = String(row.status || '').trim().toLowerCase();
+    var archivedPreviousStatusLower = String(row.archived_previous_status || '').trim().toLowerCase();
+    var effectiveStatusLower = statusLower === 'archived' ? archivedPreviousStatusLower : statusLower;
+    if (effectiveStatusLower !== 'pending' && effectiveStatusLower !== 'approved') {
+      continue;
+    }
+
+    var rowDate = formatDateValue_(row.request_date);
+    if (rowDate !== normalizedDate) {
+      continue;
+    }
+
+    var rowStartMinutes = normalizeTimeToMinutes_(row.start_time);
+    var rowEndMinutes = normalizeTimeToMinutes_(row.end_time);
+    if (rowStartMinutes === null || rowEndMinutes === null || rowEndMinutes <= rowStartMinutes) {
+      continue;
+    }
+
+    if (rangesOverlap_(requestedStartMinutes, requestedEndMinutes, rowStartMinutes, rowEndMinutes)) {
+      return 'You already have a ' + effectiveStatusLower + ' override request that overlaps this time range. Please choose a different time.';
+    }
+  }
+
+  return '';
+}
+
+function getTimeLogEntryOverlapError_(userId, requestDate, startTime, endTime) {
+  var normalizedUserId = String(userId || '').trim();
+  var normalizedDate = formatDateValue_(requestDate);
+  var normalizedStart = normalizeTimeForCompare_(startTime);
+  var normalizedEnd = normalizeTimeForCompare_(endTime);
+
+  if (!normalizedUserId || !normalizedDate || !normalizedStart || !normalizedEnd) {
+    return '';
+  }
+
+  var requestedStartMinutes = normalizeTimeToMinutes_(normalizedStart);
+  var requestedEndMinutes = normalizeTimeToMinutes_(normalizedEnd);
+  if (requestedStartMinutes === null || requestedEndMinutes === null || requestedEndMinutes <= requestedStartMinutes) {
+    return '';
+  }
+
+  var rows = readSheetObjects_(getActiveSessionsSheet_());
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i] || {};
+    if (String(row.user_id || '').trim() !== normalizedUserId) {
+      continue;
+    }
+
+    var rowDate = formatDateValue_(row.log_date);
+    if (rowDate !== normalizedDate) {
+      continue;
+    }
+
+    var rowStartMinutes = normalizeTimeToMinutes_(row.time_in);
+    var rowEndMinutes = normalizeTimeToMinutes_(row.time_out);
+    if (
+      rowStartMinutes === null ||
+      rowEndMinutes === null ||
+      rowEndMinutes <= rowStartMinutes ||
+      !String(row.time_out || '').trim()
+    ) {
+      continue;
+    }
+
+    if (rangesOverlap_(requestedStartMinutes, requestedEndMinutes, rowStartMinutes, rowEndMinutes)) {
+      return 'A saved time log entry already exists for this date and time range. You cannot submit an override request for an existing time log.';
+    }
+  }
+
+  return '';
+}
+
 // Helper function to convert HH:MM time string to minutes since midnight
 function timeToMinutes_(timeStr) {
   var parts = String(timeStr || '').split(':');
@@ -4232,6 +4631,10 @@ function validateSubmittedTimeMatchesServerNow_(submittedTime, label) {
   }
 
   if (Math.abs(submittedMinutes - nowMinutes) > TIME_LOG_SERVER_TIME_TOLERANCE_MINUTES_) {
+    const labelLower = label.toLowerCase();
+    if (labelLower === 'logout') {
+      return 'You cannot apply logout in advance. Please use your current time.';
+    }
     return label.charAt(0).toUpperCase() + label.slice(1) + ' time must match the current time.';
   }
 

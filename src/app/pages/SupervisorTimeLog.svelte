@@ -1,6 +1,6 @@
 <script>
   import { onDestroy, onMount, tick } from 'svelte';
-  import { Clock3, RefreshCw, Trash2, UserCircle2, Users, Loader2, CalendarRange, Download, ChevronDown } from 'lucide-svelte';
+  import { Clock3, RefreshCw, Trash2, UserCircle2, Users, Loader2, CalendarRange, Download, ChevronDown, Check, X } from 'lucide-svelte';
   import {
     callApiAction,
     deleteSupervisorTimeLog,
@@ -34,6 +34,19 @@
   let html2pdfLoaderPromise = null;
   let showDeleteConfirm = false;
   let pendingDeleteLogId = '';
+
+  // Override request state variables
+  let timelogHistoryFilter = 'entries'; // 'entries' or 'overrides'
+  let overrideRequests = [];
+  let isLoadingOverrideRequests = false;
+  let showApproveConfirm = false;
+  let pendingApproveRequest = null;
+  let isApprovingRequest = false;
+  let showRejectConfirm = false;
+  let pendingRejectRequest = null;
+  let isRejectingRequest = false;
+  let rejectReason = '';
+  const ALL_INTERNS_OPTION = '__all__';
 
   const HTML2PDF_CDN_URL = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
 
@@ -368,6 +381,11 @@
     };
   }
 
+  function getSupervisorUserId() {
+    const sessionUser = getCurrentUser();
+    return String(sessionUser?.user_id || currentUser?.user_id || '').trim();
+  }
+
   async function loadAssignedStudents() {
     const supervisorId = String(currentUser?.user_id || '').trim();
     const roleNow = String(currentUser?.role || '').trim().toLowerCase();
@@ -414,7 +432,7 @@
     const studentId = String(selectedStudentId || '').trim();
     const roleNow = String(currentUser?.role || '').trim().toLowerCase();
 
-    if (!supervisorId || !studentId || roleNow !== 'supervisor') {
+    if (!supervisorId || !studentId || roleNow !== 'supervisor' || studentId === ALL_INTERNS_OPTION) {
       logs = [];
       return;
     }
@@ -433,6 +451,169 @@
     } finally {
       loadingLogs = false;
     }
+  }
+
+  async function loadOverrideRequests() {
+    const studentId = String(selectedStudentId || '').trim();
+    const supervisorId = getSupervisorUserId();
+    if (!studentId) {
+      overrideRequests = [];
+      return;
+    }
+
+    isLoadingOverrideRequests = true;
+    errorMessage = '';
+
+    try {
+      const result = studentId === ALL_INTERNS_OPTION
+        ? await callApiAction('list_assigned_student_requests', { supervisor_user_id: supervisorId })
+        : await callApiAction('list_requests_by_user', { user_id: studentId });
+      const requests = Array.isArray(result?.requests) ? result.requests : [];
+      
+      // Filter for only time log override requests
+      overrideRequests = requests
+        .filter((r) => String(r?.requestType || r?.request_type || '').toLowerCase() === 'time log override')
+        .map((r) => ({
+          id: String(r?.id || r?.request_id || ''),
+          date: toDateOnly(r?.date || r?.request_date || ''),
+          timeIn: normalizeTimeValue(r?.start_time || r?.startTime || '', ''),
+          timeOut: normalizeTimeValue(r?.end_time || r?.endTime || '', ''),
+          hours: Number(r?.total_hours || 0),
+          reason: String(r?.reason || ''),
+          status: String(r?.status || 'pending').toLowerCase(),
+          archivedStatus: String(r?.archived_previous_status || r?.archivedPreviousStatus || '').toLowerCase(),
+          createdAt: String(r?.created_at || r?.createdAt || ''),
+          userId: String(r?.user_id || r?.userId || ''),
+          requesterName: String(r?.requester_name || r?.requesterName || ''),
+          requestId: String(r?.id || r?.request_id || ''),
+        }))
+        .sort((a, b) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime());
+    } catch (err) {
+      errorMessage = err?.message || 'Unable to load override requests.';
+      overrideRequests = [];
+    } finally {
+      isLoadingOverrideRequests = false;
+    }
+  }
+
+  async function approveOverrideRequest(request = pendingApproveRequest) {
+    if (!request) return;
+    const supervisorUserId = getSupervisorUserId();
+    if (!supervisorUserId) {
+      errorMessage = 'Please log in again before approving this request.';
+      return;
+    }
+    const requestId = String(request?.id || request?.requestId || '').trim();
+    isApprovingRequest = true;
+    errorMessage = '';
+    successMessage = '';
+
+    try {
+      const result = await callApiAction('approve_request', {
+        request_id: requestId,
+        supervisor_user_id: supervisorUserId,
+        user_id: supervisorUserId,
+        student_user_id: String(request?.userId || '').trim(),
+        request_date: String(request?.date || '').trim(),
+        start_time: String(request?.timeIn || '').trim(),
+        end_time: String(request?.timeOut || '').trim(),
+        reason: String(request?.reason || '').trim(),
+      });
+
+      if (!result?.ok) {
+        errorMessage = result?.error || 'Failed to approve override request.';
+        return;
+      }
+
+      successMessage = 'Override request approved successfully!';
+      showApproveConfirm = false;
+      pendingApproveRequest = null;
+      
+      // Reload the override requests
+      await loadOverrideRequests();
+    } catch (err) {
+      errorMessage = err?.message || 'Failed to approve override request.';
+    } finally {
+      isApprovingRequest = false;
+    }
+  }
+
+  async function rejectOverrideRequest(request = pendingRejectRequest, customRejectReason = rejectReason) {
+    if (!request) return;
+    const supervisorUserId = getSupervisorUserId();
+    if (!supervisorUserId) {
+      errorMessage = 'Please log in again before rejecting this request.';
+      return;
+    }
+    const requestId = String(request?.id || request?.requestId || '').trim();
+    isRejectingRequest = true;
+    errorMessage = '';
+    successMessage = '';
+
+    try {
+      const result = await callApiAction('reject_request', {
+        request_id: requestId,
+        supervisor_user_id: supervisorUserId,
+        user_id: supervisorUserId,
+        student_user_id: String(request?.userId || '').trim(),
+        request_date: String(request?.date || '').trim(),
+        start_time: String(request?.timeIn || '').trim(),
+        end_time: String(request?.timeOut || '').trim(),
+        reason: String(request?.reason || '').trim(),
+        rejection_reason: String(customRejectReason || '').trim(),
+      });
+
+      if (!result?.ok) {
+        errorMessage = result?.error || 'Failed to reject override request.';
+        return;
+      }
+
+      successMessage = 'Override request rejected successfully!';
+      showRejectConfirm = false;
+      pendingRejectRequest = null;
+      rejectReason = '';
+      
+      // Reload the override requests
+      await loadOverrideRequests();
+    } catch (err) {
+      errorMessage = err?.message || 'Failed to reject override request.';
+    } finally {
+      isRejectingRequest = false;
+    }
+  }
+
+  function cancelApprove() {
+    if (isApprovingRequest) return;
+    showApproveConfirm = false;
+    pendingApproveRequest = null;
+  }
+
+  function cancelReject() {
+    if (isRejectingRequest) return;
+    showRejectConfirm = false;
+    pendingRejectRequest = null;
+    rejectReason = '';
+  }
+
+  function promptApprove(request) {
+    pendingApproveRequest = request;
+    showApproveConfirm = true;
+  }
+
+  function promptReject(request) {
+    pendingRejectRequest = request;
+    showRejectConfirm = true;
+    rejectReason = '';
+  }
+
+  function handleApproveClick(request) {
+    if (!request || isApprovingRequest || isRejectingRequest) return;
+    promptApprove(request);
+  }
+
+  function handleRejectClick(request) {
+    if (!request || isApprovingRequest || isRejectingRequest) return;
+    promptReject(request);
   }
 
   async function loadActiveSessions() {
@@ -601,8 +782,13 @@
   $: selectedExportMonthTitle = formatMonthLabel(exportMonth, false);
   $: currentRole = String(currentUser?.role || '').trim().toLowerCase();
   $: isSupervisorUser = currentRole === 'supervisor';
+  $: isAllInternsView = selectedStudentId === ALL_INTERNS_OPTION;
   $: if (assignedStudents.length > 0 && isSupervisorUser) {
     loadActiveSessions();
+  }
+  $: if (selectedStudentId) {
+    overrideRequests = [];
+    timelogHistoryFilter = 'entries';
   }
 </script>
 
@@ -710,74 +896,86 @@
           </div>
         </div>
       </section>
-    {:else if selectedStudent}
+    {:else if selectedStudent || isAllInternsView}
       {@const summaryProgressTone = selectedProgress >= 80 ? 'high' : selectedProgress >= 40 ? 'mid' : 'low'}
-      <div class="stats-grid">
-        <article class="stl-card stat-card">
-          <div class="stat-icon icon-blue"><UserCircle2 size={18} /></div>
-          <div class="stat-copy">
-            <p class="stat-label">Selected Intern</p>
-            <p class="stat-value stat-name">{selectedStudent.full_name || 'Intern'}</p>
-            <p class="stat-sub">Current intern record</p>
-          </div>
-        </article>
+      {#if !isAllInternsView}
+        <div class="stats-grid">
+          <article class="stl-card stat-card">
+            <div class="stat-icon icon-blue"><UserCircle2 size={18} /></div>
+            <div class="stat-copy">
+              <p class="stat-label">Selected Intern</p>
+              <p class="stat-value stat-name">{selectedStudent.full_name || 'Intern'}</p>
+              <p class="stat-sub">Current intern record</p>
+            </div>
+          </article>
 
-        <article class="stl-card stat-card">
-          <div class="stat-icon icon-violet"><Users size={18} /></div>
-          <div class="stat-copy">
-            <p class="stat-label">Overall Progress</p>
-            <p class="stat-value">{selectedProgress}%</p>
-            <p class="stat-sub">Completion vs required hours</p>
-            <div class="progress-inline">
-              <div class="progress-track">
-                <div class={`progress-fill progress-${summaryProgressTone}`} style={`width:${selectedProgress}%`}></div>
+          <article class="stl-card stat-card">
+            <div class="stat-icon icon-violet"><Users size={18} /></div>
+            <div class="stat-copy">
+              <p class="stat-label">Overall Progress</p>
+              <p class="stat-value">{selectedProgress}%</p>
+              <p class="stat-sub">Completion vs required hours</p>
+              <div class="progress-inline">
+                <div class="progress-track">
+                  <div class={`progress-fill progress-${summaryProgressTone}`} style={`width:${selectedProgress}%`}></div>
+                </div>
               </div>
             </div>
-          </div>
-        </article>
+          </article>
 
-        <article class="stl-card stat-card">
-          <div class="stat-icon icon-green"><Clock3 size={18} /></div>
-          <div class="stat-copy">
-            <p class="stat-label">Completed Hours</p>
-            <p class="stat-value">{formatHours(selectedCompletedHours)}h</p>
-            <p class="stat-sub">Logged time entries</p>
-          </div>
-        </article>
+          <article class="stl-card stat-card">
+            <div class="stat-icon icon-green"><Clock3 size={18} /></div>
+            <div class="stat-copy">
+              <p class="stat-label">Completed Hours</p>
+              <p class="stat-value">{formatHours(selectedCompletedHours)}h</p>
+              <p class="stat-sub">Logged time entries</p>
+            </div>
+          </article>
 
-        <article class="stl-card stat-card">
-          <div class="stat-icon icon-amber"><Clock3 size={18} /></div>
-          <div class="stat-copy">
-            <p class="stat-label">Remaining Hours</p>
-            <p class="stat-value">{formatHours(selectedRemainingHours)}h</p>
-            <p class="stat-sub">Until internship target</p>
-          </div>
-        </article>
-      </div>
-
-      <section class="stl-card stl-schedule-card">
-        <div class="section-head stl-schedule-head">
-          <div class="section-icon icon-violet"><CalendarRange size={18} /></div>
-          <div>
-            <h3 class="section-title">Intern Schedule</h3>
-            <p class="section-sub">Reference schedule for attendance review and late/absence context.</p>
-          </div>
+          <article class="stl-card stat-card">
+            <div class="stat-icon icon-amber"><Clock3 size={18} /></div>
+            <div class="stat-copy">
+              <p class="stat-label">Remaining Hours</p>
+              <p class="stat-value">{formatHours(selectedRemainingHours)}h</p>
+              <p class="stat-sub">Until internship target</p>
+            </div>
+          </article>
         </div>
-        <div class="stl-schedule-content">
-          <div class="stl-schedule-item">
-            <div class="stl-schedule-label">Shift Hours</div>
-            <div class="stl-schedule-value">{toTimeText(selectedStudentShiftStart)} - {toTimeText(selectedStudentShiftEnd)}</div>
+
+        <section class="stl-card stl-schedule-card">
+          <div class="section-head stl-schedule-head">
+            <div class="section-icon icon-violet"><CalendarRange size={18} /></div>
+            <div>
+              <h3 class="section-title">Intern Schedule</h3>
+              <p class="section-sub">Reference schedule for attendance review and late/absence context.</p>
+            </div>
           </div>
-          <div class="stl-schedule-item">
-            <div class="stl-schedule-label">Working Days</div>
-            <div class="stl-schedule-value">{formatScheduleDays(selectedStudentDaysOff, 'working')}</div>
+          <div class="stl-schedule-content">
+            <div class="stl-schedule-item">
+              <div class="stl-schedule-label">Shift Hours</div>
+              <div class="stl-schedule-value">{toTimeText(selectedStudentShiftStart)} - {toTimeText(selectedStudentShiftEnd)}</div>
+            </div>
+            <div class="stl-schedule-item">
+              <div class="stl-schedule-label">Working Days</div>
+              <div class="stl-schedule-value">{formatScheduleDays(selectedStudentDaysOff, 'working')}</div>
+            </div>
+            <div class="stl-schedule-item">
+              <div class="stl-schedule-label">Days Off</div>
+              <div class="stl-schedule-value">{formatScheduleDays(selectedStudentDaysOff, 'off')}</div>
+            </div>
           </div>
-          <div class="stl-schedule-item">
-            <div class="stl-schedule-label">Days Off</div>
-            <div class="stl-schedule-value">{formatScheduleDays(selectedStudentDaysOff, 'off')}</div>
+        </section>
+      {:else}
+        <section class="stl-card">
+          <div class="section-head">
+            <div class="section-icon icon-blue"><Users size={18} /></div>
+            <div>
+              <h3 class="section-title">All Intern Override Requests</h3>
+              <p class="section-sub">Combined override requests from all assigned interns.</p>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      {/if}
 
       <div class="control-head">
         <div class="control-actions">
@@ -789,6 +987,7 @@
               {:else if assignedStudents.length === 0}
                 <option value="">No assigned interns</option>
               {:else}
+                <option value={ALL_INTERNS_OPTION}>All Interns</option>
                 {#each assignedStudents as student (student.user_id)}
                   <option value={student.user_id}>{student.full_name}</option>
                 {/each}
@@ -806,124 +1005,261 @@
 
       <section class="stl-card stl-table-section">
         <div class="stl-table-header">
-          <div>
-            <h3 class="section-title">Time Log Entries</h3>
-            <p class="section-sub">Review completed entries from your assigned interns.</p>
-          </div>
+          <span class="stl-table-title">Logged Activity</span>
           <div class="stl-table-tools">
-            <span class="stl-entry-count">{attendanceEntriesForExport.length} completed {attendanceEntriesForExport.length === 1 ? 'entry' : 'entries'}</span>
-            <label class="stl-export-month">
-              <span><CalendarRange size={14} /> Month</span>
-              <input type="month" bind:value={exportMonth} />
-            </label>
-            <button class="stl-export-btn" type="button" on:click={exportAttendanceSheetPdf} disabled={isExportingAttendance || attendanceEntriesForExport.length === 0}>
-              {#if isExportingAttendance}
-                <span class="spinning-icon"><Loader2 size={14} /></span>
-                Exporting...
-              {:else}
-                <Download size={14} />
-                Export Attendance Sheet
-              {/if}
-            </button>
+            {#if timelogHistoryFilter === 'entries'}
+              <span class="stl-entry-count">{attendanceEntriesForExport.length} completed {attendanceEntriesForExport.length === 1 ? 'entry' : 'entries'}</span>
+              <label class="stl-export-month">
+                <span><CalendarRange size={14} /> Month</span>
+                <input type="month" bind:value={exportMonth} />
+              </label>
+              <button class="stl-export-btn" type="button" on:click={exportAttendanceSheetPdf} disabled={isExportingAttendance || attendanceEntriesForExport.length === 0}>
+                {#if isExportingAttendance}
+                  <span class="spinning-icon"><Loader2 size={14} /></span>
+                  Exporting...
+                {:else}
+                  <Download size={14} />
+                  Export Attendance Sheet
+                {/if}
+              </button>
+            {:else}
+              <span class="stl-entry-count">{overrideRequests.length} {overrideRequests.length === 1 ? 'request' : 'requests'}</span>
+            {/if}
           </div>
         </div>
 
-        {#if loadingLogs}
-          <div class="table-scroll-y">
-            <div class="table-wrap">
-              <table class="stl-table table-skeleton" style="min-width: 700px;" aria-hidden="true">
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Time In</th>
-                    <th>Time Out</th>
-                    <th>Hours</th>
-                    <th class="action-col">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {#each Array(6) as _}
-                    <tr>
-                      <td><div class="sk-line sk-shimmer cell-date-sk"></div></td>
-                      <td><div class="sk-line sk-shimmer cell-time-sk"></div></td>
-                      <td><div class="sk-line sk-shimmer cell-time-sk"></div></td>
-                      <td><div class="sk-line sk-shimmer cell-hours-sk"></div></td>
-                      <td class="action-col"><div class="sk-pill sk-shimmer action-pill-sk"></div></td>
-                    </tr>
-                  {/each}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        {:else if logs.length === 0}
-          <div class="empty-state">
-            <div class="empty-icon"><Clock3 size={18} /></div>
-            <p class="empty-title">No time log entries yet.</p>
-            <p class="empty-sub">Entries for the selected intern will appear here.</p>
-          </div>
-        {:else}
-          <div class="table-scroll-y">
-            <div class="table-wrap">
-              <table class="stl-table" style="min-width: 700px;">
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Time In</th>
-                    <th>Time Out</th>
-                    <th>Hours</th>
-                    <th class="action-col">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {#each logs as row (row.timelog_id)}
-                    <tr>
-                      <td data-label="Date">
-                      <div class="log-date-cell">
-                        <span class="log-date-day">{formatWeekday(row.log_date)}</span>
-                        <div class="log-date-copy">
-                          <span class="log-date-main">{formatDate(row.log_date)}</span>
-                          <span class="log-date-sub">Attendance record</span>
-                        </div>
-                      </div>
-                    </td>
-                    <td data-label="Time In">
-                      <div class="time-cell">
-                        <span class="time-main">{toTimeText(row.time_in)}</span>
-                        <span class="time-sub">Clock in</span>
-                      </div>
-                    </td>
-                    <td data-label="Time Out">
-                      <div class="time-cell">
-                        <span class="time-main">{toTimeText(row.time_out)}</span>
-                        <span class="time-sub">Clock out</span>
-                      </div>
-                    </td>
-                    <td data-label="Hours">
-                      <span class="hours-badge">{formatHours(row.hours_rendered)}h</span>
-                    </td>
-                    <td class="action-col" data-label="Action">
-                      <button
-                        type="button"
-                        class="btn-delete"
-                        on:click={() => promptDelete(row.timelog_id)}
-                        disabled={deletingId === row.timelog_id}
-                        aria-label="Delete time log entry"
-                      >
-                        {#if deletingId === row.timelog_id}
-                          <span class="spinning-icon"><Loader2 size={13} /></span>
-                        {:else}
-                          <Trash2 size={13} />
-                        {/if}
-                        <span>{deletingId === row.timelog_id ? 'Deleting...' : 'Delete'}</span>
-                      </button>
-                    </td>
-                    </tr>
-                  {/each}
-                </tbody>
-              </table>
-            </div>
-          </div>
+        <div class="stl-history-filters">
+          <button
+            class="stl-filter-tab"
+            class:stl-filter-active={timelogHistoryFilter === 'entries'}
+            on:click={() => {
+              timelogHistoryFilter = 'entries';
+            }}
+          >
+            Time Entries
+          </button>
+          <button
+            class="stl-filter-tab"
+            class:stl-filter-active={timelogHistoryFilter === 'overrides'}
+            on:click={() => {
+              timelogHistoryFilter = 'overrides';
+              if (overrideRequests.length === 0 && !isLoadingOverrideRequests) {
+                loadOverrideRequests();
+              }
+            }}
+          >
+            Override Requests
+          </button>
+        </div>
 
+        {#if timelogHistoryFilter === 'entries'}
+          {#if loadingLogs}
+            <div class="table-scroll-y">
+              <div class="table-wrap">
+                <table class="stl-table table-skeleton" style="min-width: 700px;" aria-hidden="true">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Time In</th>
+                      <th>Time Out</th>
+                      <th>Hours</th>
+                      <th class="action-col">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {#each Array(6) as _}
+                      <tr>
+                        <td><div class="sk-line sk-shimmer cell-date-sk"></div></td>
+                        <td><div class="sk-line sk-shimmer cell-time-sk"></div></td>
+                        <td><div class="sk-line sk-shimmer cell-time-sk"></div></td>
+                        <td><div class="sk-line sk-shimmer cell-hours-sk"></div></td>
+                        <td class="action-col"><div class="sk-pill sk-shimmer action-pill-sk"></div></td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          {:else if logs.length === 0}
+            <div class="empty-state">
+              <div class="empty-icon"><Clock3 size={18} /></div>
+              <p class="empty-title">No time log entries yet.</p>
+              <p class="empty-sub">Entries for the selected intern will appear here.</p>
+            </div>
+          {:else}
+            <div class="table-scroll-y">
+              <div class="table-wrap">
+                <table class="stl-table" style="min-width: 700px;">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Time In</th>
+                      <th>Time Out</th>
+                      <th>Hours</th>
+                      <th class="action-col">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {#each logs as row (row.timelog_id)}
+                      <tr>
+                        <td data-label="Date">
+                        <div class="log-date-cell">
+                          <span class="log-date-day">{formatWeekday(row.log_date)}</span>
+                          <div class="log-date-copy">
+                            <span class="log-date-main">{formatDate(row.log_date)}</span>
+                            <span class="log-date-sub">Attendance record</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td data-label="Time In">
+                        <div class="time-cell">
+                          <span class="time-main">{toTimeText(row.time_in)}</span>
+                          <span class="time-sub">Clock in</span>
+                        </div>
+                      </td>
+                      <td data-label="Time Out">
+                        <div class="time-cell">
+                          <span class="time-main">{toTimeText(row.time_out)}</span>
+                          <span class="time-sub">Clock out</span>
+                        </div>
+                      </td>
+                      <td data-label="Hours">
+                        <span class="hours-badge">{formatHours(row.hours_rendered)}h</span>
+                      </td>
+                      <td class="action-col" data-label="Action">
+                        <button
+                          type="button"
+                          class="btn-delete"
+                          on:click={() => promptDelete(row.timelog_id)}
+                          disabled={deletingId === row.timelog_id}
+                          aria-label="Delete time log entry"
+                        >
+                          {#if deletingId === row.timelog_id}
+                            <span class="spinning-icon"><Loader2 size={13} /></span>
+                          {:else}
+                            <Trash2 size={13} />
+                          {/if}
+                          <span>{deletingId === row.timelog_id ? 'Deleting...' : 'Delete'}</span>
+                        </button>
+                      </td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          {/if}
+        {:else}
+          {#if isLoadingOverrideRequests}
+            <div class="table-scroll-y">
+              <div class="table-wrap">
+                <table class="stl-table table-skeleton" style="min-width: 900px;" aria-hidden="true">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Time In</th>
+                      <th>Time Out</th>
+                      <th>Duration</th>
+                      <th>Reason</th>
+                      <th class="status-col">Status</th>
+                      <th class="action-col">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {#each Array(6) as _}
+                      <tr>
+                        <td><div class="sk-line sk-shimmer cell-date-sk"></div></td>
+                        <td><div class="sk-line sk-shimmer cell-time-sk"></div></td>
+                        <td><div class="sk-line sk-shimmer cell-time-sk"></div></td>
+                        <td><div class="sk-line sk-shimmer cell-hours-sk"></div></td>
+                        <td><div class="sk-line sk-shimmer cell-reason-sk"></div></td>
+                        <td><div class="sk-pill sk-shimmer status-pill-sk"></div></td>
+                        <td class="action-col"><div class="sk-pill sk-shimmer action-pill-sk"></div></td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          {:else if overrideRequests.length === 0}
+            <div class="empty-state">
+              <div class="empty-icon"><Clock3 size={18} /></div>
+              <p class="empty-title">No override requests yet.</p>
+              <p class="empty-sub">Override requests from the selected intern will appear here.</p>
+            </div>
+          {:else}
+            <div class="table-scroll-y">
+              <div class="table-wrap">
+                <table class="stl-table stl-override-table" style="min-width: 980px;">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Time In</th>
+                      <th>Time Out</th>
+                      <th>Duration</th>
+                      <th>Reason</th>
+                      <th>Status</th>
+                      <th class="action-col">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {#each overrideRequests as req (req.id)}
+                      <tr>
+                        <td data-label="Date">
+                          <span class="override-primary-text">{formatDate(req.date)}</span>
+                        </td>
+                        <td data-label="Time In">
+                          <span class="override-mono-text">{normalizeTimeValue(req.timeIn, '') || '-'}</span>
+                        </td>
+                        <td data-label="Time Out">
+                          <span class="override-mono-text">{normalizeTimeValue(req.timeOut, '') || '-'}</span>
+                        </td>
+                        <td data-label="Duration">
+                          <span class="hours-badge">{formatHours(req.hours)}h</span>
+                        </td>
+                        <td data-label="Reason">
+                          <div class="reason-cell">
+                            <span class="reason-text">{req.reason || 'No reason provided'}</span>
+                          </div>
+                        </td>
+                        <td class="status-col" data-label="Status">
+                          <span class="status-badge status-{req.status}">{req.status.charAt(0).toUpperCase() + req.status.slice(1)}</span>
+                        </td>
+                        <td class="action-col" data-label="Action">
+                          {#if req.status === 'pending'}
+                            <div class="action-buttons">
+                              <button
+                                type="button"
+                                class="btn-approve"
+                                on:click={() => handleApproveClick(req)}
+                                disabled={isApprovingRequest || isRejectingRequest}
+                                aria-label="Approve override request"
+                              >
+                                <Check size={13} />
+                                <span>Approve</span>
+                              </button>
+                              <button
+                                type="button"
+                                class="btn-reject"
+                                on:click={() => handleRejectClick(req)}
+                                disabled={isApprovingRequest || isRejectingRequest}
+                                aria-label="Reject override request"
+                              >
+                                <X size={13} />
+                                <span>Reject</span>
+                              </button>
+                            </div>
+                          {:else}
+                            <span class="action-status">{req.status === 'approved' ? 'Approved' : 'Rejected'}</span>
+                          {/if}
+                        </td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          {/if}
         {/if}
       </section>
 
@@ -1022,6 +1358,131 @@
             {:else}
               <Trash2 size={13} />
               <span>Delete Entry</span>
+            {/if}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  {#if showApproveConfirm}
+    <div
+      class="modal-overlay"
+      role="button"
+      tabindex="0"
+      aria-label="Close approval confirmation"
+      on:click={cancelApprove}
+      on:keydown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          cancelApprove();
+        }
+      }}
+    >
+      <div
+        class="approve-modal"
+        role="dialog"
+        aria-modal="true"
+        tabindex="-1"
+        on:click|stopPropagation
+        on:keydown|stopPropagation={() => {}}
+      >
+        <div class="approve-modal-head">
+          <div class="approve-modal-icon"><Check size={18} /></div>
+          <h3>Approve override request</h3>
+          <p>This will approve the override time log request for {pendingApproveRequest?.date ? formatDate(pendingApproveRequest.date) : 'this date'}.</p>
+        </div>
+        <div class="approve-modal-details">
+          <div class="detail-row">
+            <span class="detail-label">Time Range:</span>
+            <span class="detail-value">{toTimeText(pendingApproveRequest?.timeIn)} - {toTimeText(pendingApproveRequest?.timeOut)}</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Duration:</span>
+            <span class="detail-value">{formatHours(pendingApproveRequest?.hours)}h</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Reason:</span>
+            <span class="detail-value">{pendingApproveRequest?.reason || 'No reason provided'}</span>
+          </div>
+        </div>
+        <div class="approve-modal-actions">
+          <button type="button" class="btn-secondary" on:click={cancelApprove} disabled={isApprovingRequest}>Cancel</button>
+          <button type="button" class="btn-approve btn-approve-modal" on:click={approveOverrideRequest} disabled={isApprovingRequest}>
+            {#if isApprovingRequest}
+              <span class="spinning-icon"><Loader2 size={13} /></span>
+              <span>Approving...</span>
+            {:else}
+              <Check size={13} />
+              <span>Approve Request</span>
+            {/if}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  {#if showRejectConfirm}
+    <div
+      class="modal-overlay"
+      role="button"
+      tabindex="0"
+      aria-label="Close rejection confirmation"
+      on:click={cancelReject}
+      on:keydown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          cancelReject();
+        }
+      }}
+    >
+      <div
+        class="reject-modal"
+        role="dialog"
+        aria-modal="true"
+        tabindex="-1"
+        on:click|stopPropagation
+        on:keydown|stopPropagation={() => {}}
+      >
+        <div class="reject-modal-head">
+          <div class="reject-modal-icon"><X size={18} /></div>
+          <h3>Reject override request</h3>
+          <p>Provide an optional reason for rejecting this override time log request.</p>
+        </div>
+        <div class="reject-modal-details">
+          <div class="detail-row">
+            <span class="detail-label">Time Range:</span>
+            <span class="detail-value">{toTimeText(pendingRejectRequest?.timeIn)} - {toTimeText(pendingRejectRequest?.timeOut)}</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Duration:</span>
+            <span class="detail-value">{formatHours(pendingRejectRequest?.hours)}h</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Reason:</span>
+            <span class="detail-value">{pendingRejectRequest?.reason || 'No reason provided'}</span>
+          </div>
+        </div>
+        <div class="reject-modal-input">
+          <label for="reject-reason" class="reject-reason-label">Reason for Rejection (optional):</label>
+          <textarea
+            id="reject-reason"
+            class="reject-reason-textarea"
+            placeholder="Briefly explain why this request is being rejected..."
+            bind:value={rejectReason}
+            disabled={isRejectingRequest}
+            rows="4"
+          ></textarea>
+        </div>
+        <div class="reject-modal-actions">
+          <button type="button" class="btn-secondary" on:click={cancelReject} disabled={isRejectingRequest}>Cancel</button>
+          <button type="button" class="btn-reject btn-reject-modal" on:click={rejectOverrideRequest} disabled={isRejectingRequest}>
+            {#if isRejectingRequest}
+              <span class="spinning-icon"><Loader2 size={13} /></span>
+              <span>Rejecting...</span>
+            {:else}
+              <X size={13} />
+              <span>Reject Request</span>
             {/if}
           </button>
         </div>
@@ -1402,12 +1863,18 @@
 
   .stl-table-header {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
     gap: 12px;
     flex-wrap: wrap;
-    padding: 16px 20px 14px;
+    padding: 16px 20px;
     border-bottom: 1px solid #e2e8f0;
+  }
+
+  .stl-table-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #0f172a;
   }
 
   .stl-table-tools {
@@ -1419,16 +1886,40 @@
   }
 
   .stl-entry-count {
-    display: inline-flex;
-    align-items: center;
-    min-height: 34px;
-    padding: 0 12px;
-    border-radius: 999px;
-    background: rgba(37, 99, 235, 0.08);
-    border: 1px solid rgba(37, 99, 235, 0.12);
+    font-size: 12px;
+    font-weight: 600;
+    color: #475569;
+  }
+
+  .stl-history-filters {
+    display: flex;
+    gap: 2px;
+    padding: 8px 20px 0;
+    border-bottom: 1px solid #e2e8f0;
+    background: #f8fafc;
+  }
+
+  .stl-filter-tab {
+    padding: 10px 16px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: #64748b;
     font-size: 12px;
     font-weight: 700;
-    color: #475569;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .stl-filter-tab:hover:not(.stl-filter-active) {
+    color: #0f172a;
+  }
+
+  .stl-filter-active {
+    color: #2563eb;
+    border-bottom-color: #2563eb;
   }
 
   .stl-export-month {
@@ -1494,14 +1985,12 @@
   }
 
   .table-wrap {
-    margin-top: 14px;
     max-height: 520px;
     overflow: auto;
-    border-radius: 16px;
-    border: 1px solid rgba(148, 163, 184, 0.18);
-    background:
-      linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(241, 245, 249, 0.88));
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+    border-radius: 0 0 16px 16px;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
     scrollbar-width: none;
     -ms-overflow-style: none;
   }
@@ -1574,13 +2063,45 @@
 
   .stl-table th.action-col,
   .stl-table td.action-col {
-    width: 172px;
-    min-width: 172px;
-    max-width: 172px;
+    width: 190px;
+    min-width: 190px;
+    max-width: 190px;
     text-align: center;
     white-space: nowrap;
     padding-left: 18px;
     padding-right: 18px;
+  }
+
+  .stl-table th.status-col,
+  .stl-table td.status-col {
+    width: 124px;
+    min-width: 124px;
+    max-width: 124px;
+  }
+
+  .stl-override-table th:nth-child(5),
+  .stl-override-table td:nth-child(5) {
+    min-width: 140px;
+  }
+
+  .stl-override-table td {
+    padding-top: 14px;
+    padding-bottom: 14px;
+  }
+
+  .override-primary-text {
+    color: #0f172a;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+
+  .override-mono-text {
+    color: #64748b;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: 'DM Mono', monospace;
+    line-height: 1.2;
   }
 
   .font-semibold {
@@ -1749,6 +2270,264 @@
   .btn-delete:disabled {
     opacity: 0.65;
     cursor: not-allowed;
+  }
+
+  .approve-modal,
+  .reject-modal {
+    width: min(100%, 520px);
+    border-radius: 18px;
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    background: linear-gradient(180deg, #1a2230 0%, #141b27 100%);
+    box-shadow: 0 28px 60px rgba(2, 6, 23, 0.5);
+    overflow: hidden;
+  }
+
+  .approve-modal-head,
+  .reject-modal-head {
+    display: grid;
+    justify-items: center;
+    text-align: center;
+    gap: 12px;
+    padding: 24px 24px 16px;
+  }
+
+  .approve-modal-head h3,
+  .reject-modal-head h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 800;
+    color: #f8fafc;
+  }
+
+  .approve-modal-head p,
+  .reject-modal-head p {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #94a3b8;
+    max-width: 320px;
+  }
+
+  .approve-modal-icon,
+  .reject-modal-icon {
+    width: 52px;
+    height: 52px;
+    border-radius: 14px;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+  }
+
+  .approve-modal-icon {
+    color: #86efac;
+    background: rgba(34, 197, 94, 0.2);
+    border: 1px solid rgba(134, 239, 172, 0.26);
+  }
+
+  .reject-modal-icon {
+    color: #fca5a5;
+    background: rgba(127, 29, 29, 0.4);
+    border: 1px solid rgba(248, 113, 113, 0.26);
+  }
+
+  .approve-modal-details,
+  .reject-modal-details {
+    padding: 16px 24px;
+    border-top: 1px solid rgba(148, 163, 184, 0.12);
+    border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+    background: rgba(15, 23, 42, 0.3);
+  }
+
+  .detail-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    padding: 8px 0;
+    font-size: 13px;
+  }
+
+  .detail-row:last-child {
+    padding-bottom: 0;
+  }
+
+  .detail-label {
+    color: #94a3b8;
+    font-weight: 600;
+  }
+
+  .detail-value {
+    color: #e2e8f0;
+    font-weight: 500;
+    text-align: right;
+    flex: 1;
+    line-height: 1.45;
+  }
+
+  .reject-modal-input {
+    padding: 16px 24px;
+  }
+
+  .reject-reason-label {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #cbd5e1;
+  }
+
+  .reject-reason-textarea {
+    width: 100%;
+    min-height: 80px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(148, 163, 184, 0.26);
+    background: rgba(148, 163, 184, 0.08);
+    color: #e2e8f0;
+    font-size: 13px;
+    font-family: inherit;
+    resize: vertical;
+    transition: border-color 0.2s ease, background-color 0.2s ease;
+  }
+
+  .reject-reason-textarea:focus {
+    outline: none;
+    border-color: rgba(248, 113, 113, 0.5);
+    background: rgba(248, 113, 113, 0.08);
+  }
+
+  .reject-reason-textarea:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .approve-modal-actions,
+  .reject-modal-actions {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    padding: 0 24px 24px;
+  }
+
+  .btn-approve-modal,
+  .btn-reject-modal {
+    min-width: 124px;
+    margin: 0;
+  }
+
+  .btn-approve {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(34, 197, 94, 0.28);
+    background: rgba(34, 197, 94, 0.12);
+    color: #15803d;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s ease, border-color 0.2s ease;
+  }
+
+  .btn-approve:hover:not(:disabled) {
+    background: rgba(34, 197, 94, 0.18);
+    border-color: rgba(34, 197, 94, 0.4);
+  }
+
+  .btn-approve:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+  }
+
+  .btn-reject {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(239, 68, 68, 0.26);
+    background: rgba(239, 68, 68, 0.1);
+    color: #dc2626;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s ease, border-color 0.2s ease;
+  }
+
+  .btn-reject:hover:not(:disabled) {
+    background: rgba(239, 68, 68, 0.16);
+    border-color: rgba(239, 68, 68, 0.38);
+  }
+
+  .btn-reject:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+  }
+
+  .action-buttons {
+    display: flex;
+    gap: 6px;
+    flex-wrap: nowrap;
+    justify-content: center;
+    width: 100%;
+  }
+
+  .action-status {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 96px;
+    min-height: 34px;
+    padding: 0 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #cbd5e1;
+    background: rgba(148, 163, 184, 0.12);
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    white-space: nowrap;
+  }
+
+  .status-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .status-pending {
+    background: rgba(234, 179, 8, 0.15);
+    color: #eab308;
+    border: 1px solid rgba(234, 179, 8, 0.25);
+  }
+
+  .status-approved {
+    background: rgba(34, 197, 94, 0.15);
+    color: #86efac;
+    border: 1px solid rgba(134, 239, 172, 0.25);
+  }
+
+  .status-rejected {
+    background: rgba(239, 68, 68, 0.15);
+    color: #fca5a5;
+    border: 1px solid rgba(248, 113, 113, 0.25);
+  }
+
+  .reason-cell {
+    max-width: 300px;
+  }
+
+  .reason-text {
+    display: block;
+    font-size: 13px;
+    color: #64748b;
+    line-height: 1.4;
+    word-break: break-word;
+    white-space: normal;
   }
 
   .sk-shimmer {
@@ -2081,6 +2860,30 @@
     color: #f1f5f9;
   }
 
+  :global(.dark) .override-primary-text,
+  :global(html.dark) .override-primary-text,
+  :global(body.dark) .override-primary-text {
+    color: #f8fafc;
+  }
+
+  :global(.dark) .override-mono-text,
+  :global(html.dark) .override-mono-text,
+  :global(body.dark) .override-mono-text {
+    color: #a5b4cf;
+  }
+
+  :global(.dark) .reason-text,
+  :global(html.dark) .reason-text,
+  :global(body.dark) .reason-text {
+    color: #cbd5e1;
+  }
+
+  :global(.dark) .stl-table-title,
+  :global(html.dark) .stl-table-title,
+  :global(body.dark) .stl-table-title {
+    color: #f1f5f9;
+  }
+
   :global(.dark) .section-sub,
   :global(.dark) .stat-label,
   :global(.dark) .stat-sub,
@@ -2142,6 +2945,9 @@
   :global(.dark) .stl-entry-count,
   :global(html.dark) .stl-entry-count,
   :global(body.dark) .stl-entry-count,
+  :global(.dark) .loading-chip,
+  :global(html.dark) .loading-chip,
+  :global(body.dark) .loading-chip,
   :global(.dark) .stl-export-month,
   :global(html.dark) .stl-export-month,
   :global(body.dark) .stl-export-month {
@@ -2149,9 +2955,41 @@
   }
 
   :global(.dark) .stl-entry-count {
-    background: rgba(37, 99, 235, 0.12);
-    border-color: rgba(96, 165, 250, 0.16);
-    color: #dbeafe;
+    color: #94a3b8;
+  }
+
+  :global(.dark) .loading-chip,
+  :global(html.dark) .loading-chip,
+  :global(body.dark) .loading-chip {
+    background: #182234;
+    border-color: rgba(148, 163, 184, 0.24);
+    color: #e2e8f0;
+  }
+
+  :global(.dark) .stl-history-filters,
+  :global(html.dark) .stl-history-filters,
+  :global(body.dark) .stl-history-filters {
+    background: #182234;
+    border-bottom-color: rgba(148, 163, 184, 0.2);
+  }
+
+  :global(.dark) .stl-filter-tab,
+  :global(html.dark) .stl-filter-tab,
+  :global(body.dark) .stl-filter-tab {
+    color: #94a3b8;
+  }
+
+  :global(.dark) .stl-filter-tab:hover:not(.stl-filter-active),
+  :global(html.dark) .stl-filter-tab:hover:not(.stl-filter-active),
+  :global(body.dark) .stl-filter-tab:hover:not(.stl-filter-active) {
+    color: #f1f5f9;
+  }
+
+  :global(.dark) .stl-filter-active,
+  :global(html.dark) .stl-filter-active,
+  :global(body.dark) .stl-filter-active {
+    color: #60a5fa;
+    border-bottom-color: #60a5fa;
   }
 
   :global(.dark) .stl-export-month input,
@@ -2168,6 +3006,36 @@
   :global(.dark) .stl-export-btn:hover:not(:disabled) {
     background: #22314a;
     border-color: rgba(96, 165, 250, 0.5);
+  }
+
+  :global(.dark) .btn-approve,
+  :global(html.dark) .btn-approve,
+  :global(body.dark) .btn-approve {
+    border-color: rgba(134, 239, 172, 0.3);
+    background: rgba(34, 197, 94, 0.18);
+    color: #86efac;
+  }
+
+  :global(.dark) .btn-approve:hover:not(:disabled),
+  :global(html.dark) .btn-approve:hover:not(:disabled),
+  :global(body.dark) .btn-approve:hover:not(:disabled) {
+    background: rgba(34, 197, 94, 0.28);
+    border-color: rgba(134, 239, 172, 0.5);
+  }
+
+  :global(.dark) .btn-reject,
+  :global(html.dark) .btn-reject,
+  :global(body.dark) .btn-reject {
+    border-color: rgba(248, 113, 113, 0.3);
+    background: rgba(239, 68, 68, 0.18);
+    color: #fca5a5;
+  }
+
+  :global(.dark) .btn-reject:hover:not(:disabled),
+  :global(html.dark) .btn-reject:hover:not(:disabled),
+  :global(body.dark) .btn-reject:hover:not(:disabled) {
+    background: rgba(239, 68, 68, 0.28);
+    border-color: rgba(248, 113, 113, 0.5);
   }
 
   :global(.dark) .btn-secondary:hover:not(:disabled) {
