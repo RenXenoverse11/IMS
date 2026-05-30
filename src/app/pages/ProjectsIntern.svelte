@@ -73,6 +73,38 @@
     'Medium': { bg: '#fffbeb', text: '#b45309', border: '#fde68a' },
     'High': { bg: '#fff1f2', text: '#b91c1c', border: '#fecaca' },
   };
+  const FOLDER_CACHE_PREFIX = 'projects.folders.';
+
+  function folderCacheKey(projectId) {
+    return `${FOLDER_CACHE_PREFIX}${String(projectId || '').trim()}`;
+  }
+
+  function readCachedFolders(projectId) {
+    try {
+      const raw = localStorage.getItem(folderCacheKey(projectId));
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return null;
+      return parsed.map((folder) => ({
+        id: folder?.folder_id || folder?.id || '',
+        folder_id: folder?.folder_id || folder?.id || '',
+        name: String(folder?.name || '').trim(),
+        gdrive_link: String(folder?.gdrive_link || '').trim(),
+        created_by: String(folder?.created_by || '').trim(),
+        submissions: Array.isArray(folder?.submissions) ? folder.submissions.map(normalizeSubmission_) : []
+      }));
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function writeCachedFolders(projectId, folders) {
+    try {
+      localStorage.setItem(folderCacheKey(projectId), JSON.stringify(Array.isArray(folders) ? folders : []));
+    } catch (e) {
+      // ignore storage errors
+    }
+  }
 
   function getPriorityLabel(val) {
     if (!val) return '';
@@ -413,8 +445,9 @@
         overviewActivityLoaded = false;
       }
 
-      // Folders and milestones are loaded lazily when a project is opened — ensure properties exist
+      // Restore cached folders and milestones, then refresh folders quietly in the background.
       projects = projects.map(p => {
+        const cachedFolders = readCachedFolders(p.id);
         // try to restore cached milestones from localStorage as a fallback
         let cached = null;
         try { cached = localStorage.getItem('projects.milestones.' + String(p.id)); } catch (e) { cached = null; }
@@ -422,8 +455,12 @@
         if ((!Array.isArray(milestones) || milestones.length === 0) && cached) {
           try { const parsed = JSON.parse(cached); if (Array.isArray(parsed)) milestones = parsed; } catch (e) { /* ignore */ }
         }
-        return { ...p, folders: p.folders || null, milestones };
+        return { ...p, folders: cachedFolders || p.folders || null, milestones };
       });
+
+      for (const project of projects) {
+        void loadProjectFolders(project.id, { showSpinner: false, hydrateFromCache: false });
+      }
 
       // Restore last-viewed project (so Details stay visible after a page refresh)
       try {
@@ -433,7 +470,7 @@
           if (found) {
             viewingProjectId = saved;
             viewingProjectTab = 'Details';
-            if (!found.folders || found.folders === null) loadProjectFolders(saved);
+            if (!found.folders || found.folders === null) loadProjectFolders(saved, { showSpinner: false });
             if (!found.milestones || found.milestones === null || (Array.isArray(found.milestones) && found.milestones.length === 0)) loadProjectMilestones(saved);
           }
         }
@@ -678,7 +715,7 @@
       try { localStorage.setItem('projects.viewingProjectId', String(p.id)); } catch (e) {}
       // Load folders if not yet fetched
       if (!p.folders || p.folders === null) {
-        loadProjectFolders(p.id);
+        loadProjectFolders(p.id, { showSpinner: false });
       }
     }
   }
@@ -783,6 +820,7 @@
   const MAX_ASSIGNMENT_CHIPS = 3;
   const TEMP_FOLDER_PREFIX = 'tmp-folder-';
   let isLoadingFolders   = false;
+  let loadingFolderProjectIds = new Set();
   let isUploadingFile    = false;
 
   // Map file extension → kind category
@@ -928,9 +966,23 @@
   }
 
   // Load folders + submissions for a project from the backend
-  async function loadProjectFolders(projectId) {
-    const projId = String(projects.find(p => p.id === projectId)?.proj_id || projectId);
-    isLoadingFolders = true;
+  async function loadProjectFolders(projectId, options = {}) {
+    const { showSpinner = false, hydrateFromCache = true } = options;
+    const projectKey = String(projectId || '').trim();
+    if (!projectKey || loadingFolderProjectIds.has(projectKey)) return;
+
+    const currentProject = projects.find((p) => p.id === projectId);
+    if (hydrateFromCache && (!currentProject?.folders || currentProject.folders === null)) {
+      const cachedFolders = readCachedFolders(projectKey);
+      if (cachedFolders) {
+        projects = projects.map((p) => p.id === projectId ? { ...p, folders: cachedFolders } : p);
+      }
+    }
+
+    const projId = String(currentProject?.proj_id || projectId);
+    loadingFolderProjectIds.add(projectKey);
+    loadingFolderProjectIds = new Set(loadingFolderProjectIds);
+    if (showSpinner) isLoadingFolders = true;
     try {
       const res = await dispatchAction('list_proj_submissions', { proj_id: projId });
       if (res?.ok) {
@@ -943,11 +995,14 @@
           submissions: (f.submissions || []).map(normalizeSubmission_)
         }));
         projects = projects.map(p => p.id === projectId ? { ...p, folders } : p);
+        writeCachedFolders(projectKey, folders);
       }
     } catch (e) {
       console.error('loadProjectFolders error', e);
     } finally {
-      isLoadingFolders = false;
+      loadingFolderProjectIds.delete(projectKey);
+      loadingFolderProjectIds = new Set(loadingFolderProjectIds);
+      if (showSpinner) isLoadingFolders = false;
     }
   }
 
@@ -2445,7 +2500,7 @@
                       </div>
                       <div class="proj-detail-tabs proj-detail-tabs-modal" class:proj-detail-tabs-no-divider={viewingProjectTab === 'Feedback'}>
                         <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Details'} on:click={() => viewingProjectTab = 'Details'}>Details</button>
-                        <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Submissions'} on:click={() => { viewingProjectTab = 'Submissions'; if (!p.folders) loadProjectFolders(p.id); }}>Submissions</button>
+                        <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Submissions'} on:click={() => { viewingProjectTab = 'Submissions'; if (!p.folders) loadProjectFolders(p.id, { showSpinner: false }); }}>Submissions</button>
                         <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Feedback'} on:click={() => { viewingProjectTab = 'Feedback'; if (!feedbackMap[p.id]) loadFeedback(p.id); }}>Feedback</button>
                       </div>
                       <div class="proj-detail-body proj-detail-body-modal">
@@ -2740,10 +2795,8 @@
                         <!-- Add Milestone moved to Milestones tab -->
                       </div>
 
-                      {#if isLoadingFolders}
-                        <div class="proj-detail-empty" style="padding:1rem 1.25rem">
-                          <Loader2 size={18} class="spin" /> Loading folders…
-                        </div>
+                      {#if p.folders === null}
+                        <div class="proj-detail-empty" style="padding:1rem 1.25rem; min-height:2.5rem;"></div>
                       {:else if !p.folders || p.folders.length === 0}
                         <div class="proj-detail-empty" style="padding:1rem 1.25rem">No folders yet. Click <strong>New Folder</strong> to get started.</div>
                       {:else}
