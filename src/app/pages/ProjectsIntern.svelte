@@ -57,6 +57,7 @@
 
   // Populated from backend on mount, then filtered locally for assignment.
   let users = [];
+  let userMap = {};
   let usersLoading = false;
   let bootstrapDepartment = '';
   let departmentContext = '';
@@ -289,7 +290,21 @@
   }
 
   function getDisplayName(user) {
-    return user?.name || user?.full_name || user?.fullName || user?.email || user?.user_id || user?.id || '';
+    if (!user || typeof user !== 'object') return '';
+    const firstName = String(user?.first_name || user?.firstName || '').trim();
+    const lastName = String(user?.last_name || user?.lastName || '').trim();
+    const fullName = [firstName, lastName].filter(Boolean).join(' ').trim();
+    return String(
+      user?.full_name ||
+      user?.name ||
+      user?.fullName ||
+      user?.displayName ||
+      fullName ||
+      user?.email ||
+      user?.user_id ||
+      user?.id ||
+      ''
+    ).trim();
   }
 
   function getProfilePhotoUrl(user) {
@@ -307,6 +322,31 @@
 
   function getUserId(user) {
     return String(user?.user_id || user?.id || '').trim();
+  }
+
+  function buildUserMap(list) {
+    const map = {};
+    (Array.isArray(list) ? list : []).forEach((user) => {
+      const id = getUserId(user);
+      const name = getDisplayName(user);
+      if (id) map[id] = name;
+    });
+    return map;
+  }
+
+  function getUserRecordById(userId) {
+    const key = String(userId || '').trim();
+    if (!key) return null;
+    return (Array.isArray(users) ? users : []).find((user) => getUserId(user) === key) || null;
+  }
+
+  function resolveUserName(userId) {
+    const key = String(userId || '').trim();
+    if (!key) return '';
+    if (userMap[key]) return userMap[key];
+    const user = getUserRecordById(key);
+    if (user) return getDisplayName(user);
+    return key;
   }
 
   function getCurrentUserId() {
@@ -508,6 +548,8 @@
       deadline:       p.end_date     || '',
       created_at:     p.created_at   || '',
       created_by:     p.created_by   || '',
+      created_by_name: String(p.created_by_name || p.owner_name || '').trim(),
+      owner_name:     String(p.owner_name || p.created_by_name || '').trim(),
       created_by_role: createdByRole,
       creator_is_supervisor: p.creator_is_supervisor === true || String(p.creator_is_supervisor || '').trim().toLowerCase() === 'true' || createdByRole === 'Supervisor',
       archived:       canonicalStatusLabel(p.status || '').toLowerCase() === 'archived',
@@ -1280,6 +1322,7 @@
   // ── Feedback ────────────────────────────────────────────────────────────────
   let feedbackMap       = {};   // { [projectId]: FeedbackItem[] }
   let feedbackLoading   = {};   // { [projectId]: boolean }
+  let feedbackLoadTokens = {};  // { [projectId]: number }
   let postingFeedback   = {};   // { [projectId]: boolean }
   let deletingFeedback  = {};   // { [feedbackId]: boolean }
   let postingReply      = {};   // { [projectId]: boolean }
@@ -1288,6 +1331,10 @@
   let replyText         = {};   // { [projectId]: string }
   // feedback actions removed: status / approve / reject
   const FEEDBACK_CACHE_PREFIX = 'projects.feedback.';
+
+  function feedbackIdOf(item) {
+    return item?.feedback_id || item?.id || '';
+  }
 
   function feedbackCacheKey(projectId) {
     return `${FEEDBACK_CACHE_PREFIX}${String(projectId || '').trim()}`;
@@ -1313,6 +1360,8 @@
   }
 
   async function loadFeedback(projectId, options = {}) {
+    const token = (feedbackLoadTokens[projectId] || 0) + 1;
+    feedbackLoadTokens = { ...feedbackLoadTokens, [projectId]: token };
     const showLoading = options?.showLoading !== false;
     const hydrateFromCache = options?.hydrateFromCache !== false;
     if (hydrateFromCache && !(projectId in feedbackMap)) {
@@ -1324,28 +1373,63 @@
     }
     try {
       const res = await dispatchAction('list_feedback', { proj_id: String(projectId) });
+      if (feedbackLoadTokens[projectId] !== token) return;
       if (res?.ok) {
-        const feedback = res.feedback || [];
-        feedbackMap = { ...feedbackMap, [projectId]: feedback };
-        writeCachedFeedback(projectId, feedback);
+        const serverFeedback = res.feedback || [];
+        const serverIds = new Set(serverFeedback.map((item) => String(feedbackIdOf(item) || '').trim()).filter(Boolean));
+        const localPending = (feedbackMap[projectId] || []).filter((item) => item?._localPending);
+        const mergedFeedback = [
+          ...serverFeedback.map((item) => ({ ...item, _localPending: false })),
+          ...localPending.filter((item) => !serverIds.has(String(feedbackIdOf(item) || '').trim()))
+        ];
+        feedbackMap = { ...feedbackMap, [projectId]: mergedFeedback };
+        writeCachedFeedback(projectId, mergedFeedback);
       } else {
         feedbackMap = { ...feedbackMap, [projectId]: [] };
         writeCachedFeedback(projectId, []);
       }
     } catch (e) {
+      if (feedbackLoadTokens[projectId] !== token) return;
       if (!(projectId in feedbackMap)) {
         feedbackMap = { ...feedbackMap, [projectId]: [] };
       }
     } finally {
-      if (showLoading) {
+      if (showLoading && feedbackLoadTokens[projectId] === token) {
         feedbackLoading = { ...feedbackLoading, [projectId]: false };
       }
     }
   }
 
-  function feedbackChildren(projectId, parentId) {
-    const list = feedbackMap[projectId] || [];
+  function feedbackChildren(projectId, parentId, feedbackItems = null) {
+    const list = Array.isArray(feedbackItems) ? feedbackItems : (feedbackMap[projectId] || []);
     return list.filter(f => String(f.parent_id || '') === String(parentId || ''));
+  }
+
+  function collectFeedbackSubtreeIds(feedbackItems, feedbackId) {
+    const targetId = String(feedbackId || '').trim();
+    const ids = new Set(targetId ? [targetId] : []);
+    let changed = true;
+
+    while (changed) {
+      changed = false;
+      (Array.isArray(feedbackItems) ? feedbackItems : []).forEach((item) => {
+        const itemId = String(feedbackIdOf(item) || '').trim();
+        const parentId = String(item?.parent_id || '').trim();
+        if (itemId && parentId && ids.has(parentId) && !ids.has(itemId)) {
+          ids.add(itemId);
+          changed = true;
+        }
+      });
+    }
+
+    return ids;
+  }
+
+  function removeFeedbackSubtree(feedbackItems, feedbackId) {
+    const ids = collectFeedbackSubtreeIds(feedbackItems, feedbackId);
+    return (Array.isArray(feedbackItems) ? feedbackItems : []).filter((item) => (
+      !ids.has(String(feedbackIdOf(item) || '').trim())
+    ));
   }
 
   function isFeedbackSupervisor(feedback) {
@@ -1387,6 +1471,7 @@
         formError = res?.error || 'Failed to post comment.';
         return;
       }
+      feedbackLoadTokens = { ...feedbackLoadTokens, [projectId]: (feedbackLoadTokens[projectId] || 0) + 1 };
       const createdItem = {
         feedback_id: String(res.feedback_id || `feedback-${Date.now()}`),
         proj_id: String(projectId),
@@ -1395,7 +1480,8 @@
         commenter_role: role,
         comment_text: text,
         created_at: String(res.created_at || new Date().toISOString()),
-        commenter_name: getDisplayName(activeUser) || uid
+        commenter_name: getDisplayName(activeUser) || uid,
+        _localPending: true
       };
       const nextFeedback = [...(feedbackMap[projectId] || []), createdItem];
       feedbackMap = { ...feedbackMap, [projectId]: nextFeedback };
@@ -1424,6 +1510,7 @@
         formError = res?.error || 'Failed to post reply.';
         return;
       }
+      feedbackLoadTokens = { ...feedbackLoadTokens, [projectId]: (feedbackLoadTokens[projectId] || 0) + 1 };
       const createdItem = {
         feedback_id: String(res.feedback_id || `feedback-${Date.now()}`),
         proj_id: String(projectId),
@@ -1432,7 +1519,8 @@
         commenter_role: role,
         comment_text: text,
         created_at: String(res.created_at || new Date().toISOString()),
-        commenter_name: getDisplayName(activeUser) || uid
+        commenter_name: getDisplayName(activeUser) || uid,
+        _localPending: true
       };
       const nextFeedback = [...(feedbackMap[projectId] || []), createdItem];
       feedbackMap = { ...feedbackMap, [projectId]: nextFeedback };
@@ -1452,13 +1540,37 @@
     const feedbackKey = String(feedbackId || '');
     if (!feedbackKey || deletingFeedback[feedbackKey]) return;
     const uid = getCurrentUserId();
+    const previousFeedback = feedbackMap[projectId] || [];
+    const deletedIds = collectFeedbackSubtreeIds(previousFeedback, feedbackKey);
+    const nextFeedback = removeFeedbackSubtree(previousFeedback, feedbackKey);
+
+    feedbackLoadTokens = { ...feedbackLoadTokens, [projectId]: (feedbackLoadTokens[projectId] || 0) + 1 };
+    feedbackMap = { ...feedbackMap, [projectId]: nextFeedback };
+    writeCachedFeedback(projectId, nextFeedback);
+    if (deletedIds.has(String(replyingTo[projectId] || '').trim())) {
+      replyingTo = { ...replyingTo, [projectId]: null };
+      replyText = { ...replyText, [projectId]: '' };
+    }
+
     deletingFeedback = { ...deletingFeedback, [feedbackKey]: true };
     try {
       const res = await dispatchAction('delete_feedback', { feedback_id: feedbackId, user_id: uid });
-      if (!res?.ok) { formError = res?.error || 'Delete failed.'; return; }
+      if (!res?.ok) {
+        const message = res?.error || 'Delete failed.';
+        if (!/not found/i.test(message)) {
+          feedbackMap = { ...feedbackMap, [projectId]: previousFeedback };
+          writeCachedFeedback(projectId, previousFeedback);
+          formError = message;
+          return;
+        }
+      }
       await loadFeedback(projectId, { showLoading: false });
       void refreshOverviewActivity();
-    } catch (e) { formError = e?.message || 'Delete failed.'; }
+    } catch (e) {
+      feedbackMap = { ...feedbackMap, [projectId]: previousFeedback };
+      writeCachedFeedback(projectId, previousFeedback);
+      formError = e?.message || 'Delete failed.';
+    }
     finally {
       deletingFeedback = { ...deletingFeedback, [feedbackKey]: false };
     }
@@ -1914,6 +2026,7 @@
   // ── Derived ───────────────────────────────────────────────────────────────
   let lastAssignmentDebugKey = '';
   $: departmentContext = normalizeText(getProjectDepartmentContext());
+  $: userMap = buildUserMap(users);
   $: allInterns = users.filter(isInternUser);
   $: allSupervisors = users.filter(isSupervisorUser);
   $: availableInterns = departmentContext
@@ -1937,10 +2050,10 @@
     initials: getInitials(getDisplayName(user))
   })).filter((option) => option.value);
   $: selectedMemberOptions = (form.members || []).map((id) => (
-    MEMBER_OPTIONS.find((option) => option.value === id) || { value: id, label: id, initials: getInitials(id) }
+    MEMBER_OPTIONS.find((option) => option.value === id) || { value: id, label: resolveUserName(id), initials: getInitials(resolveUserName(id)) }
   ));
   $: selectedSupervisorOptions = (form.supervisor || []).map((id) => (
-    SUPERVISOR_OPTIONS.find((option) => option.value === id) || { value: id, label: id, initials: getInitials(id) }
+    SUPERVISOR_OPTIONS.find((option) => option.value === id) || { value: id, label: resolveUserName(id), initials: getInitials(resolveUserName(id)) }
   ));
   $: memberChipList = selectedMemberOptions;
   $: supervisorChipList = selectedSupervisorOptions.slice(0, MAX_ASSIGNMENT_CHIPS);
@@ -2247,7 +2360,7 @@
                 {@const pct = p.progress_percent != null ? p.progress_percent : statusToProgress(p.status)}
                 {@const past = isDeadlinePast(p.timeline_end || p.deadline)}
                 {@const near = !past && isDeadlineNear(p.timeline_end || p.deadline)}
-                {@const ownerName = String(p.owner_name || p.created_by || '').trim() || 'Assigned project'}
+                {@const ownerName = String(p.owner_name || p.created_by_name || resolveUserName(p.created_by) || '').trim() || 'Assigned project'}
                 <div
                   class="ov-snippet-card"
                   role="button"
@@ -2572,7 +2685,7 @@
                                 }}
                                 aria-disabled={statusOnlyEdit}
                               >
-                                <div>{(inlineForm.members && inlineForm.members.length) ? inlineForm.members.map(id => MEMBER_OPTIONS.find(o => o.value === id)?.label || id).join(', ') : 'Select members'}</div>
+                                <div>{(inlineForm.members && inlineForm.members.length) ? inlineForm.members.map(id => MEMBER_OPTIONS.find(o => o.value === id)?.label || resolveUserName(id)).join(', ') : 'Select members'}</div>
                                 <div class="muted">{(inlineForm.members || []).length}</div>
                               </div>
                               {#if showInlineMembersPanel && !statusOnlyEdit}
@@ -2618,7 +2731,7 @@
                                 tabindex="0"
                                 aria-disabled={statusOnlyEdit}
                               >
-                                <div>{(inlineForm.supervisor && inlineForm.supervisor.length) ? inlineForm.supervisor.map(id => SUPERVISOR_OPTIONS.find(o => o.value === id)?.label || id).join(', ') : 'Select supervisor(s)'}</div>
+                                <div>{(inlineForm.supervisor && inlineForm.supervisor.length) ? inlineForm.supervisor.map(id => SUPERVISOR_OPTIONS.find(o => o.value === id)?.label || resolveUserName(id)).join(', ') : 'Select supervisor(s)'}</div>
                                 <div class="muted">{(inlineForm.supervisor || []).length}</div>
                               </div>
                               {#if showInlineSupervisorPanel && !statusOnlyEdit}
@@ -2688,8 +2801,18 @@
                       {:else}
                         <!-- ── Read View ──────────────────────────────── -->
                         {@const detailProgress = p.progress_percent != null ? p.progress_percent : statusToProgress(p.status)}
-                        {@const detailMembers = (p.members || []).map((id) => MEMBER_OPTIONS.find((option) => option.value === id) || { value: id, label: id, initials: getInitials(id), photoUrl: '' })}
-                        {@const detailSupervisors = (p.supervisors || []).map((id) => SUPERVISOR_OPTIONS.find((option) => option.value === id) || { value: id, label: id, initials: getInitials(id), photoUrl: '' })}
+                        {@const detailMembers = (p.members || []).map((id) => {
+                          const option = MEMBER_OPTIONS.find((member) => member.value === id);
+                          const label = resolveUserName(id);
+                          const user = getUserRecordById(id);
+                          return option || { value: id, label, initials: getInitials(label), photoUrl: getProfilePhotoUrl(user) };
+                        })}
+                        {@const detailSupervisors = (p.supervisors || []).map((id) => {
+                          const option = SUPERVISOR_OPTIONS.find((supervisor) => supervisor.value === id);
+                          const label = resolveUserName(id);
+                          const user = getUserRecordById(id);
+                          return option || { value: id, label, initials: getInitials(label), photoUrl: getProfilePhotoUrl(user) };
+                        })}
                         <div class="proj-detail-read">
                           <div class="pdr-layout">
                             <div class="pdr-main">
@@ -2957,10 +3080,11 @@
                         </div>
                       {/if}
                     {:else if viewingProjectTab === 'Feedback'}
+                      {@const projectFeedback = feedbackMap[p.id] || []}
                       <!-- ── Feedback Tab ─────────────────────────────────── -->
                       <div class="feedback-wrap">
                         <!-- Root comment threads -->
-                        {#each (feedbackMap[p.id] || []).filter(f => !f.parent_id) as thread}
+                        {#each projectFeedback.filter(f => !f.parent_id) as thread (thread.feedback_id || thread.id)}
                           <div class="feedback-thread">
                               <!-- Root comment row -->
                               <div class="feedback-card">
@@ -3000,7 +3124,7 @@
                                 {/if}
                               </div>
 
-                              {#each feedbackChildren(p.id, thread.feedback_id) as c1}
+                              {#each feedbackChildren(p.id, thread.feedback_id, projectFeedback) as c1 (c1.feedback_id || c1.id)}
                                 <div class="feedback-reply" style="margin-left:1.1rem">
                                   <div class="feedback-card-top">
                                     <span class="fb-role-badge" class:fb-badge-sup={isFeedbackSupervisor(c1)}>{getFeedbackAuthorName(c1)}</span>
@@ -3037,7 +3161,7 @@
                                     </div>
                                   {/if}
 
-                                  {#each feedbackChildren(p.id, c1.feedback_id) as c2}
+                                  {#each feedbackChildren(p.id, c1.feedback_id, projectFeedback) as c2 (c2.feedback_id || c2.id)}
                                     <div class="feedback-reply" style="margin-left:1.1rem">
                                       <div class="feedback-card-top">
                                         <span class="fb-role-badge" class:fb-badge-sup={isFeedbackSupervisor(c2)}>{getFeedbackAuthorName(c2)}</span>
@@ -3074,7 +3198,7 @@
                                         </div>
                                       {/if}
 
-                                      {#each feedbackChildren(p.id, c2.feedback_id) as c3}
+                                      {#each feedbackChildren(p.id, c2.feedback_id, projectFeedback) as c3 (c3.feedback_id || c3.id)}
                                         <div class="feedback-reply" style="margin-left:1.1rem">
                                           <div class="feedback-card-top">
                                             <span class="fb-role-badge" class:fb-badge-sup={isFeedbackSupervisor(c3)}>{getFeedbackAuthorName(c3)}</span>
@@ -3120,7 +3244,7 @@
                               {/each}
                           </div>
                         {/each}
-                        {#if !(feedbackMap[p.id] || []).filter(f => !f.parent_id).length}
+                        {#if !projectFeedback.filter(f => !f.parent_id).length}
                           <div class="proj-detail-empty">No feedback yet. Be the first to comment.</div>
                         {/if}
                         <!-- New root comment composer -->
