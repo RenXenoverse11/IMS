@@ -8,6 +8,8 @@
   export let replyingTo = {};
   export let replyText = {};
   export let replySubmitting = {};
+  export let deletingFeedback = {};
+  export let feedbackItems = null;
   export let currentUser = null;
   export let getCurrentUser = () => null;
   export let getChildren = () => [];
@@ -29,6 +31,14 @@
   ).trim();
   $: currentUserId = String(currentUser?.user_id || getCurrentUser()?.user_id || '').trim();
   $: canDelete = commenterId === currentUserId;
+  $: isDeleting = !!deletingFeedback?.[itemId];
+
+  function childrenFor(projectId, parentId, items) {
+    const list = Array.isArray(items) ? items : getChildren(projectId, parentId);
+    return (Array.isArray(list) ? list : []).filter((feedback) => (
+      String(feedback?.parent_id || '') === String(parentId || '')
+    ));
+  }
 </script>
 
 <div class={depth === 0 ? 'feedback-thread' : 'feedback-reply'} style={depth > 0 ? `margin-left:${depth * 1.1}rem` : ''}>
@@ -37,7 +47,13 @@
       <span class="fb-role-badge" class:fb-badge-sup={String(item?.commenter_role || '').trim() === 'Supervisor'}>{commenterName}</span>
       <div style="flex:1"></div>
       {#if canDelete}
-        <button class="icon-btn fb-delete-btn" title="Delete" on:click={() => onDelete(projectId, itemId)}><Trash2 size={13} /></button>
+        <button class="icon-btn fb-delete-btn" title="Delete" disabled={isDeleting} on:click={() => onDelete(projectId, itemId)}>
+          {#if isDeleting}
+            <Loader2 size={13} class="spin" />
+          {:else}
+            <Trash2 size={13} />
+          {/if}
+        </button>
       {/if}
     </div>
 
@@ -71,7 +87,7 @@
     {/if}
   </div>
 
-  {#each getChildren(projectId, itemId) as child (child.feedback_id || child.id)}
+  {#each childrenFor(projectId, itemId, feedbackItems) as child (child.feedback_id || child.id)}
     <svelte:self
       item={child}
       {projectId}
@@ -79,6 +95,8 @@
       {replyingTo}
       {replyText}
       {replySubmitting}
+      {deletingFeedback}
+      {feedbackItems}
       {currentUser}
       {getCurrentUser}
       {getChildren}

@@ -983,13 +983,45 @@ function handleCreateFeedback_(payload) {
   return { ok: true, feedback_id: id, created_at: now };
 }
 
+function collectFeedbackDeleteIds_(data, targetId) {
+  var ids = {};
+  var target = String(targetId || '').trim();
+  if (!target) return ids;
+
+  ids[target] = true;
+  var changed = true;
+  while (changed) {
+    changed = false;
+    for (var i = 1; i < data.length; i++) {
+      var rowId = String(data[i][0] || '').trim();
+      var parentId = String(data[i][2] || '').trim();
+      if (rowId && parentId && ids[parentId] && !ids[rowId]) {
+        ids[rowId] = true;
+        changed = true;
+      }
+    }
+  }
+  return ids;
+}
+
 function handleDeleteFeedback_(payload) {
   var id = String(payload.feedback_id || '').trim();
   if (!id) return { ok: false, error: 'feedback_id is required.' };
   var sheet = feedbackSheet_();
   var data  = sheet.getDataRange().getValues();
-  for (var i = 1; i < data.length; i++) {
-    if (String(data[i][0] || '').trim() === id) { sheet.deleteRow(i + 1); return { ok: true, feedback_id: id }; }
+  var deleteIds = collectFeedbackDeleteIds_(data, id);
+  var deletedCount = 0;
+
+  for (var i = data.length - 1; i >= 1; i--) {
+    var rowId = String(data[i][0] || '').trim();
+    if (rowId && deleteIds[rowId]) {
+      sheet.deleteRow(i + 1);
+      deletedCount++;
+    }
+  }
+
+  if (deletedCount > 0) {
+    return { ok: true, feedback_id: id, deleted_count: deletedCount };
   }
   return { ok: false, error: 'Feedback not found: ' + id };
 }

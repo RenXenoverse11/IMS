@@ -268,6 +268,42 @@ function buildSupervisorLookupTokens_(supervisorUserId) {
   return tokenMap;
 }
 
+function buildAssignedStudentLookupTokens_(supervisorUserId) {
+  var tokenMap = {};
+
+  function addToken(value) {
+    var token = normalizeProjectTagValue_(value);
+    if (token) tokenMap[token] = true;
+  }
+
+  var assignments = [];
+  try {
+    if (typeof getActiveSupervisorAssignments_ === 'function') {
+      assignments = getActiveSupervisorAssignments_(supervisorUserId);
+    }
+  } catch (e) {
+    assignments = [];
+  }
+
+  for (var i = 0; i < assignments.length; i++) {
+    var studentId = String(assignments[i].student_user_id || '').trim();
+    if (!studentId) continue;
+
+    addToken(studentId);
+    try {
+      var record = findUserRecordByUserId_(studentId);
+      if (record && record.user) {
+        addToken(record.user.full_name);
+        addToken(record.user.email);
+      }
+    } catch (e2) {
+      // Best effort only. Student user_id matching is still enough.
+    }
+  }
+
+  return tokenMap;
+}
+
 function matchesAnyToken_(values, tokenMap) {
   var items = splitProjectCsvValues_(values);
   for (var i = 0; i < items.length; i++) {
@@ -481,11 +517,21 @@ function assertSupervisorCanAccessProject_(supervisorUserId, projId) {
 
   var supervisorTokens = buildSupervisorLookupTokens_(userId);
   var supervisors = splitProjectCsvValues_(record.project.supervisor);
+  var members = splitProjectCsvValues_(record.project.members);
   var createdBy = String(record.project.created_by || '').trim();
   var supervisorMatch = matchesAnyToken_(supervisors, supervisorTokens);
   var creatorMatch = matchesAnyToken_([createdBy], supervisorTokens);
+  var mirrorSupervisorMatch = false;
+  var mirrorCreatorMatch = false;
+  var mirrorRecord = findSupervisorProjectRecordByProjId_(targetProjId);
+  if (mirrorRecord && mirrorRecord.project) {
+    mirrorSupervisorMatch = matchesAnyToken_(mirrorRecord.project.supervisor, supervisorTokens);
+    mirrorCreatorMatch = matchesAnyToken_([mirrorRecord.project.created_by], supervisorTokens);
+  }
+  var assignedStudentTokens = buildAssignedStudentLookupTokens_(userId);
+  var assignedParticipantMatch = matchesAnyToken_([createdBy].concat(members), assignedStudentTokens);
 
-  if (!supervisorMatch && !creatorMatch) {
+  if (!supervisorMatch && !creatorMatch && !mirrorSupervisorMatch && !mirrorCreatorMatch && !assignedParticipantMatch) {
     return { ok: false, error: 'This project is not assigned to the current supervisor.' };
   }
 

@@ -271,6 +271,7 @@
         proj_id: projId,
         folder_id: folderId,
         user_id: uid,
+        supervisor_user_id: uid,
         kind: 'file',
         file_name: chosenName,
         file_type: ext,
@@ -322,6 +323,7 @@
         proj_id: projId,
         folder_id: folderId,
         user_id: uid,
+        supervisor_user_id: uid,
         kind: 'link',
         link_label: viewingLinkLabel,
         link_url: viewingLinkUrl
@@ -429,7 +431,8 @@
     try {
       const res = await callApiAction('delete_proj_submission_supervisor', {
         submission_id: subId,
-        user_id: getCurrentUserId()
+        user_id: getCurrentUserId(),
+        supervisor_user_id: getCurrentUserId()
       });
       if (!res?.ok) { setFlashError(res?.error || 'Delete submission failed.'); return; }
       setFlashMessage('Submission removed.');
@@ -483,7 +486,8 @@
       const res = await callApiAction('create_proj_folder_supervisor', {
         proj_id: projId,
         folder_name: 'New Folder',
-        user_id: uid
+        user_id: uid,
+        supervisor_user_id: uid
       });
       if (!res?.ok) {
         allProjects = allProjects.map((p) => p.id === projectId
@@ -510,7 +514,8 @@
       if (!folderStillExists) {
         await callApiAction('delete_proj_folder_supervisor', {
           folder_id: res.folder_id,
-          user_id: uid
+          user_id: uid,
+          supervisor_user_id: uid
         });
         return;
       }
@@ -522,7 +527,8 @@
         const renameRes = await callApiAction('update_proj_folder_supervisor', {
           folder_id: res.folder_id,
           folder_name: currentFolderName,
-          user_id: uid
+          user_id: uid,
+          supervisor_user_id: uid
         });
         if (!renameRes?.ok) {
           formError = renameRes?.error || 'Rename failed.';
@@ -568,7 +574,8 @@
       const res = await callApiAction('update_proj_folder_supervisor', {
         folder_id: savedId,
         folder_name: newName,
-        user_id: uid
+        user_id: uid,
+        supervisor_user_id: uid
       });
       if (!res?.ok) { formError = res?.error || 'Rename failed.'; }
     } catch (e) {
@@ -592,7 +599,8 @@
     try {
       const res = await callApiAction('delete_proj_folder_supervisor', {
         folder_id: folderId,
-        user_id: getCurrentUserId()
+        user_id: getCurrentUserId(),
+        supervisor_user_id: getCurrentUserId()
       });
       if (!res?.ok) { formError = res?.error || 'Delete folder failed.'; return; }
       formSuccess = 'Folder deleted.';
@@ -854,6 +862,7 @@
   // Feedback helpers
   let replyingTo = {};
   let replyText = {};
+  let deletingFeedback = {};
 
   function feedbackIdOf(item) {
     return item?.feedback_id || item?.id || '';
@@ -877,6 +886,33 @@
   function feedbackChildren(projectId, parentId) {
     const list = feedbackMap[projectId] || [];
     return list.filter(f => String(f.parent_id || '') === String(parentId || ''));
+  }
+
+  function collectFeedbackSubtreeIds(feedbackItems, feedbackId) {
+    const targetId = String(feedbackId || '').trim();
+    const ids = new Set(targetId ? [targetId] : []);
+    let changed = true;
+
+    while (changed) {
+      changed = false;
+      (Array.isArray(feedbackItems) ? feedbackItems : []).forEach((item) => {
+        const itemId = String(feedbackIdOf(item) || '').trim();
+        const parentId = String(item?.parent_id || '').trim();
+        if (itemId && parentId && ids.has(parentId) && !ids.has(itemId)) {
+          ids.add(itemId);
+          changed = true;
+        }
+      });
+    }
+
+    return ids;
+  }
+
+  function removeFeedbackSubtree(feedbackItems, feedbackId) {
+    const ids = collectFeedbackSubtreeIds(feedbackItems, feedbackId);
+    return (Array.isArray(feedbackItems) ? feedbackItems : []).filter((item) => (
+      !ids.has(String(feedbackIdOf(item) || '').trim())
+    ));
   }
 
   async function submitFeedback(projectId) {
@@ -952,12 +988,41 @@
   }
 
   async function deleteFeedback(projectId, feedbackId) {
+    const feedbackKey = String(feedbackId || '').trim();
+    if (!feedbackKey || deletingFeedback[feedbackKey]) return;
     const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    const previousFeedback = feedbackMap[projectId] || [];
+    const deletedIds = collectFeedbackSubtreeIds(previousFeedback, feedbackKey);
+    const nextFeedback = removeFeedbackSubtree(previousFeedback, feedbackKey);
+
+    feedbackLoadTokens = { ...feedbackLoadTokens, [projectId]: (feedbackLoadTokens[projectId] || 0) + 1 };
+    feedbackMap = { ...feedbackMap, [projectId]: nextFeedback };
+    writeCachedFeedback(projectId, nextFeedback);
+    if (deletedIds.has(String(replyingTo[projectId] || '').trim())) {
+      replyingTo = { ...replyingTo, [projectId]: null };
+      replyText = { ...replyText, [projectId]: '' };
+    }
+
+    deletingFeedback = { ...deletingFeedback, [feedbackKey]: true };
     try {
       const res = await callApiAction('delete_feedback', { feedback_id: feedbackId, user_id: uid });
-      if (!res?.ok) { setFlashError(res?.error || 'Delete failed.'); return; }
+      if (!res?.ok) {
+        const message = res?.error || 'Delete failed.';
+        if (!/not found/i.test(message)) {
+          feedbackMap = { ...feedbackMap, [projectId]: previousFeedback };
+          writeCachedFeedback(projectId, previousFeedback);
+          setFlashError(message);
+          return;
+        }
+      }
       await loadFeedback(projectId, { silent: true });
-    } catch (e) { setFlashError(e?.message || 'Delete failed.'); }
+    } catch (e) {
+      feedbackMap = { ...feedbackMap, [projectId]: previousFeedback };
+      writeCachedFeedback(projectId, previousFeedback);
+      setFlashError(e?.message || 'Delete failed.');
+    } finally {
+      deletingFeedback = { ...deletingFeedback, [feedbackKey]: false };
+    }
   }
   // user bootstrap and lookup (map user_id -> display name)
   let users = [];
@@ -1010,7 +1075,8 @@
   }
 
   function getCurrentUserId() {
-    return String(currentUser?.user_id || getCurrentUser()?.user_id || '').trim();
+    const activeUser = currentUser || getCurrentUser() || {};
+    return String(activeUser.user_id || activeUser.id || activeUser.UserId || activeUser.userId || '').trim();
   }
 
   function canManageProject(project) {
@@ -3047,8 +3113,9 @@
             </div>
           {/if}
         {:else if viewingProjectTab === 'Feedback'}
+          {@const projectFeedback = feedbackMap[p.id] || []}
           <div class="feedback-wrap">
-            {#each (feedbackMap[p.id] || []).filter(f => !f.parent_id) as thread (feedbackIdOf(thread))}
+            {#each projectFeedback.filter(f => !f.parent_id) as thread (feedbackIdOf(thread))}
               <FeedbackThread
                 item={thread}
                 projectId={p.id}
@@ -3056,6 +3123,8 @@
                 {replyingTo}
                 {replyText}
                 {replySubmitting}
+                {deletingFeedback}
+                feedbackItems={projectFeedback}
                 {currentUser}
                 {getCurrentUser}
                 getChildren={feedbackChildren}
@@ -3067,7 +3136,7 @@
                 onDelete={deleteFeedback}
               />
             {/each}
-            {#if !(feedbackMap[p.id] || []).filter(f => !f.parent_id).length}
+            {#if !projectFeedback.filter(f => !f.parent_id).length}
               <div class="proj-detail-empty">No feedback yet. Be the first to comment.</div>
             {/if}
             <div class="fb-new-comment">
