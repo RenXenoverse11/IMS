@@ -61,6 +61,7 @@
   const MAX_ASSIGNMENT_CHIPS = 3;
   const TEMP_FOLDER_PREFIX = 'tmp-folder-';
   const FOLDER_CACHE_PREFIX = 'projects.folders.';
+  let pendingFolderCreates = {};
   let showDeleteProjectModal = false;
   let projectToDelete = null;
   let isDeletingProject = false;
@@ -91,7 +92,13 @@
         name: String(folder?.name || '').trim(),
         gdrive_link: String(folder?.gdrive_link || '').trim(),
         created_by: String(folder?.created_by || '').trim(),
-        submissions: Array.isArray(folder?.submissions) ? folder.submissions.map(normalizeSubmission_) : []
+        submissions: Array.isArray(folder?.submissions)
+          ? folder.submissions.map((submission) => normalizeSubmission_({
+              ...submission,
+              folder_id: submission?.folder_id || folder?.folder_id || folder?.id || '',
+              gdrive: submission?.gdrive || folder?.gdrive_link || ''
+            }))
+          : []
       }));
     } catch (e) {
       return null;
@@ -100,7 +107,11 @@
 
   function writeCachedFolders(projectId, folders) {
     try {
-      localStorage.setItem(folderCacheKey(projectId), JSON.stringify(Array.isArray(folders) ? folders : []));
+      const cacheableFolders = (Array.isArray(folders) ? folders : []).filter((folder) => {
+        const folderId = String(folder?.id || folder?.folder_id || '').trim();
+        return folderId && !folder?.isPending && !isTemporaryFolderId(folderId);
+      });
+      localStorage.setItem(folderCacheKey(projectId), JSON.stringify(cacheableFolders));
     } catch (e) {
       // ignore storage errors
     }
@@ -179,7 +190,15 @@
       ...project,
       folders: (project.folders || []).map((folder) =>
         folder.id === oldId
-          ? { ...folder, ...nextFolder, id: nextFolder.id, folder_id: nextFolder.folder_id || nextFolder.id }
+          ? {
+              ...folder,
+              ...nextFolder,
+              id: nextFolder.id,
+              folder_id: nextFolder.folder_id || nextFolder.id,
+              name: String(folder.name || nextFolder.name || '').trim() || 'New Folder',
+              isPending: false,
+              _localCreated: true
+            }
           : folder
       ),
     }));
@@ -201,6 +220,89 @@
     if (pendingUpload.folderId === oldId) {
       pendingUpload = { ...pendingUpload, folderId: nextFolder.id };
     }
+  }
+
+  function mergeFoldersWithLocalState(projectId, serverFolders) {
+    const project = allProjects.find((item) => item.id === projectId);
+    const localFolders = Array.isArray(project?.folders) ? project.folders : [];
+    const serverIds = new Set((serverFolders || []).map((folder) => String(folder.id || folder.folder_id || '').trim()));
+
+    const merged = (serverFolders || []).map((serverFolder) => {
+      const serverId = String(serverFolder.id || serverFolder.folder_id || '').trim();
+      const localMatch = localFolders.find((folder) => String(folder.id || folder.folder_id || '').trim() === serverId);
+      if (!localMatch) return serverFolder;
+      return {
+        ...serverFolder,
+        name: String(localMatch.name || serverFolder.name || '').trim() || serverFolder.name,
+        submissions: mergeSubmissionsWithLocalState(serverFolder.submissions, localMatch.submissions),
+        _localCreated: false
+      };
+    });
+
+    localFolders.forEach((folder) => {
+      const folderId = String(folder.id || folder.folder_id || '').trim();
+      if (!folderId || serverIds.has(folderId)) return;
+      if (folder.isPending || folder._localCreated || isTemporaryFolderId(folderId)) {
+        merged.push(folder);
+      }
+    });
+
+    return merged;
+  }
+
+  function mergeSubmissionsWithLocalState(serverSubmissions, localSubmissions) {
+    const serverList = Array.isArray(serverSubmissions) ? serverSubmissions.map(normalizeSubmission_) : [];
+    const localList = Array.isArray(localSubmissions) ? localSubmissions.map(normalizeSubmission_) : [];
+    if (!localList.length) return serverList;
+
+    const mergedById = new Map();
+    const orderedIds = [];
+
+    for (const submission of serverList) {
+      const submissionId = String(submission?.id || submission?.submission_id || '').trim();
+      if (!submissionId) continue;
+      mergedById.set(submissionId, submission);
+      orderedIds.push(submissionId);
+    }
+
+    for (const localSubmission of localList) {
+      const submissionId = String(localSubmission?.id || localSubmission?.submission_id || '').trim();
+      if (!submissionId) continue;
+
+      const serverSubmission = mergedById.get(submissionId);
+      if (!serverSubmission) {
+        mergedById.set(submissionId, localSubmission);
+        orderedIds.push(submissionId);
+        continue;
+      }
+
+      const kind = localSubmission.kind === 'link' || serverSubmission.kind === 'link' ? 'link' : 'file';
+      mergedById.set(submissionId, {
+        ...serverSubmission,
+        ...localSubmission,
+        id: localSubmission.id || serverSubmission.id || submissionId,
+        submission_id: localSubmission.submission_id || serverSubmission.submission_id || submissionId,
+        folder_id: localSubmission.folder_id || serverSubmission.folder_id || '',
+        kind,
+        name: String(localSubmission.name || serverSubmission.name || '').trim(),
+        file_type: String(localSubmission.file_type || serverSubmission.file_type || '').trim(),
+        file_size: String(localSubmission.file_size || serverSubmission.file_size || '').trim(),
+        uploaded_at: localSubmission.uploaded_at || serverSubmission.uploaded_at || '',
+        drive_url: kind === 'file' ? String(localSubmission.drive_url || serverSubmission.drive_url || '').trim() : '',
+        gdrive: String(localSubmission.gdrive || serverSubmission.gdrive || '').trim(),
+        title: kind === 'link'
+          ? String(localSubmission.title || serverSubmission.title || localSubmission.url || serverSubmission.url || '').trim()
+          : '',
+        url: kind === 'link' ? String(localSubmission.url || serverSubmission.url || '').trim() : '',
+        added_at: kind === 'link'
+          ? localSubmission.added_at || serverSubmission.added_at || localSubmission.uploaded_at || serverSubmission.uploaded_at || ''
+          : ''
+      });
+    }
+
+    return orderedIds
+      .map((submissionId) => mergedById.get(submissionId))
+      .filter(Boolean);
   }
 
   function toggleLinkPanel(folderId) {
@@ -287,6 +389,7 @@
       const submission = {
         id: res.submission_id,
         submission_id: res.submission_id,
+        folder_id: folderId,
         kind: 'file',
         name: chosenName,
         file_type: ext,
@@ -332,6 +435,7 @@
       const submission = {
         id: res.submission_id,
         submission_id: res.submission_id,
+        folder_id: folderId,
         kind: 'link',
         title: viewingLinkLabel || viewingLinkUrl,
         url: viewingLinkUrl,
@@ -440,20 +544,25 @@
   }
 
   function normalizeSubmission_(s) {
-    const isFile = s.kind !== 'link';
+    const normalizedKind = String(s?.kind || '').trim().toLowerCase();
+    const hasLinkFields = Boolean(s?.link_label || s?.title || s?.link_url || s?.url);
+    const hasFileFields = Boolean(s?.file_name || s?.name);
+    const isLink = normalizedKind === 'link' || (!hasFileFields && hasLinkFields);
+    const isFile = !isLink;
     return {
-      id:            s.submission_id,
-      submission_id: s.submission_id,
+      id:            s.submission_id || s.id || '',
+      submission_id: s.submission_id || s.id || '',
+      folder_id:     s.folder_id || '',
       kind:          isFile ? 'file' : 'link',
-      name:          s.file_name || '',
+      name:          isFile ? (s.file_name || s.name || '') : '',
       file_type:     s.file_type || '',
       file_size:     s.file_size || '',
       uploaded_at:   s.uploaded_at || '',
-      drive_url:     isFile ? (s.link_url || '') : '',
-      gdrive:        s.gdrive || '',
-      title:         !isFile ? (s.link_label || s.link_url || '') : '',
-      url:           !isFile ? (s.link_url || '') : '',
-      added_at:      !isFile ? (s.uploaded_at || '') : ''
+      drive_url:     isFile ? (s.drive_url || s.link_url || '') : '',
+      gdrive:        s.gdrive || s.gdrive_link || '',
+      title:         !isFile ? (s.link_label || s.title || s.link_url || s.url || '') : '',
+      url:           !isFile ? (s.url || s.link_url || '') : '',
+      added_at:      !isFile ? (s.added_at || s.uploaded_at || '') : ''
     };
   }
 
@@ -476,6 +585,10 @@
     allProjects = allProjects.map((p) => p.id === projectId
       ? { ...p, folders: [...(p.folders || []), tempFolder] }
       : p);
+    pendingFolderCreates = {
+      ...pendingFolderCreates,
+      [tempId]: { projectId, folderName: tempFolder.name }
+    };
     expandedFolderIds.add(tempId);
     expandedFolderIds = new Set(expandedFolderIds);
     renamingFolderId = tempId;
@@ -499,28 +612,42 @@
           renamingFolderId = null;
           renamingFolderName = '';
         }
+        const nextPending = { ...pendingFolderCreates };
+        delete nextPending[tempId];
+        pendingFolderCreates = nextPending;
         formError = res?.error || 'Failed to create folder.';
         return;
       }
+      const pendingName = String(
+        pendingFolderCreates[tempId]?.folderName ||
+        getProjectFolderById(projectId, tempId)?.name ||
+        'New Folder'
+      ).trim() || 'New Folder';
       const newFolder = {
         id: res.folder_id,
         folder_id: res.folder_id,
-        name: 'New Folder',
+        name: pendingName,
         gdrive_link: res.gdrive_link || '',
         submissions: [],
-        isPending: false
+        isPending: false,
+        _localCreated: true
       };
       const folderStillExists = Boolean(getProjectFolderById(projectId, tempId));
       if (!folderStillExists) {
-        await callApiAction('delete_proj_folder_supervisor', {
-          folder_id: res.folder_id,
-          user_id: uid,
-          supervisor_user_id: uid
-        });
-        return;
+        allProjects = allProjects.map((p) => p.id === projectId
+          ? {
+              ...p,
+              folders: (p.folders || []).some((folder) => folder.id === newFolder.id)
+                ? p.folders
+                : [...(p.folders || []), newFolder]
+            }
+          : p);
+        expandedFolderIds.add(newFolder.id);
+        expandedFolderIds = new Set(expandedFolderIds);
+        if (renamingFolderId === tempId) renamingFolderId = newFolder.id;
+      } else {
+        replaceFolderIdAcrossUi(tempId, newFolder);
       }
-
-      replaceFolderIdAcrossUi(tempId, newFolder);
 
       const currentFolderName = String(getProjectFolderById(projectId, res.folder_id)?.name || 'New Folder').trim() || 'New Folder';
       if (currentFolderName !== 'New Folder') {
@@ -534,6 +661,10 @@
           formError = renameRes?.error || 'Rename failed.';
         }
       }
+      const nextPending = { ...pendingFolderCreates };
+      delete nextPending[tempId];
+      pendingFolderCreates = nextPending;
+      writeCachedFolders(projectId, allProjects.find((p) => p.id === projectId)?.folders || []);
     } catch (e) {
       allProjects = allProjects.map((p) => p.id === projectId
         ? { ...p, folders: (p.folders || []).filter((f) => f.id !== tempId) }
@@ -544,6 +675,9 @@
         renamingFolderId = null;
         renamingFolderName = '';
       }
+      const nextPending = { ...pendingFolderCreates };
+      delete nextPending[tempId];
+      pendingFolderCreates = nextPending;
       formError = e?.message || 'Failed to create folder.';
     } finally {
       isSavingFolder = false;
@@ -563,12 +697,19 @@
     const uid = getCurrentUserId();
     const savedId = renamingFolderId;
     const isTemporaryFolder = isTemporaryFolderId(savedId) || Boolean(getProjectFolderById(projectId, savedId)?.isPending);
+    if (isTemporaryFolder && pendingFolderCreates[savedId]) {
+      pendingFolderCreates = {
+        ...pendingFolderCreates,
+        [savedId]: { ...pendingFolderCreates[savedId], folderName: newName }
+      };
+    }
     renamingFolderId = null;
     renamingFolderName = '';
     allProjects = allProjects.map(p => p.id === projectId ? {
       ...p,
       folders: (p.folders || []).map(f => f.id === savedId ? { ...f, name: newName } : f)
     } : p);
+    writeCachedFolders(projectId, allProjects.find((p) => p.id === projectId)?.folders || []);
     if (isTemporaryFolder) return;
     try {
       const res = await callApiAction('update_proj_folder_supervisor', {
@@ -1947,23 +2088,24 @@
     try {
       const res = await callApiAction('list_proj_submissions', { proj_id: projId });
       if (res?.ok) {
-        const folders = (res.folders || []).map(f => ({
+        const serverFolders = (res.folders || []).map(f => ({
           id:          f.folder_id,
           folder_id:   f.folder_id,
           name:        f.folder_name,
           gdrive_link: f.gdrive_link,
           created_by:  f.created_by,
-          submissions: (f.submissions || []).map(normalizeSubmission_)
+          submissions: (f.submissions || []).map((submission) => normalizeSubmission_({
+            ...submission,
+            folder_id: submission?.folder_id || f.folder_id || '',
+            gdrive: submission?.gdrive || f.gdrive_link || ''
+          }))
         }));
+        const folders = mergeFoldersWithLocalState(projectId, serverFolders);
         allProjects = allProjects.map(p => p.id === projectId ? { ...p, folders } : p);
         writeCachedFolders(projectKey, folders);
-      } else {
-        allProjects = allProjects.map(p => p.id === projectId ? { ...p, folders: [] } : p);
-        writeCachedFolders(projectKey, []);
       }
     } catch (e) {
       console.error('loadProjectFolders error', e);
-      allProjects = allProjects.map(p => p.id === projectId ? { ...p, folders: [] } : p);
     } finally {
       loadingFolderProjectIds.delete(projectKey);
       loadingFolderProjectIds = new Set(loadingFolderProjectIds);
@@ -3009,12 +3151,12 @@
             <div class="folder-list">
               {#each p.folders as folder (folder.id)}
                 <div class="folder-block">
-                  <div class="folder-header" role="button" tabindex="0" on:click={() => { if (renamingFolderId !== folder.id) toggleFolder(folder.id); }} on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleFolder(folder.id); }}>
+                  <div class="folder-header" role="button" tabindex="0" on:click={() => { if (renamingFolderId !== folder.id) toggleFolder(folder.id); }} on:keydown={(e) => { if (renamingFolderId !== folder.id && (e.key === 'Enter' || e.key === ' ')) toggleFolder(folder.id); }}>
                     <span class="folder-chevron">{expandedFolderIds.has(folder.id) ? ICONS.chevronDown : ICONS.chevronRight}</span>
                     <span class="folder-icon">{ICONS.folder}</span>
                     {#if canManage && renamingFolderId === folder.id}
-                      <input class="folder-rename-input" bind:value={renamingFolderName} on:click|stopPropagation on:keydown={(e) => { if (e.key === 'Enter') confirmRename(p.id); if (e.key === 'Escape') { renamingFolderId = null; } }} />
-                      <button class="folder-rename-confirm" on:click|stopPropagation={() => confirmRename(p.id)}>✓</button>
+                      <input class="folder-rename-input" bind:value={renamingFolderName} on:click|stopPropagation on:keydown|stopPropagation={(e) => { if (e.key === 'Enter') confirmRename(p.id); if (e.key === 'Escape') { renamingFolderId = null; } }} />
+                      <button class="folder-rename-confirm" on:click|stopPropagation={() => confirmRename(p.id)} on:keydown|stopPropagation>✓</button>
                     {:else}
                       <span class="folder-name">{folder.name}</span>
                       {#if canManage}
