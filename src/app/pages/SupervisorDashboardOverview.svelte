@@ -82,6 +82,13 @@
     return [0, 6];
   }
 
+  function isDayOffForIntern(intern, dateOnly = today || getToday()) {
+    const parsed = new Date(`${dateOnly}T00:00:00`);
+    if (Number.isNaN(parsed.getTime())) return false;
+    const day = parsed.getDay();
+    return normalizeDaysOff(intern?.days_off).includes(day);
+  }
+
   function toFiniteNumber(value) {
     const parsed = Number(value || 0);
     return Number.isFinite(parsed) ? parsed : 0;
@@ -210,8 +217,8 @@
   function getAttendanceStatus(student) {
     const studentId = String(student?.user_id || '').trim();
 
-    if (isWeekend(today)) {
-      return { label: 'Weekend', tone: 'muted' };
+    if (isDayOffForIntern(student, today)) {
+      return { label: 'Day off', tone: 'muted' };
     }
 
     if (isApprovedAbsenceToday(studentId)) {
@@ -344,9 +351,8 @@
   let unsubscribe;
   onMount();
 
-  $: weekend = Boolean(today) ? isWeekend(today) : isWeekend(getToday());
   $: totalAssigned = assignedStudents.length;
-  $: expectedToday = weekend ? 0 : assignedStudents.filter((s) => !isApprovedAbsenceToday(s?.user_id)).length;
+  $: expectedToday = assignedStudents.filter((s) => !isDayOffForIntern(s, today) && !isApprovedAbsenceToday(s?.user_id)).length;
   $: clockedInToday = assignedStudents.filter((s) => {
     const id = String(s?.user_id || '').trim();
     const row = todayTimelogByStudent[id] || null;

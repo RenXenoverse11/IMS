@@ -839,6 +839,11 @@
       return;
     }
     const hours = calculateHours(timeIn, timeOut, includeLunch);
+    if (checkForConflictingTimeLogEntry(date, timeIn, timeOut)) {
+      logSyncError = `Time overlap detected. A time log entry on ${formatLongDate(date)} already exists during this time period. Please select a different time range.`;
+      isLoggingOut = false;
+      return;
+    }
     try {
       const response = await authApi.callApiAction('end_session', {
         user_id: user.user_id,

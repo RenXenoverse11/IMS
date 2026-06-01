@@ -521,10 +521,22 @@ function handleListTasksByUser_(payload) {
   }
 
   try {
+    if (typeof getActivityTasks === 'function') {
+      var activityResult = getActivityTasks({ user_id: userId });
+      if (activityResult && activityResult.ok === true && Array.isArray(activityResult.tasks)) {
+        return {
+          ok: true,
+          tasks: activityResult.tasks.slice(0, Math.max(0, limit)).map(function (row) {
+            return sanitizeObjectForClient_(row);
+          }),
+        };
+      }
+    }
+
     var sheet = getSheet_('tasks');
     var rows = readSheetObjects_(sheet)
       .filter(function (row) {
-        return String(serializeCellValue_(row.user_id) || '').trim() === userId;
+        return getTaskAssigneeUserId_(row) === userId;
       })
       .sort(function (a, b) {
         // Prefer due_date desc, fallback created_at
@@ -546,6 +558,23 @@ function handleListTasksByUser_(payload) {
 
     return { ok: false, error: 'Unable to load tasks. ' + message };
   }
+}
+
+function getTaskAssigneeUserId_(taskRow) {
+  var row = taskRow || {};
+  return String(
+    serializeCellValue_(row.user_id) ||
+    serializeCellValue_(row.assigned_to) ||
+    serializeCellValue_(row.assignee_id) ||
+    serializeCellValue_(row.student_user_id) ||
+    serializeCellValue_(row.intern_id) ||
+    ''
+  ).trim();
+}
+
+function isOpenTaskStatus_(statusValue) {
+  var status = String(statusValue || '').trim().toLowerCase();
+  return status !== 'completed' && status !== 'done' && status !== 'archived' && status !== 'cancelled' && status !== 'canceled';
 }
 
 // Returns hours per day for the week containing the given date (Monday-Sunday)
@@ -1650,6 +1679,32 @@ function handleEndSession_(payload) {
     var logoutMinutes = normalizeTimeToMinutes_(normalizedTimeOut);
     if (loginMinutes === null || logoutMinutes === null || logoutMinutes < loginMinutes) {
       return { ok: false, error: 'Logout time must be later than the login time.' };
+    }
+
+    for (var overlapIndex = 1; overlapIndex < sessValues.length; overlapIndex++) {
+      if (overlapIndex + 1 === sessionRow) {
+        continue;
+      }
+
+      var overlapUserId = String(sessValues[overlapIndex][userIdCol - 1] || '').trim();
+      var overlapLogDate = formatCellDate_(sessValues[overlapIndex][logDateCol - 1]);
+      var overlapTimeIn = normalizeTimeForCompare_(sessValues[overlapIndex][timeInCol - 1]);
+      var overlapTimeOutRaw = String(serializeCellValue_(sessValues[overlapIndex][timeOutCol - 1]) || '').trim();
+      var overlapTimeOut = normalizeTimeForCompare_(overlapTimeOutRaw);
+
+      if (overlapUserId !== userId || overlapLogDate !== logDate || !overlapTimeOutRaw) {
+        continue;
+      }
+
+      var overlapStartMinutes = normalizeTimeToMinutes_(overlapTimeIn);
+      var overlapEndMinutes = normalizeTimeToMinutes_(overlapTimeOut);
+      if (overlapStartMinutes === null || overlapEndMinutes === null || overlapEndMinutes <= overlapStartMinutes) {
+        continue;
+      }
+
+      if (rangesOverlap_(loginMinutes, logoutMinutes, overlapStartMinutes, overlapEndMinutes)) {
+        return { ok: false, error: 'This time log overlaps with an existing saved entry for the same date.' };
+      }
     }
 
     // Get student profile to check completion status and calculate remaining hours
@@ -2837,23 +2892,59 @@ function handleGetSupervisorDashboardOverview_(payload) {
 
   var taskSummaryByStudent = {};
   for (var t = 0; t < targetStudentIds.length; t++) {
-    taskSummaryByStudent[targetStudentIds[t]] = { pendingCount: 0, total: 0 };
+    taskSummaryByStudent[targetStudentIds[t]] = { pendingCount: 0, overdueCount: 0, total: 0 };
   }
 
   try {
+    if (typeof getActivityTasks === 'function') {
+      for (var studentIndex = 0; studentIndex < targetStudentIds.length; studentIndex++) {
+        var summaryStudentId = targetStudentIds[studentIndex];
+        var activityTaskResult = getActivityTasks({ user_id: summaryStudentId });
+        var activityTasks = activityTaskResult && activityTaskResult.ok === true && Array.isArray(activityTaskResult.tasks)
+          ? activityTaskResult.tasks
+          : [];
+        var activitySummary = taskSummaryByStudent[summaryStudentId] || { pendingCount: 0, overdueCount: 0, total: 0 };
+
+        for (var activityTaskIndex = 0; activityTaskIndex < activityTasks.length; activityTaskIndex++) {
+          var activityTask = activityTasks[activityTaskIndex] || {};
+          var activityStatus = String(activityTask.status || '').trim().toLowerCase();
+          activitySummary.total += 1;
+
+          if (isOpenTaskStatus_(activityStatus)) {
+            activitySummary.pendingCount += 1;
+          }
+          if (activityStatus === 'overdue') {
+            activitySummary.overdueCount += 1;
+          }
+        }
+
+        taskSummaryByStudent[summaryStudentId] = activitySummary;
+      }
+
+      return {
+        ok: true,
+        today_timelog_by_student: todayTimelogByStudent,
+        task_summary_by_student: taskSummaryByStudent,
+      };
+    }
+
     var taskRows = readSheetObjects_(getSheet_('tasks'));
     for (var k = 0; k < taskRows.length; k++) {
       var taskRow = taskRows[k] || {};
-      var taskUserId = String(serializeCellValue_(taskRow.user_id) || '').trim();
+      var taskUserId = getTaskAssigneeUserId_(taskRow);
       if (!taskUserId || !targetLookup[taskUserId]) {
         continue;
       }
 
-      var taskSummary = taskSummaryByStudent[taskUserId] || { pendingCount: 0, total: 0 };
+      var taskSummary = taskSummaryByStudent[taskUserId] || { pendingCount: 0, overdueCount: 0, total: 0 };
       taskSummary.total += 1;
 
-      if (String(taskRow.status || '').trim().toLowerCase() !== 'completed') {
+      var taskStatus = String(taskRow.status || '').trim().toLowerCase();
+      if (isOpenTaskStatus_(taskStatus)) {
         taskSummary.pendingCount += 1;
+      }
+      if (taskStatus === 'overdue') {
+        taskSummary.overdueCount += 1;
       }
 
       taskSummaryByStudent[taskUserId] = taskSummary;
@@ -4601,12 +4692,13 @@ function validateSubmittedTimeMatchesServerNow_(submittedTime, label) {
     return '';
   }
 
-  if (Math.abs(submittedMinutes - nowMinutes) > TIME_LOG_SERVER_TIME_TOLERANCE_MINUTES_) {
-    const labelLower = label.toLowerCase();
-    if (labelLower === 'logout') {
-      return 'You cannot apply logout in advance. Please use your current time.';
-    }
-    return label.charAt(0).toUpperCase() + label.slice(1) + ' time must match the current time.';
+  var labelLower = String(label || '').trim().toLowerCase();
+  if (labelLower === 'logout') {
+    return '';
+  }
+
+  if (submittedMinutes > nowMinutes + TIME_LOG_SERVER_TIME_TOLERANCE_MINUTES_) {
+    return label.charAt(0).toUpperCase() + label.slice(1) + ' time cannot be in the future.';
   }
 
   return '';
