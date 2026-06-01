@@ -635,6 +635,7 @@ export async function getSupervisorDashboardOverview(supervisorUserId, options =
   const payload = {
     supervisor_user_id: String(supervisorUserId || '').trim(),
     date: String(options?.date || '').trim(),
+    include_task_summary: options?.include_task_summary === undefined ? true : Boolean(options.include_task_summary),
     student_user_ids: Array.isArray(options?.student_user_ids)
       ? options.student_user_ids.map((value) => String(value || '').trim()).filter(Boolean)
       : [],
@@ -649,6 +650,7 @@ export async function getSupervisorDashboardOverview(supervisorUserId, options =
     task_summary_by_student: result?.task_summary_by_student && typeof result.task_summary_by_student === 'object'
       ? result.task_summary_by_student
       : {},
+    task_summary_skipped: Boolean(result?.task_summary_skipped),
   };
 }
 

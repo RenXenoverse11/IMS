@@ -54,7 +54,6 @@
 		"BS Business Administration",
 		"BS Civil Engineering",
 		"BS Chemical Engineering",
-		"BS Computer Engineering",
 		"BS Communication",
 		"BS Computer Engineering",
 		"BS Computer Science",

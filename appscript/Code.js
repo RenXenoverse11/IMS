@@ -45,6 +45,8 @@ var TIME_LOG_REMINDER_SENT_PREFIX_ = 'IMS_TIME_LOG_REMINDER_SENT_';
 var SUPERVISOR_TIME_LOG_REMINDER_SENT_PREFIX_ = 'IMS_SUP_TIME_LOG_REMINDER_SENT_';
 var DASHBOARD_CACHE_TTL_SECONDS_ = 60;
 var DASHBOARD_CACHE_KEY_PREFIX_ = 'IMS_DASHBOARD_';
+var SUPERVISOR_DASHBOARD_CACHE_TTL_SECONDS_ = 20;
+var SUPERVISOR_DASHBOARD_CACHE_KEY_PREFIX_ = 'IMS_SUP_DASH_';
 
 function isTimeLogsBackendDisabled_() {
   return TIME_LOGS_BACKEND_ENABLED_ !== true;
@@ -84,6 +86,36 @@ function dashboardRecentLogsCacheKey_(userId, limit) {
 
 function dashboardTotalHoursCacheKey_(userId) {
   return DASHBOARD_CACHE_KEY_PREFIX_ + 'TOTAL_HOURS:' + String(userId || '').trim();
+}
+
+function supervisorAssignedStudentsCacheKey_(supervisorUserId) {
+  return SUPERVISOR_DASHBOARD_CACHE_KEY_PREFIX_ + 'ASSIGNED_STUDENTS:' + String(supervisorUserId || '').trim();
+}
+
+function supervisorAssignedRequestsCacheKey_(supervisorUserId) {
+  return SUPERVISOR_DASHBOARD_CACHE_KEY_PREFIX_ + 'ASSIGNED_REQUESTS:' + String(supervisorUserId || '').trim();
+}
+
+function supervisorOverviewCacheKey_(supervisorUserId, targetDate, includeTaskSummary, requestedIds) {
+  var ids = Array.isArray(requestedIds) ? requestedIds.slice() : [];
+  var normalizedIds = [];
+  var seen = {};
+  for (var i = 0; i < ids.length; i++) {
+    var id = String(ids[i] || '').trim();
+    if (!id || seen[id]) continue;
+    seen[id] = true;
+    normalizedIds.push(id);
+  }
+  normalizedIds.sort();
+  return SUPERVISOR_DASHBOARD_CACHE_KEY_PREFIX_
+    + 'OVERVIEW:'
+    + String(supervisorUserId || '').trim()
+    + ':'
+    + String(targetDate || '').trim()
+    + ':'
+    + (includeTaskSummary ? '1' : '0')
+    + ':'
+    + normalizedIds.join(',');
 }
 
 function invalidateDashboardCacheForUser_(userId) {
@@ -2310,9 +2342,17 @@ function handleListSupervisorAssignedStudents_(payload) {
     return { ok: false, error: 'Only supervisors can view assigned students.' };
   }
 
+  var cacheKey = supervisorAssignedStudentsCacheKey_(supervisorUserId);
+  var cached = getCachedJson_(cacheKey);
+  if (cached && cached.ok === true) {
+    return cached;
+  }
+
   var assignments = getActiveSupervisorAssignments_(supervisorUserId);
   if (!assignments.length) {
-    return { ok: true, students: [] };
+    var emptyResult = { ok: true, students: [] };
+    putCachedJson_(cacheKey, emptyResult, SUPERVISOR_DASHBOARD_CACHE_TTL_SECONDS_);
+    return emptyResult;
   }
 
   var studentIds = [];
@@ -2332,25 +2372,32 @@ function handleListSupervisorAssignedStudents_(payload) {
     userLookup[String(users[j].user_id || '').trim()] = users[j];
   }
 
-  var completedHoursLookup = getCompletedHoursLookupByUserIds_(studentIds);
+  var completedHoursLookup = {};
   var lastActivityLookup = {};
-  try {
-    var activityRows = readSheetObjects_(getActiveSessionsSheet_());
-    var targetLookup = {};
-    for (var tu = 0; tu < studentIds.length; tu++) {
-      targetLookup[studentIds[tu]] = true;
-    }
+  var targetLookup = {};
+  for (var tu = 0; tu < studentIds.length; tu++) {
+    targetLookup[studentIds[tu]] = true;
+    completedHoursLookup[studentIds[tu]] = 0;
+  }
 
-    for (var ar = 0; ar < activityRows.length; ar++) {
-      var activityRow = activityRows[ar] || {};
+  try {
+    var sessionRows = readSheetObjects_(getActiveSessionsSheet_());
+
+    for (var ar = 0; ar < sessionRows.length; ar++) {
+      var activityRow = sessionRows[ar] || {};
       var activityUserId = String(serializeCellValue_(activityRow.user_id) || '').trim();
       if (!activityUserId || !targetLookup[activityUserId]) {
         continue;
       }
 
+      var activityTimeOut = String(serializeCellValue_(activityRow.time_out) || '').trim();
+      if (activityTimeOut !== '') {
+        completedHoursLookup[activityUserId] += Number(activityRow.hours_rendered || 0);
+      }
+
       var candidateRaw = String(
         serializeCellValue_(activityRow.created_at) ||
-        serializeCellValue_(activityRow.time_out) ||
+        activityTimeOut ||
         serializeCellValue_(activityRow.time_in) ||
         serializeCellValue_(activityRow.log_date) ||
         ''
@@ -2377,6 +2424,7 @@ function handleListSupervisorAssignedStudents_(payload) {
     // Non-fatal: keep last activity empty when session history is unavailable.
   }
   var students = [];
+  var profileLookup = getStudentProfilesLookupByUserIds_(studentIds);
 
   // Load one saved schedule per intern, regardless of which supervisor created it.
   var schedulesByIntern = buildLatestInternSchedulesMap_();
@@ -2394,7 +2442,7 @@ function handleListSupervisorAssignedStudents_(payload) {
       continue;
     }
 
-    var profile = getStudentProfileByUserId_(assignmentStudentId);
+    var profile = profileLookup[assignmentStudentId] || null;
     var requiredHours = Number(profile && profile.total_ojt_hours ? profile.total_ojt_hours : 0);
     var completedHours = Number(completedHoursLookup[assignmentStudentId] || 0);
     
@@ -2430,7 +2478,9 @@ function handleListSupervisorAssignedStudents_(payload) {
     return String(a.full_name || '').localeCompare(String(b.full_name || ''));
   });
 
-  return { ok: true, students: students };
+  var result = { ok: true, students: students };
+  putCachedJson_(cacheKey, result, SUPERVISOR_DASHBOARD_CACHE_TTL_SECONDS_);
+  return result;
 }
 
 function handleListSupervisorTimeLogs_(payload) {
@@ -2863,6 +2913,12 @@ function handleListAssignedStudentRequests_(payload) {
     return { ok: false, error: 'Only supervisors can view assigned student requests.' };
   }
 
+  var cacheKey = supervisorAssignedRequestsCacheKey_(supervisorUserId);
+  var cached = getCachedJson_(cacheKey);
+  if (cached && cached.ok === true) {
+    return cached;
+  }
+
   var assignmentSheet = getSupervisorAssignmentsSheet_();
   var assignments = readSheetObjects_(assignmentSheet);
   
@@ -2902,12 +2958,19 @@ function handleListAssignedStudentRequests_(payload) {
     }
   }
 
-  return { ok: true, requests: studentRequests };
+  var result = { ok: true, requests: studentRequests };
+  putCachedJson_(cacheKey, result, SUPERVISOR_DASHBOARD_CACHE_TTL_SECONDS_);
+  return result;
 }
 
 function handleGetSupervisorDashboardOverview_(payload) {
   var supervisorUserId = String(payload.supervisor_user_id || '').trim();
   var targetDate = String(formatDateYMD_(payload.date || new Date()) || '').trim();
+  var includeTaskSummaryRaw = payload && payload.include_task_summary;
+  var includeTaskSummary = includeTaskSummaryRaw === undefined
+    ? true
+    : String(includeTaskSummaryRaw).trim().toLowerCase() !== 'false';
+  var requestedIds = Array.isArray(payload.student_user_ids) ? payload.student_user_ids : [];
 
   if (!supervisorUserId) {
     return { ok: false, error: 'supervisor_user_id is required.' };
@@ -2922,6 +2985,17 @@ function handleGetSupervisorDashboardOverview_(payload) {
     return { ok: false, error: 'Only supervisors can view dashboard overview.' };
   }
 
+  var overviewCacheKey = supervisorOverviewCacheKey_(
+    supervisorUserId,
+    targetDate,
+    includeTaskSummary,
+    requestedIds
+  );
+  var cachedOverview = getCachedJson_(overviewCacheKey);
+  if (cachedOverview && cachedOverview.ok === true) {
+    return cachedOverview;
+  }
+
   var assignments = getActiveSupervisorAssignments_(supervisorUserId);
   var assignedIdLookup = {};
   for (var i = 0; i < assignments.length; i++) {
@@ -2931,7 +3005,6 @@ function handleGetSupervisorDashboardOverview_(payload) {
     }
   }
 
-  var requestedIds = Array.isArray(payload.student_user_ids) ? payload.student_user_ids : [];
   var targetStudentIds = [];
 
   if (requestedIds.length) {
@@ -2953,11 +3026,13 @@ function handleGetSupervisorDashboardOverview_(payload) {
   }
 
   if (!targetStudentIds.length) {
-    return {
+    var emptyResult = {
       ok: true,
       today_timelog_by_student: {},
       task_summary_by_student: {},
     };
+    putCachedJson_(overviewCacheKey, emptyResult, SUPERVISOR_DASHBOARD_CACHE_TTL_SECONDS_);
+    return emptyResult;
   }
 
   var targetLookup = {};
@@ -3016,6 +3091,17 @@ function handleGetSupervisorDashboardOverview_(payload) {
     taskSummaryByStudent[targetStudentIds[t]] = { pendingCount: 0, overdueCount: 0, total: 0 };
   }
 
+  if (!includeTaskSummary) {
+    var skippedTaskResult = {
+      ok: true,
+      today_timelog_by_student: todayTimelogByStudent,
+      task_summary_by_student: taskSummaryByStudent,
+      task_summary_skipped: true,
+    };
+    putCachedJson_(overviewCacheKey, skippedTaskResult, SUPERVISOR_DASHBOARD_CACHE_TTL_SECONDS_);
+    return skippedTaskResult;
+  }
+
   try {
     if (typeof getActivityTasks === 'function') {
       for (var studentIndex = 0; studentIndex < targetStudentIds.length; studentIndex++) {
@@ -3042,11 +3128,14 @@ function handleGetSupervisorDashboardOverview_(payload) {
         taskSummaryByStudent[summaryStudentId] = activitySummary;
       }
 
-      return {
+      var activityTaskResultPayload = {
         ok: true,
         today_timelog_by_student: todayTimelogByStudent,
         task_summary_by_student: taskSummaryByStudent,
+        task_summary_skipped: false,
       };
+      putCachedJson_(overviewCacheKey, activityTaskResultPayload, SUPERVISOR_DASHBOARD_CACHE_TTL_SECONDS_);
+      return activityTaskResultPayload;
     }
 
     var taskRows = readSheetObjects_(getSheet_('tasks'));
@@ -3074,11 +3163,14 @@ function handleGetSupervisorDashboardOverview_(payload) {
     // Keep empty task summary when tasks sheet is missing.
   }
 
-  return {
+  var result = {
     ok: true,
     today_timelog_by_student: todayTimelogByStudent,
     task_summary_by_student: taskSummaryByStudent,
+    task_summary_skipped: false,
   };
+  putCachedJson_(overviewCacheKey, result, SUPERVISOR_DASHBOARD_CACHE_TTL_SECONDS_);
+  return result;
 }
 
 function normalizeDaysOff_(daysOffInput, fallbackDays) {
@@ -5132,6 +5224,42 @@ function getStudentProfileByUserId_(userId) {
     school: String(found.school || ''),
     completed_at: String(found.completed_at || '')
   };
+}
+
+function getStudentProfilesLookupByUserIds_(userIds) {
+  var lookup = {};
+  if (!Array.isArray(userIds) || !userIds.length) {
+    return lookup;
+  }
+
+  var wanted = {};
+  for (var i = 0; i < userIds.length; i++) {
+    var id = String(userIds[i] || '').trim();
+    if (id) {
+      wanted[id] = true;
+    }
+  }
+
+  var rows = readSheetObjects_(getStudentOjtProfileSheet_());
+  for (var j = 0; j < rows.length; j++) {
+    var row = rows[j] || {};
+    var rowId = String(row.user_id || '').trim();
+    if (!rowId || !wanted[rowId]) {
+      continue;
+    }
+
+    lookup[rowId] = {
+      user_id: rowId,
+      total_ojt_hours: Number(row.total_ojt_hours || 0),
+      start_date: formatDateValue_(row.start_date),
+      estimated_end_date: String(row.estimated_end_date || ''),
+      course: String(row.course || ''),
+      school: String(row.school || ''),
+      completed_at: String(row.completed_at || '')
+    };
+  }
+
+  return lookup;
 }
 
 function parsePayload_(e) {

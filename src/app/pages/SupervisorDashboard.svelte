@@ -1,7 +1,7 @@
 <script>
 // @ts-nocheck
   import { CheckCircle, AlertCircle, FileText, Users, Clock3 } from 'lucide-svelte';
-  import { subscribeToCurrentUser, listSupervisorAssignedStudents, listSupervisorTimeLogs, listAssignedStudentRequests, listTasksByUser, getSupervisorDashboardOverview } from '../lib/auth.js';
+  import { subscribeToCurrentUser, listSupervisorAssignedStudents, listAssignedStudentRequests, getSupervisorDashboardOverview } from '../lib/auth.js';
   import { getEstimatedCompletionDate } from '../lib/getEstimatedCompletionDate.js';
 
   export let currentUser = null;
@@ -17,7 +17,6 @@
 
   // keyed by student_user_id -> { time_in, time_out }
   let todayTimelogByStudent = {};
-  let tasksSummaryByStudent = {};
   let loadRunId = 0;
   const AVG_DAILY_HOURS = 8;
 
@@ -90,30 +89,6 @@
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
 
-  function getPendingTaskCount(studentUserId) {
-    const row = tasksSummaryByStudent[String(studentUserId || '').trim()] || null;
-    return Number(row?.pendingCount || 0);
-  }
-
-  function getOverdueTaskCount(studentUserId) {
-    const row = tasksSummaryByStudent[String(studentUserId || '').trim()] || null;
-    return Number(row?.overdueCount || 0);
-  }
-
-  function getTaskSummaryLabel(studentUserId) {
-    const pending = getPendingTaskCount(studentUserId);
-    const overdue = getOverdueTaskCount(studentUserId);
-    if (pending <= 0 && overdue <= 0) return 'No pending tasks';
-    if (overdue > 0) return `${pending} pending • ${overdue} overdue`;
-    return `${pending} pending`;
-  }
-
-  function shouldFetchTaskSummaryFallback(taskMap) {
-    if (!taskMap || typeof taskMap !== 'object') return true;
-    const rows = Object.values(taskMap);
-    if (rows.length === 0) return true;
-    return rows.every((row) => Number(row?.total || 0) === 0);
-  }
 
   function hasClockInToday(studentUserId) {
     const row = todayTimelogByStudent[String(studentUserId || '').trim()] || null;
@@ -123,12 +98,6 @@
   function getToday() {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  }
-
-  function isWeekend(dateOnly) {
-    const parsed = new Date(`${dateOnly}T00:00:00`);
-    const day = parsed.getDay();
-    return day === 0 || day === 6;
   }
 
   function normalizeDaysOff(value) {
@@ -428,7 +397,7 @@
         assignedRequests = [];
         pendingRequests = [];
         todayTimelogByStudent = {};
-        tasksSummaryByStudent = {};
+
         return;
       }
 
@@ -480,13 +449,11 @@
         .map((student) => String(student?.user_id || '').trim())
         .filter(Boolean);
 
-      const defaultTaskSummary = Object.fromEntries(
-        studentUserIds.map((studentUserId) => [studentUserId, { pendingCount: 0, overdueCount: 0, total: 0 }])
-      );
 
       try {
         const overview = await getSupervisorDashboardOverview(supervisorId, {
           date: todayValue,
+          include_task_summary: false,
           student_user_ids: studentUserIds,
         });
 
@@ -497,106 +464,19 @@
         const timelogMap = overview?.today_timelog_by_student && typeof overview.today_timelog_by_student === 'object'
           ? overview.today_timelog_by_student
           : {};
-        const taskMap = overview?.task_summary_by_student && typeof overview.task_summary_by_student === 'object'
-          ? overview.task_summary_by_student
-          : {};
 
         todayTimelogByStudent = Object.fromEntries(
           studentUserIds.map((studentUserId) => [studentUserId, timelogMap[studentUserId] || null])
         );
-        
-        // If overview has no visible task totals, double-check through the task list endpoint.
-        if (shouldFetchTaskSummaryFallback(taskMap)) {
-          const taskEntries = await Promise.all(
-            assignedStudents.map(async (student) => {
-              const studentUserId = String(student?.user_id || '').trim();
-              if (!studentUserId) return [studentUserId, { pendingCount: 0, overdueCount: 0, total: 0 }];
-
-              try {
-                const tasks = await listTasksByUser(studentUserId, { limit: 200 });
-                const list = Array.isArray(tasks) ? tasks : [];
-                // Count tasks that are NOT completed (pending, in-progress, etc)
-                const pendingCount = list.filter((task) => {
-                  const status = String(task?.status || '').toLowerCase().trim();
-                  return status !== 'completed' && status !== '';
-                }).length;
-                const overdueCount = list.filter((task) => String(task?.status || '').toLowerCase().trim() === 'overdue').length;
-                return [studentUserId, { pendingCount, overdueCount, total: list.length }];
-              } catch {
-                return [studentUserId, { pendingCount: 0, overdueCount: 0, total: 0 }];
-              }
-            })
-          );
-          tasksSummaryByStudent = {
-            ...defaultTaskSummary,
-            ...Object.fromEntries(taskEntries.filter((entry) => entry && entry[0])),
-          };
-        } else {
-          tasksSummaryByStudent = Object.fromEntries(
-            studentUserIds.map((studentUserId) => {
-              const row = taskMap[studentUserId] || {};
-              return [studentUserId, {
-                pendingCount: Number(row?.pendingCount || 0),
-                overdueCount: Number(row?.overdueCount || 0),
-                total: Number(row?.total || 0),
-              }];
-            })
-          );
-        }
-      } catch {
-        const [timelogEntries, taskEntries] = await Promise.all([
-          Promise.all(
-            assignedStudents.map(async (student) => {
-              const studentUserId = String(student?.user_id || '').trim();
-              if (!studentUserId) return [studentUserId, null];
-
-              try {
-                const logs = await listSupervisorTimeLogs(supervisorId, studentUserId);
-                const todayLog = Array.isArray(logs)
-                  ? logs.find((log) => {
-                      const raw = String(log?.log_date || '').trim();
-                      const dateOnly = raw.includes('T') ? raw.split('T')[0] : raw.split(' ')[0];
-                      return dateOnly === todayValue;
-                    })
-                  : null;
-
-                return [studentUserId, todayLog || null];
-              } catch {
-                return [studentUserId, null];
-              }
-            })
-          ),
-          Promise.all(
-            assignedStudents.map(async (student) => {
-              const studentUserId = String(student?.user_id || '').trim();
-              if (!studentUserId) return [studentUserId, { pendingCount: 0, overdueCount: 0, total: 0 }];
-
-              try {
-                const tasks = await listTasksByUser(studentUserId, { limit: 200 });
-                const list = Array.isArray(tasks) ? tasks : [];
-                // Count tasks that are NOT completed (pending, in-progress, etc)
-                const pendingCount = list.filter((task) => {
-                  const status = String(task?.status || '').toLowerCase().trim();
-                  return status !== 'completed' && status !== '';
-                }).length;
-                const overdueCount = list.filter((task) => String(task?.status || '').toLowerCase().trim() === 'overdue').length;
-                return [studentUserId, { pendingCount, overdueCount, total: list.length }];
-              } catch {
-                return [studentUserId, { pendingCount: 0, overdueCount: 0, total: 0 }];
-              }
-            })
-          ),
-        ]);
-
+      } catch (overviewErr) {
+        console.error('Supervisor overview fallback to defaults:', overviewErr);
         if (runId !== loadRunId) {
           return;
         }
 
-        todayTimelogByStudent = Object.fromEntries(timelogEntries.filter((entry) => entry && entry[0]));
-        tasksSummaryByStudent = {
-          ...defaultTaskSummary,
-          ...Object.fromEntries(taskEntries.filter((entry) => entry && entry[0])),
-        };
+        todayTimelogByStudent = Object.fromEntries(
+          studentUserIds.map((studentUserId) => [studentUserId, null])
+        );
       }
     } catch (err) {
       console.error('Error loading dashboard data:', err);
@@ -623,7 +503,6 @@
 
   $: currentRole = String(currentUser?.role || '').trim().toLowerCase();
   $: isSupervisorUser = currentRole === 'supervisor';
-  $: weekend = Boolean(today) ? isWeekend(today) : isWeekend(getToday());
   $: totalAssigned = assignedStudents.length;
   $: expectedToday = assignedStudents.filter((s) => !isDayOffForIntern(s, today) && !isApprovedAbsenceToday(s?.user_id)).length;
   $: clockedInToday = assignedStudents.filter((s) => {
@@ -760,7 +639,7 @@
               {@const attendance = getAttendanceStatus(intern)}
               {@const clock = getClockStatus(intern?.user_id, intern)}
               {@const schedule = getScheduleDisplay(intern)}
-              {@const taskSummaryLabel = getTaskSummaryLabel(intern?.user_id)}
+
               {@const cardTone = remainingDays !== null && remainingDays <= 0 ? 'danger' : (attendance.tone || 'muted')}
               {@const pillTone = cardTone}
 
@@ -784,11 +663,7 @@
                     <span class="row-label">Clock</span>
                     <span class={`row-value row-value-clock tone-${clock.tone}`}>{clock.label}</span>
                   </div>
-                  <div class="intern-row">
-                    <span class="row-icon"><FileText size={14} /></span>
-                    <span class="row-label">Tasks</span>
-                    <span class="row-value">{taskSummaryLabel}</span>
-                  </div>
+
                   <div class="intern-row">
                     <span class="row-icon"><CheckCircle size={14} /></span>
                     <span class="row-label">Schedule</span>
@@ -802,7 +677,7 @@
       </div>
     </section>
 
-    <section class="dash-panel">
+    <section class="dash-panel dash-panel-pending">
       <div class="dash-panel-header">
         <h3 class="dash-panel-title">Pending Requests</h3>
       </div>
@@ -1013,6 +888,12 @@
     margin: 0;
   }
 
+  .dash-panel-pending {
+    height: 260px;
+    display: flex;
+    flex-direction: column;
+  }
+
   .dash-panel-wide .dash-panel-body {
     padding-top: 12px;
   }
@@ -1040,6 +921,11 @@
 
   .dash-panel-body {
     padding: 12px 20px 18px;
+  }
+
+  .dash-panel-pending .dash-panel-body {
+    flex: 1;
+    min-height: 0;
   }
 
   .intern-grid {
@@ -1217,19 +1103,24 @@
   }
 
   .request-list {
-    display: grid;
+    display: flex;
+    flex-direction: column;
     gap: 10px;
+    align-items: stretch;
   }
 
   .request-list-scroll {
-    height: 360px;
+    height: 100%;
     overflow-y: auto;
-    scrollbar-gutter: stable;
     padding-right: 6px;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
   }
 
   .request-list-scroll::-webkit-scrollbar {
-    width: 9px;
+    width: 0;
+    height: 0;
+    display: none;
   }
 
   .request-list-scroll::-webkit-scrollbar-track {
@@ -1676,8 +1567,8 @@
       padding-right: 14px;
     }
 
-    .request-list-scroll {
-      height: 320px;
+    .dash-panel-pending {
+      height: 240px;
     }
   }
 
@@ -1689,3 +1580,4 @@
     }
   }
 </style>
+
