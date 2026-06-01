@@ -230,12 +230,6 @@
     return new Intl.DateTimeFormat('en-US', includeYear ? { month: 'long', year: 'numeric' } : { month: 'long' }).format(dateObj);
   }
 
-  function formatAttendanceDay(value) {
-    const parsed = parseIsoDateOnly(value);
-    if (!parsed) return '';
-    return new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(parsed).toUpperCase();
-  }
-
   function formatAttendanceDate(value) {
     const parsed = parseIsoDateOnly(value);
     if (!parsed) return '';
@@ -819,9 +813,9 @@
   $: selectedStudentShiftEnd = normalizeTimeValue(selectedStudent?.shift_end, '17:00');
   $: exportMonth = exportMonth || getCurrentMonthInput();
   $: attendanceEntriesForExport = logs
-    .filter((entry) => entry.time_out && toNumber(entry.hours_rendered) > 0 && getMonthInputFromDate(entry.log_date) === exportMonth)
-    .map((entry) => ({ ...entry, attendanceDay: formatAttendanceDay(entry.log_date) }))
-    .sort((a, b) => new Date(a.log_date).getTime() - new Date(b.log_date).getTime());
+    .sort((a, b) => new Date(a.log_date).getTime() - new Date(b.log_date).getTime())
+    .map((entry, index) => ({ ...entry, attendanceDay: index + 1 }))
+    .filter((entry) => entry.time_out && toNumber(entry.hours_rendered) > 0 && getMonthInputFromDate(entry.log_date) === exportMonth);
   $: selectedExportMonthLabel = formatMonthLabel(exportMonth, true);
   $: selectedExportMonthTitle = formatMonthLabel(exportMonth, false);
   $: currentRole = String(currentUser?.role || '').trim().toLowerCase();

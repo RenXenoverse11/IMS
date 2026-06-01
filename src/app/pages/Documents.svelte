@@ -3785,16 +3785,6 @@
     margin-top: 0.5rem;
   }
 
-  .share-link-box input {
-    flex: 1;
-    padding: 0.75rem;
-    border: 1px solid var(--doc-border);
-    border-radius: 10px;
-    font-size: 0.9rem;
-    outline: none;
-    background: #eef5fc;
-  }
-
   .copy-btn {
     padding: 0.75rem 1rem;
     background: #eef5fc;
@@ -4141,7 +4131,6 @@
   :global(.dark) .icon-btn,
   :global(.dark) .folder-action-btn,
   :global(.dark) .copy-btn,
-  :global(.dark) .share-link-box input,
   :global(.dark) .form-group input,
   :global(.dark) .folder-search-input,
   :global(.dark) .folder-card {
@@ -5818,7 +5807,6 @@
   }
 
   .form-group input,
-  .share-link-box input,
   .copy-btn,
   .folder-tab,
   .upload-area,
@@ -6361,7 +6349,6 @@
   :global(html:not(.dark)) .icon-btn,
   :global(html:not(.dark)) .folder-action-btn,
   :global(html:not(.dark)) .form-group input,
-  :global(html:not(.dark)) .share-link-box input,
   :global(html:not(.dark)) .copy-btn,
   :global(html:not(.dark)) .folder-tab,
   :global(html:not(.dark)) .upload-area,

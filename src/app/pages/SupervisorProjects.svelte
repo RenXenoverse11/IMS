@@ -3300,9 +3300,10 @@
   </div>
 {/if}
 
-{#if showAddProjectModal}
-  <div class="modal-overlay">
-    <div class="modal-box large" on:click|stopPropagation>
+  {#if showAddProjectModal}
+    <div class="modal-overlay">
+      <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+      <div class="modal-box large" on:click|stopPropagation>
       <div class="modal-title">{editingProjectId ? 'Edit Project' : 'Add New Project'}</div>
       <div class="modal-content">
         {#if projectFormError}
@@ -3336,7 +3337,12 @@
         <div class="form-group">
           <div class="form-label">Members</div>
           <div class="members-select" bind:this={membersSelectEl}>
-            <div class="members-input form-input" on:click={toggleMembersDropdown} role="button" tabindex="0" aria-expanded={showMembersPanel}>
+            <button
+              type="button"
+              class="members-input form-input"
+              on:click={toggleMembersDropdown}
+              aria-expanded={showMembersPanel}
+            >
               <div class="members-value">
                 {#if (projectForm.members || []).length === 0}
                   <span class="members-placeholder">Select members</span>
@@ -3349,7 +3355,7 @@
                 {/if}
               </div>
               <div class="muted">{(projectForm.members || []).length}</div>
-            </div>
+            </button>
             {#if showMembersPanel}
               <div class="members-panel members-panel-dropdown">
                 <div class="members-search">
@@ -3384,7 +3390,12 @@
         <div class="form-group">
           <div class="form-label">Supervisor</div>
           <div class="members-select" bind:this={supervisorsSelectEl}>
-            <div class="members-input form-input" on:click={toggleSupervisorsDropdown} role="button" tabindex="0" aria-expanded={showSupervisorsPanel}>
+            <button
+              type="button"
+              class="members-input form-input"
+              on:click={toggleSupervisorsDropdown}
+              aria-expanded={showSupervisorsPanel}
+            >
               <div class="members-value">
                 {#if (projectForm.supervisor || []).length === 0}
                   <span class="members-placeholder">Select supervisor(s)</span>
@@ -3399,7 +3410,7 @@
                 {/if}
               </div>
               <div class="muted">{(projectForm.supervisor || []).length}</div>
-            </div>
+            </button>
             {#if showSupervisorsPanel}
               <div class="members-panel members-panel-dropdown">
                 <div class="members-search">
