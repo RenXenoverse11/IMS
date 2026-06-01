@@ -874,10 +874,20 @@
         }
       } else {
         logSyncError = response?.error || 'Unable to complete session.';
+        if (String(logSyncError || '').toLowerCase().includes('no active session')) {
+          clearLocalActiveSession(user.user_id);
+          isLoggedIn = false;
+          logSyncError = 'No active session found. If this log was removed, submit a missing log request for the original date and time.';
+        }
       }
       isLoggingOut = false;
     } catch (err) {
       logSyncError = err?.message || 'Unable to log out right now.';
+      if (String(logSyncError || '').toLowerCase().includes('no active session')) {
+        clearLocalActiveSession(user.user_id);
+        isLoggedIn = false;
+        logSyncError = 'No active session found. If this log was removed, submit a missing log request for the original date and time.';
+      }
       isLoggingOut = false;
     }
   }
@@ -1008,9 +1018,8 @@
         isLoggedIn = true;
         saveLocalActiveSession(user.user_id, date, timeIn);
       } else {
-        if (!restoreLocalActiveSession(user.user_id)) {
-          isLoggedIn = false;
-        }
+        clearLocalActiveSession(user.user_id);
+        isLoggedIn = false;
       }
     } catch (err) {
       console.error('Error checking active session:', err);
@@ -1869,7 +1878,7 @@
               <th>Hours</th>
               <th>{timelogHistoryFilter === 'entries' ? 'Created' : 'Reason'}</th>
               <th>Status</th>
-              <th></th>
+              <th>Action</th>
             </tr>
           </thead>
           <tbody>

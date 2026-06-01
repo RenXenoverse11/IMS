@@ -21,8 +21,8 @@ var SUPERVISOR_ASSIGNMENTS_SHEET_ = 'supervisor_assignments';
 var SUPERVISOR_ASSIGNMENTS_HEADERS_ = ['assignment_id', 'supervisor_user_id', 'student_user_id', 'company', 'department', 'status', 'created_at'];
 var STUDENT_OJT_PROFILE_SHEET_ = 'student_ojt_profile';
 var STUDENT_OJT_PROFILE_HEADERS_ = ['user_id', 'total_ojt_hours', 'start_date', 'estimated_end_date', 'course', 'school', 'completed_at'];
-var REQUESTS_SHEET_ = 'requests';
-var REQUESTS_HEADERS_ = ['request_id', 'user_id', 'requester_name', 'request_type', 'request_date', 'request_time', 'start_time', 'end_time', 'total_hours', 'reason', 'status', 'rejection_remarks', 'created_at', 'archived_previous_status'];
+var REQUESTS_SHEET_ = 'override_requests';
+var REQUESTS_HEADERS_ = ['request_id', 'user_id', 'requester_name', 'requester_type', 'requester_date', 'requester_time', 'start_time', 'end_time', 'total_hours', 'reason', 'status', 'rejection_remarks', 'created_at', 'archive'];
 var NOTIFICATIONS_SHEET_ = 'notifications';
 var NOTIFICATIONS_HEADERS_ = ['notification_id', 'user_id', 'title', 'description', 'type', 'related_id', 'is_read', 'created_at'];
 var USER_SETTINGS_SHEET_ = 'user_settings';
@@ -1565,11 +1565,6 @@ function handleEndSession_(payload) {
       return { ok: false, error: 'user_id and time_out are required.' };
     }
 
-    var serverLogoutTimeError = validateSubmittedTimeMatchesServerNow_(timeOut, 'logout');
-    if (serverLogoutTimeError) {
-      return { ok: false, error: serverLogoutTimeError };
-    }
-
     var userRecord = findUserRecordByUserId_(userId);
     if (!userRecord) {
       return { ok: false, error: 'User not found.' };
@@ -1633,6 +1628,14 @@ function handleEndSession_(payload) {
     if (sessionRow <= 0) {
       Logger.log('DEBUG handleEndSession_ - No session found for user=' + userId + ', date=' + logDate);
       return { ok: false, error: 'No active session found. Please log in first.' };
+    }
+
+    var todayLogDate = String(formatDateYMD_(new Date()) || '').trim();
+    if (!todayLogDate || logDate === todayLogDate) {
+      var serverLogoutTimeError = validateSubmittedTimeMatchesServerNow_(timeOut, 'logout');
+      if (serverLogoutTimeError) {
+        return { ok: false, error: serverLogoutTimeError };
+      }
     }
 
     var normalizedTimeIn = normalizeTimeForCompare_(timeIn);
@@ -2546,7 +2549,7 @@ function handleCreateRequest_(payload) {
   var row = [];
   
   for (var i = 0; i < headers.length; i++) {
-    var header = headers[i];
+    var header = normalizeHeader_(headers[i]);
     if (header === 'request_id') {
       row.push(requestId);
     } else if (header === 'user_id') {
@@ -2647,6 +2650,8 @@ function handleListRequestsByUser_(payload) {
     if (String(row.user_id || '').trim() === userId) {
       userRequests.push({
         id: String(row.request_id || ''),
+        request_id: String(row.request_id || ''),
+        user_id: String(row.user_id || ''),
         requestType: String(row.request_type || ''),
         date: formatDateValue_(row.request_date),
         time: String(row.request_time || ''),
@@ -2702,6 +2707,8 @@ function handleListAssignedStudentRequests_(payload) {
     if (assignedStudentIds.indexOf(rowUserId) !== -1) {
       studentRequests.push({
         id: String(row.request_id || ''),
+        request_id: String(row.request_id || ''),
+        user_id: rowUserId,
         requestType: String(row.request_type || ''),
         date: formatDateValue_(row.request_date),
         time: String(row.request_time || ''),
@@ -3393,15 +3400,21 @@ function handleUpdateRequestStatus_(payload) {
 }
 
 function resolvePendingRequestIdForSupervisorAction_(payload) {
-  var directRequestId = String(payload.request_id || payload.id || '').trim();
+  var directRequestId = String(payload.request_id || payload.requestId || payload.id || '').trim();
   if (directRequestId) {
     return directRequestId;
   }
 
-  var studentUserId = String(payload.student_user_id || payload.request_user_id || '').trim();
+  var studentUserId = String(
+    payload.student_user_id ||
+    payload.studentUserId ||
+    payload.request_user_id ||
+    payload.requestUserId ||
+    ''
+  ).trim();
   var requestDate = formatDateValue_(payload.request_date || payload.date || '');
-  var startTime = normalizeTimeForCompare_(payload.start_time || payload.time_in || '');
-  var endTime = normalizeTimeForCompare_(payload.end_time || payload.time_out || '');
+  var startTime = normalizeTimeForCompare_(payload.start_time || payload.startTime || payload.time_in || payload.timeIn || '');
+  var endTime = normalizeTimeForCompare_(payload.end_time || payload.endTime || payload.time_out || payload.timeOut || '');
   var reason = String(payload.reason || '').trim();
 
   if (!studentUserId || !requestDate || !startTime || !endTime) {
@@ -3426,7 +3439,13 @@ function resolvePendingRequestIdForSupervisorAction_(payload) {
 
 function handleApproveRequest_(payload) {
   var requestId = resolvePendingRequestIdForSupervisorAction_(payload);
-  var supervisorUserId = String(payload.supervisor_user_id || payload.user_id || '').trim();
+  var supervisorUserId = String(
+    payload.supervisor_user_id ||
+    payload.supervisorUserId ||
+    payload.user_id ||
+    payload.userId ||
+    ''
+  ).trim();
 
   if (!requestId || !supervisorUserId) {
     return { ok: false, error: 'request_id and supervisor_user_id are required.' };
@@ -3494,7 +3513,7 @@ function handleApproveRequest_(payload) {
     var timeLogHeaders = getHeaders_(timeLogSheet);
 
     var newSessionId = getNextSequenceId_(ACTIVE_SESSIONS_SHEET_, 'SES', 'session_id', 4);
-    var createdAtNow = formatDateTimeValue_(new Date());
+    var createdAtNow = formatTimestamp_(new Date());
 
     var newRow = [];
     for (var h = 0; h < timeLogHeaders.length; h++) {
@@ -3528,31 +3547,6 @@ function handleApproveRequest_(payload) {
     var statusColIndex = findColumnIndex_(getHeaders_(sheet), 'status');
     sheet.getRange(requestRowIndex + 1, statusColIndex).setValue('Approved');
 
-    // Update student's completed hours
-    try {
-      var profileSheet = getStudentOjtProfileSheet_();
-      var profileHeaders = getHeaders_(profileSheet);
-      var profileRows = getSheetValues_(profileSheet);
-      var profileUserIdColIndex = findColumnIndex_(profileHeaders, 'user_id');
-      var completedHoursColIndex = findColumnIndex_(profileHeaders, 'total_ojt_hours');
-
-      var profileRowIndex = -1;
-      for (var p = 1; p < profileRows.length; p++) {
-        if (String(profileRows[p][profileUserIdColIndex - 1] || '').trim() === studentUserId) {
-          profileRowIndex = p;
-          break;
-        }
-      }
-
-      if (profileRowIndex > -1 && completedHoursColIndex > 0) {
-        var currentHours = Number(profileRows[profileRowIndex][completedHoursColIndex - 1] || 0);
-        var newHours = currentHours + hours;
-        profileSheet.getRange(profileRowIndex + 1, completedHoursColIndex).setValue(newHours);
-      }
-    } catch (profileErr) {
-      Logger.log('Warning: Could not update student completed hours: ' + (profileErr && profileErr.message ? profileErr.message : String(profileErr)));
-    }
-
     // Send notification to student
     var requestDate = dateColIndex > 0 ? formatDateValue_(rows[requestRowIndex][dateColIndex - 1]) : '';
     createNotification_(
@@ -3571,7 +3565,13 @@ function handleApproveRequest_(payload) {
 
 function handleRejectRequest_(payload) {
   var requestId = resolvePendingRequestIdForSupervisorAction_(payload);
-  var supervisorUserId = String(payload.supervisor_user_id || payload.user_id || '').trim();
+  var supervisorUserId = String(
+    payload.supervisor_user_id ||
+    payload.supervisorUserId ||
+    payload.user_id ||
+    payload.userId ||
+    ''
+  ).trim();
   var rejectionReason = String(payload.rejection_reason || '').trim();
 
   if (!requestId || !supervisorUserId) {
@@ -5241,11 +5241,18 @@ function getHeaders_(sheet) {
 }
 
 function normalizeHeader_(header) {
-  return String(header || '')
+  var normalized = String(header || '')
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '');
+
+  if (normalized === 'requester_type') return 'request_type';
+  if (normalized === 'requester_date') return 'request_date';
+  if (normalized === 'requester_time') return 'request_time';
+  if (normalized === 'archive') return 'archived_previous_status';
+
+  return normalized;
 }
 
 function findColumnIndex_(headers, key) {

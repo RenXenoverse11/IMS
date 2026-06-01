@@ -34,6 +34,7 @@
   let html2pdfLoaderPromise = null;
   let showDeleteConfirm = false;
   let pendingDeleteLogId = '';
+  let pendingDeleteStudentId = '';
 
   // Override request state variables
   let timelogHistoryFilter = 'entries'; // 'entries' or 'overrides'
@@ -378,6 +379,8 @@
       notes: String(row?.notes || ''),
       hours_rendered: toNumber(row?.hours_rendered),
       created_at: String(row?.created_at || ''),
+      user_id: String(row?.user_id || ''),
+      student_name: String(row?.student_name || ''),
     };
   }
 
@@ -432,7 +435,7 @@
     const studentId = String(selectedStudentId || '').trim();
     const roleNow = String(currentUser?.role || '').trim().toLowerCase();
 
-    if (!supervisorId || !studentId || roleNow !== 'supervisor' || studentId === ALL_INTERNS_OPTION) {
+    if (!supervisorId || !studentId || roleNow !== 'supervisor') {
       logs = [];
       return;
     }
@@ -441,9 +444,34 @@
     errorMessage = '';
 
     try {
+      if (studentId === ALL_INTERNS_OPTION) {
+        const responses = await Promise.all(
+          assignedStudents.map(async (student) => {
+            const rows = await listSupervisorTimeLogs(supervisorId, String(student.user_id || ''));
+            return rows.map((row) => mapLog({
+              ...row,
+              user_id: String(row?.user_id || student.user_id || ''),
+              student_name: String(student.full_name || ''),
+            }));
+          })
+        );
+
+        logs = responses
+          .flat()
+          .sort((a, b) => new Date(b.log_date).getTime() - new Date(a.log_date).getTime());
+        selectedStudent = null;
+        return;
+      }
+
       const rows = await listSupervisorTimeLogs(supervisorId, studentId);
       logs = rows
-        .map(mapLog)
+        .map((row) => mapLog({
+          ...row,
+          user_id: String(row?.user_id || studentId),
+          student_name: String(
+            assignedStudents.find((student) => String(student.user_id || '') === studentId)?.full_name || ''
+          ),
+        }))
         .sort((a, b) => new Date(b.log_date).getTime() - new Date(a.log_date).getTime());
       selectedStudent = assignedStudents.find((student) => String(student.user_id || '') === studentId) || null;
     } catch (err) {
@@ -483,9 +511,13 @@
           status: String(r?.status || 'pending').toLowerCase(),
           archivedStatus: String(r?.archived_previous_status || r?.archivedPreviousStatus || '').toLowerCase(),
           createdAt: String(r?.created_at || r?.createdAt || ''),
-          userId: String(r?.user_id || r?.userId || ''),
+          userId: String(
+            r?.user_id ||
+            r?.userId ||
+            (studentId !== ALL_INTERNS_OPTION ? studentId : '')
+          ),
           requesterName: String(r?.requester_name || r?.requesterName || ''),
-          requestId: String(r?.id || r?.request_id || ''),
+          requestId: String(r?.request_id || r?.id || ''),
         }))
         .sort((a, b) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime());
     } catch (err) {
@@ -504,6 +536,10 @@
       return;
     }
     const requestId = String(request?.id || request?.requestId || '').trim();
+    const studentUserId = String(
+      request?.userId ||
+      (selectedStudentId && selectedStudentId !== ALL_INTERNS_OPTION ? selectedStudentId : '')
+    ).trim();
     isApprovingRequest = true;
     errorMessage = '';
     successMessage = '';
@@ -513,7 +549,8 @@
         request_id: requestId,
         supervisor_user_id: supervisorUserId,
         user_id: supervisorUserId,
-        student_user_id: String(request?.userId || '').trim(),
+        student_user_id: studentUserId,
+        request_user_id: studentUserId,
         request_date: String(request?.date || '').trim(),
         start_time: String(request?.timeIn || '').trim(),
         end_time: String(request?.timeOut || '').trim(),
@@ -546,6 +583,10 @@
       return;
     }
     const requestId = String(request?.id || request?.requestId || '').trim();
+    const studentUserId = String(
+      request?.userId ||
+      (selectedStudentId && selectedStudentId !== ALL_INTERNS_OPTION ? selectedStudentId : '')
+    ).trim();
     isRejectingRequest = true;
     errorMessage = '';
     successMessage = '';
@@ -555,7 +596,8 @@
         request_id: requestId,
         supervisor_user_id: supervisorUserId,
         user_id: supervisorUserId,
-        student_user_id: String(request?.userId || '').trim(),
+        student_user_id: studentUserId,
+        request_user_id: studentUserId,
         request_date: String(request?.date || '').trim(),
         start_time: String(request?.timeIn || '').trim(),
         end_time: String(request?.timeOut || '').trim(),
@@ -703,8 +745,9 @@
     }
   }
 
-  function promptDelete(logId) {
+  function promptDelete(logId, studentId = selectedStudentId) {
     pendingDeleteLogId = String(logId || '').trim();
+    pendingDeleteStudentId = String(studentId || '').trim();
     if (!pendingDeleteLogId) return;
     showDeleteConfirm = true;
   }
@@ -713,11 +756,12 @@
     if (deletingId) return;
     showDeleteConfirm = false;
     pendingDeleteLogId = '';
+    pendingDeleteStudentId = '';
   }
 
   async function handleDelete(logId = pendingDeleteLogId) {
     const supervisorId = String(currentUser?.user_id || '').trim();
-    const studentId = String(selectedStudentId || '').trim();
+    const studentId = String(pendingDeleteStudentId || selectedStudentId || '').trim();
     const timelogId = String(logId || '').trim();
 
     if (!supervisorId || !studentId || !timelogId) {
@@ -730,7 +774,7 @@
 
     try {
       await deleteSupervisorTimeLog(supervisorId, studentId, timelogId);
-      logs = logs.filter((row) => String(row.timelog_id) !== timelogId);
+      logs = logs.filter((row) => !(String(row.timelog_id) === timelogId && String(row.user_id || '') === studentId));
       successMessage = 'Intern time log deleted successfully.';
       closeDeleteConfirm();
     } catch (err) {
@@ -1084,7 +1128,7 @@
             <div class="empty-state">
               <div class="empty-icon"><Clock3 size={18} /></div>
               <p class="empty-title">No time log entries yet.</p>
-              <p class="empty-sub">Entries for the selected intern will appear here.</p>
+              <p class="empty-sub">{isAllInternsView ? 'Entries from all assigned interns will appear here.' : 'Entries for the selected intern will appear here.'}</p>
             </div>
           {:else}
             <div class="table-scroll-y">
@@ -1100,7 +1144,7 @@
                     </tr>
                   </thead>
                   <tbody>
-                    {#each logs as row (row.timelog_id)}
+                    {#each logs as row (`${row.user_id || 'intern'}-${row.timelog_id}`)}
                       <tr>
                         <td data-label="Date">
                         <div class="log-date-cell">
@@ -1130,7 +1174,7 @@
                         <button
                           type="button"
                           class="btn-delete"
-                          on:click={() => promptDelete(row.timelog_id)}
+                          on:click={() => promptDelete(row.timelog_id, row.user_id)}
                           disabled={deletingId === row.timelog_id}
                           aria-label="Delete time log entry"
                         >
@@ -1408,7 +1452,7 @@
         </div>
         <div class="approve-modal-actions">
           <button type="button" class="btn-secondary" on:click={cancelApprove} disabled={isApprovingRequest}>Cancel</button>
-          <button type="button" class="btn-approve btn-approve-modal" on:click={approveOverrideRequest} disabled={isApprovingRequest}>
+          <button type="button" class="btn-approve btn-approve-modal" on:click={() => approveOverrideRequest()} disabled={isApprovingRequest}>
             {#if isApprovingRequest}
               <span class="spinning-icon"><Loader2 size={13} /></span>
               <span>Approving...</span>
@@ -1476,7 +1520,7 @@
         </div>
         <div class="reject-modal-actions">
           <button type="button" class="btn-secondary" on:click={cancelReject} disabled={isRejectingRequest}>Cancel</button>
-          <button type="button" class="btn-reject btn-reject-modal" on:click={rejectOverrideRequest} disabled={isRejectingRequest}>
+          <button type="button" class="btn-reject btn-reject-modal" on:click={() => rejectOverrideRequest()} disabled={isRejectingRequest}>
             {#if isRejectingRequest}
               <span class="spinning-icon"><Loader2 size={13} /></span>
               <span>Rejecting...</span>
@@ -1991,31 +2035,25 @@
     border: 0;
     background: transparent;
     box-shadow: none;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(59, 130, 246, 0.55) rgba(148, 163, 184, 0.14);
   }
 
-  .table-scroll-y::-webkit-scrollbar:vertical {
-    width: 0;
-  }
-
-  .table-wrap {
-    overflow: visible;
-    overflow-y: visible;
-  }
-
-  .table-scroll-y::-webkit-scrollbar:horizontal {
+  .table-wrap::-webkit-scrollbar {
+    width: 10px;
     height: 10px;
   }
 
-  .table-scroll-y::-webkit-scrollbar-track:horizontal {
+  .table-wrap::-webkit-scrollbar-track {
     background: rgba(148, 163, 184, 0.14);
     border-radius: 999px;
   }
 
-  .table-scroll-y::-webkit-scrollbar-thumb:horizontal {
+  .table-wrap::-webkit-scrollbar-thumb {
     background: rgba(59, 130, 246, 0.55);
     border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
   }
 
   .stl-table {
@@ -3056,6 +3094,7 @@
     background:
       linear-gradient(180deg, rgba(24, 34, 52, 0.98), rgba(20, 28, 42, 0.96));
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    scrollbar-color: rgba(96, 165, 250, 0.65) rgba(51, 65, 85, 0.45);
   }
 
   :global(.dark) .stl-table,
