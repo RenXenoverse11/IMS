@@ -6317,6 +6317,8 @@ function handleGetAllDocuments_(payload) {
       return { ok: false, error: 'Missing user_id.' };
     }
 
+    var requesterRecord = findUserRecordByUserId_(userId);
+    var requesterEmail = requesterRecord ? normalizeEmail_(requesterRecord.user.email) : '';
     var groupMemberIds = getGroupMemberIds_(userId);
     
     var sheet = getOrCreateSheetWithHeaders_(DOCUMENTS_SHEET_, DOCUMENTS_HEADERS_);
@@ -6329,7 +6331,7 @@ function handleGetAllDocuments_(payload) {
       var docUserId = String(row.user_id || '').trim();
       
       // If the document belongs to anyone in the group
-      if (groupMemberIds.indexOf(docUserId) !== -1) {
+      if (groupMemberIds.indexOf(docUserId) !== -1 && isDocumentVisibleToUser_(row, userId, requesterEmail)) {
         filteredDocs.push(row);
         var createdById = String(row.created_by || '').trim();
         if (createdById && authorIds.indexOf(createdById) === -1) {
@@ -6374,6 +6376,62 @@ function handleGetAllDocuments_(payload) {
   } catch (err) {
     return { ok: false, error: err.message || String(err) };
   }
+}
+
+function parseDocumentSharedWith_(rawSharedWith) {
+  if (Array.isArray(rawSharedWith)) {
+    return rawSharedWith;
+  }
+
+  var text = String(rawSharedWith || '').trim();
+  if (!text) {
+    return [];
+  }
+
+  try {
+    var parsed = JSON.parse(text);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    return [];
+  }
+}
+
+function isDocumentVisibleToUser_(row, userId, userEmail) {
+  var ownerId = String(row && row.user_id || '').trim();
+  var currentUserId = String(userId || '').trim();
+  var currentUserEmail = normalizeEmail_(userEmail);
+
+  if (ownerId && ownerId === currentUserId) {
+    return true;
+  }
+
+  var accessLevel = String(row && row.access_level || 'private').trim().toLowerCase() || 'private';
+  var sharedWith = parseDocumentSharedWith_(row && row.shared_with);
+
+  if (accessLevel === 'everyone' || accessLevel === 'public') {
+    return true;
+  }
+
+  var isMatchedShare = false;
+  for (var i = 0; i < sharedWith.length; i++) {
+    var share = sharedWith[i] || {};
+    var shareEmail = normalizeEmail_(share.email);
+    var shareUserId = String(share.id || share.user_id || '').trim();
+    if ((currentUserEmail && shareEmail && shareEmail === currentUserEmail) || (shareUserId && shareUserId === currentUserId)) {
+      isMatchedShare = true;
+      break;
+    }
+  }
+
+  if (accessLevel === 'specific' || accessLevel === 'shared') {
+    return isMatchedShare;
+  }
+
+  if (accessLevel === 'everyone_except') {
+    return !isMatchedShare;
+  }
+
+  return false;
 }
 
 function handleUploadDocument_(payload) {
@@ -6438,7 +6496,7 @@ function handleUploadDocument_(payload) {
       url,
       isLink ? 'true' : 'false',
       uploadedDate,
-      'private',
+      'everyone',
       '[]',
       userId,
       formatDateYMD_(new Date())
@@ -6458,7 +6516,7 @@ function handleUploadDocument_(payload) {
         url: url,
         is_link: isLink,
         uploaded_date: uploadedDate,
-        access_level: 'private',
+        access_level: 'everyone',
         shared_with: [],
         created_by: userId,
         created_date: formatDateYMD_(new Date())

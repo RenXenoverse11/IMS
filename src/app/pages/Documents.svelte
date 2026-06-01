@@ -32,6 +32,7 @@
   let shareCandidates = [];
   let shareCandidateSearch = '';
   let selectedShareUserIds = new Set();
+  let retainedShareEntries = [];
   let isApplyingShareVisibility = false;
   let copiedId = null;
   let uploadToFolder = '/';
@@ -95,6 +96,7 @@
 
   $: filteredDocuments = documents.filter((doc) => {
     const ownerId = getDocumentOwnerId_(doc);
+    const accessLevel = String(doc.accessLevel || doc.access_level || 'private').trim().toLowerCase() || 'private';
     const matchesSearch = doc.name.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesFolder = currentFolder === '/' || doc.folder === currentFolder;
     
@@ -108,6 +110,9 @@
     } else if (documentFilter === 'folders') {
       // When filtering by folders, show documents from the selected folder
       matchesFilter = selectedFolder ? doc.folder === selectedFolder : true;
+    } else if (documentFilter === 'all') {
+      // Keep private documents out of All Documents; they remain in My Documents.
+      matchesFilter = accessLevel !== 'private';
     }
     
     return matchesSearch && matchesFolder && matchesFilter;
@@ -650,10 +655,12 @@
     const mode = String(selectedDocForShare.accessLevel || selectedDocForShare.access_level || 'private').trim().toLowerCase();
     const sharedEntries = Array.isArray(selectedDocForShare.sharedWith) ? selectedDocForShare.sharedWith : [];
     const selectedEmails = new Set(sharedEntries.map((entry) => String(entry.email || '').trim().toLowerCase()).filter(Boolean));
+    const candidateEmails = new Set(shareCandidates.map((candidate) => String(candidate.email || '').trim().toLowerCase()).filter(Boolean));
 
     if (mode === 'everyone' || mode === 'private') {
       shareVisibilityMode = mode;
       selectedShareUserIds = new Set();
+      retainedShareEntries = [];
       return;
     }
 
@@ -671,6 +678,10 @@
       }
     }
     selectedShareUserIds = selectedIds;
+    retainedShareEntries = sharedEntries.filter((entry) => {
+      const entryEmail = String(entry.email || '').trim().toLowerCase();
+      return entryEmail && !candidateEmails.has(entryEmail);
+    });
   }
 
   function toggleShareCandidate_(candidateUserId) {
@@ -706,10 +717,25 @@
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       const selectedUsers = shareCandidates.filter((u) => selectedShareUserIds.has(u.user_id));
       const selectedEmails = selectedUsers.map((u) => String(u.email || '').trim()).filter(Boolean).filter((email) => emailRegex.test(email));
-      const allCandidateEmails = shareCandidates
-        .map((u) => String(u.email || '').trim())
-        .filter(Boolean)
-        .filter((email) => emailRegex.test(email));
+      const retainedShares = retainedShareEntries
+        .map((entry) => ({
+          email: String(entry.email || '').trim(),
+          role: String(entry.role || 'Viewer').trim() || 'Viewer',
+          sharedDate: String(entry.sharedDate || '').trim() || new Date().toISOString().slice(0, 10)
+        }))
+        .filter((entry) => emailRegex.test(entry.email));
+      const nextSharedWithFromSelection = selectedUsers.map((u) => ({
+        email: String(u.email || '').trim(),
+        role: 'Viewer',
+        sharedDate: new Date().toISOString().slice(0, 10)
+      }));
+      const nextSharedWith = Array.from(
+        new Map(
+          [...retainedShares, ...nextSharedWithFromSelection]
+            .filter((entry) => emailRegex.test(entry.email))
+            .map((entry) => [entry.email.toLowerCase(), entry])
+        ).values()
+      );
 
       if (shareVisibilityMode === 'private') {
         await callBackend_('update_document_visibility', {
@@ -720,6 +746,7 @@
         });
         await loadDocuments_();
         selectedDocForShare = documents.find((d) => d.id === docId) || selectedDocForShare;
+        retainedShareEntries = [];
         showActionMessage_('Visibility set to Only me.');
         showShareModal = false;
         return;
@@ -734,11 +761,7 @@
           user_id: userId,
           doc_id: docId,
           access_level: 'specific',
-          shared_with: selectedUsers.map((u) => ({
-            email: String(u.email || '').trim(),
-            role: 'Viewer',
-            sharedDate: new Date().toISOString().slice(0, 10)
-          }))
+          shared_with: nextSharedWith
         });
         await loadDocuments_();
         selectedDocForShare = documents.find((d) => d.id === docId) || selectedDocForShare;
@@ -756,6 +779,7 @@
         });
         await loadDocuments_();
         selectedDocForShare = documents.find((d) => d.id === docId) || selectedDocForShare;
+        retainedShareEntries = [];
         showActionMessage_('Visibility updated for everyone.');
         showShareModal = false;
         return;
@@ -770,11 +794,7 @@
           user_id: userId,
           doc_id: docId,
           access_level: 'everyone_except',
-          shared_with: selectedUsers.map((u) => ({
-            email: String(u.email || '').trim(),
-            role: 'Viewer',
-            sharedDate: new Date().toISOString().slice(0, 10)
-          }))
+          shared_with: nextSharedWith
         });
         await loadDocuments_();
         selectedDocForShare = documents.find((d) => d.id === docId) || selectedDocForShare;
