@@ -48,6 +48,41 @@
     return String(value || '').trim().toLowerCase();
   }
 
+  function formatRequestTypeLabel(value) {
+    const text = String(value || '').trim();
+    if (!text) return 'Request';
+    return text
+      .split(/[_\s]+/)
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+      .join(' ');
+  }
+
+  function getRequestTypeRaw(req) {
+    return String(req?.requestType || req?.request_type || req?.requester_type || '').trim();
+  }
+
+  function normalizeRequestTypeKey(value) {
+    return String(value || '').trim().toLowerCase().replace(/[_\s-]+/g, ' ');
+  }
+
+  function isDashboardPendingRequest(req) {
+    const type = normalizeRequestTypeKey(getRequestTypeRaw(req));
+    return [
+      'overtime',
+      'ot',
+      'absence',
+      'absent',
+      'time log override',
+      'override',
+      'override request',
+    ].includes(type);
+  }
+
+  function getRequestDateRaw(req) {
+    return String(req?.date || req?.request_date || req?.requester_date || req?.applied_date || '').trim();
+  }
+
   function parseDateLoose(value) {
     const text = String(value || '').trim();
     if (!text) return null;
@@ -71,6 +106,13 @@
     if (pending <= 0 && overdue <= 0) return 'No pending tasks';
     if (overdue > 0) return `${pending} pending • ${overdue} overdue`;
     return `${pending} pending`;
+  }
+
+  function shouldFetchTaskSummaryFallback(taskMap) {
+    if (!taskMap || typeof taskMap !== 'object') return true;
+    const rows = Object.values(taskMap);
+    if (rows.length === 0) return true;
+    return rows.every((row) => Number(row?.total || 0) === 0);
   }
 
   function hasClockInToday(studentUserId) {
@@ -100,6 +142,13 @@
       }
     }
     return [0, 6];
+  }
+
+  function isDayOffForIntern(intern, dateOnly = today || getToday()) {
+    const parsed = new Date(`${dateOnly}T00:00:00`);
+    if (Number.isNaN(parsed.getTime())) return false;
+    const day = parsed.getDay();
+    return normalizeDaysOff(intern?.days_off).includes(day);
   }
 
   function toFiniteNumber(value) {
@@ -317,8 +366,8 @@
   function getAttendanceStatus(student) {
     const studentId = String(student?.user_id || '').trim();
 
-    if (isWeekend(today)) {
-      return { label: 'Weekend', tone: 'muted' };
+    if (isDayOffForIntern(student, today)) {
+      return { label: 'Day off', tone: 'muted' };
     }
 
     if (isApprovedAbsenceToday(studentId)) {
@@ -401,6 +450,7 @@
           req?.updated_at ||
           req?.date ||
           req?.request_date ||
+          req?.requester_date ||
           req?.applied_date ||
           ''
         ).trim();
@@ -417,12 +467,13 @@
 
       const pending = assignedRequests
         .filter((req) => normalizeStatus(req?.status) === 'pending')
+        .filter(isDashboardPendingRequest)
         .sort((a, b) => getRequestTimestamp(b) - getRequestTimestamp(a));
       pendingRequests = pending.slice(0, 6).map((req) => ({
-        id: String(req?.id || req?.request_id || ''),
+        id: String(req?.id || req?.request_id || `${resolveRequestStudentId(req)}-${getRequestTypeRaw(req)}-${getRequestDateRaw(req)}`),
         student_name: String(req?.requester_name || req?.student_name || req?.full_name || '').trim() || 'Student',
-        type: String(req?.requestType || req?.request_type || '').trim() || 'Request',
-        date: String(req?.date || req?.request_date || req?.applied_date || '').trim(),
+        type: formatRequestTypeLabel(getRequestTypeRaw(req)),
+        date: getRequestDateRaw(req),
       }));
 
       const studentUserIds = assignedStudents
@@ -454,8 +505,8 @@
           studentUserIds.map((studentUserId) => [studentUserId, timelogMap[studentUserId] || null])
         );
         
-        // If taskMap is empty from overview, fall back to fetching individual task data
-        if (Object.keys(taskMap).length === 0) {
+        // If overview has no visible task totals, double-check through the task list endpoint.
+        if (shouldFetchTaskSummaryFallback(taskMap)) {
           const taskEntries = await Promise.all(
             assignedStudents.map(async (student) => {
               const studentUserId = String(student?.user_id || '').trim();
@@ -574,7 +625,7 @@
   $: isSupervisorUser = currentRole === 'supervisor';
   $: weekend = Boolean(today) ? isWeekend(today) : isWeekend(getToday());
   $: totalAssigned = assignedStudents.length;
-  $: expectedToday = weekend ? 0 : assignedStudents.filter((s) => !isApprovedAbsenceToday(s?.user_id)).length;
+  $: expectedToday = assignedStudents.filter((s) => !isDayOffForIntern(s, today) && !isApprovedAbsenceToday(s?.user_id)).length;
   $: clockedInToday = assignedStudents.filter((s) => {
     const id = String(s?.user_id || '').trim();
     const row = todayTimelogByStudent[id] || null;
@@ -780,7 +831,9 @@
               <div class="request-item">
                 <div class="request-copy">
                   <p class="request-name">{req.student_name}</p>
-                  <p class="request-meta text-muted">{req.type} - {normalizeDate(req.date)}</p>
+                  <p class="request-meta text-muted">
+                    {req.type}{#if req.date} - {normalizeDate(req.date)}{/if}
+                  </p>
                 </div>
                 <a class="review-btn" href="#/supervisor/requests">Review</a>
               </div>
@@ -1564,6 +1617,14 @@
     color: #94a3b8;
   }
 
+  :global(.dark) .dash-empty-title {
+    color: #f1f5f9;
+  }
+
+  :global(.dark) .dash-empty-sub {
+    color: #94a3b8;
+  }
+
   :global(.dark) .dash-empty-helper-btn {
     background: rgba(59, 130, 246, 0.18);
     border-color: rgba(96, 165, 250, 0.45);
@@ -1628,4 +1689,3 @@
     }
   }
 </style>
-
