@@ -707,6 +707,7 @@ export async function getStudentDashboard(userId, options = {}) {
   const result = await postAction('get_student_dashboard', {
     user_id: String(userId || '').trim(),
     limit: Number(options?.limit || 10),
+    include_extras: options?.include_extras === undefined ? true : Boolean(options.include_extras),
   });
 
   return {

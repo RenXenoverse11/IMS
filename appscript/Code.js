@@ -43,9 +43,62 @@ var DAILY_TIME_LOG_REMINDER_HOUR_ = 17;
 var DAILY_TIME_LOG_REMINDER_MINUTE_ = 5;
 var TIME_LOG_REMINDER_SENT_PREFIX_ = 'IMS_TIME_LOG_REMINDER_SENT_';
 var SUPERVISOR_TIME_LOG_REMINDER_SENT_PREFIX_ = 'IMS_SUP_TIME_LOG_REMINDER_SENT_';
+var DASHBOARD_CACHE_TTL_SECONDS_ = 60;
+var DASHBOARD_CACHE_KEY_PREFIX_ = 'IMS_DASHBOARD_';
 
 function isTimeLogsBackendDisabled_() {
   return TIME_LOGS_BACKEND_ENABLED_ !== true;
+}
+
+function getScriptCache_() {
+  try {
+    return CacheService.getScriptCache();
+  } catch (_) {
+    return null;
+  }
+}
+
+function getCachedJson_(key) {
+  var cache = getScriptCache_();
+  if (!cache || !key) return null;
+  try {
+    var raw = cache.get(String(key));
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (_) {
+    return null;
+  }
+}
+
+function putCachedJson_(key, value, ttlSeconds) {
+  var cache = getScriptCache_();
+  if (!cache || !key || value === undefined) return;
+  try {
+    cache.put(String(key), JSON.stringify(value), Math.max(1, Number(ttlSeconds || DASHBOARD_CACHE_TTL_SECONDS_)));
+  } catch (_) {}
+}
+
+function dashboardRecentLogsCacheKey_(userId, limit) {
+  return DASHBOARD_CACHE_KEY_PREFIX_ + 'RECENT_LOGS:' + String(userId || '').trim() + ':' + String(Number(limit || 10));
+}
+
+function dashboardTotalHoursCacheKey_(userId) {
+  return DASHBOARD_CACHE_KEY_PREFIX_ + 'TOTAL_HOURS:' + String(userId || '').trim();
+}
+
+function invalidateDashboardCacheForUser_(userId) {
+  var normalizedUserId = String(userId || '').trim();
+  if (!normalizedUserId) return;
+  var cache = getScriptCache_();
+  if (!cache) return;
+  try {
+    cache.removeAll([
+      dashboardTotalHoursCacheKey_(normalizedUserId),
+      dashboardRecentLogsCacheKey_(normalizedUserId, 10),
+      dashboardRecentLogsCacheKey_(normalizedUserId, 25),
+      dashboardRecentLogsCacheKey_(normalizedUserId, 50),
+    ]);
+  } catch (_) {}
 }
 
 function doPost(e) {
@@ -433,6 +486,11 @@ function dispatchAction_(payload) {
 // --- Dashboard additions (additive) ---
 function handleGetStudentDashboard_(payload) {
   var userId = String(payload.user_id || '').trim();
+  var limit = Number(payload.limit || 10);
+  var includeExtrasRaw = payload && payload.include_extras;
+  var includeExtras = includeExtrasRaw === undefined
+    ? true
+    : String(includeExtrasRaw).trim().toLowerCase() !== 'false';
   if (!userId) {
     return { ok: false, error: 'user_id is required.' };
   }
@@ -444,28 +502,49 @@ function handleGetStudentDashboard_(payload) {
 
   repairLegacyUserRecord_(userRecord);
   var profile = getStudentProfileByUserId_(userId);
-  // Load only the most recent 10 time logs for display (much faster)
-  var logsResult = handleListTimeLogsByUser_({ user_id: userId, limit: 10 });
-  if (!logsResult || logsResult.ok !== true) {
-    return { ok: false, error: logsResult && logsResult.error ? logsResult.error : 'Unable to load time logs.' };
+  // Load recent logs with short-lived cache.
+  var logsCacheKey = dashboardRecentLogsCacheKey_(userId, limit);
+  var cachedLogs = getCachedJson_(logsCacheKey);
+  var logs = Array.isArray(cachedLogs) ? cachedLogs : null;
+  if (!logs) {
+    var logsResult = handleListTimeLogsByUser_({ user_id: userId, limit: limit });
+    if (!logsResult || logsResult.ok !== true) {
+      return { ok: false, error: logsResult && logsResult.error ? logsResult.error : 'Unable to load time logs.' };
+    }
+    logs = Array.isArray(logsResult.logs) ? logsResult.logs : [];
+    putCachedJson_(logsCacheKey, logs, DASHBOARD_CACHE_TTL_SECONDS_);
   }
 
-  // Calculate total hours_rendered from ALL time logs (efficient server-side calculation)
-  var totalCompletedHours = getTotalCompletedHoursByUserId_(userId);
+  // Calculate total hours_rendered with short-lived cache.
+  var totalHoursCacheKey = dashboardTotalHoursCacheKey_(userId);
+  var cachedTotalHours = getCachedJson_(totalHoursCacheKey);
+  var totalCompletedHours = cachedTotalHours === null ? NaN : Number(cachedTotalHours);
+  if (!Number.isFinite(totalCompletedHours)) {
+    totalCompletedHours = getTotalCompletedHoursByUserId_(userId);
+    putCachedJson_(totalHoursCacheKey, totalCompletedHours, DASHBOARD_CACHE_TTL_SECONDS_);
+  }
 
-  var activityResult = handleListActivityLogsByUser_({ user_id: userId, limit: payload.limit || 10 });
-  // Keep dashboard tasks in sync with Activity pages (activity_logs-backed tasks).
-  var tasksResult = (typeof getActivityTasks === 'function')
-    ? getActivityTasks({ user_id: userId })
-    : handleListTasksByUser_({ user_id: userId, limit: payload.limit || 10 });
-
-  // Get pending requests (Absence and Overtime) for "All" mode calculations
-  var requestsResult = handleListRequestsByUser_({ user_id: userId });
+  var activityLogs = [];
+  var tasks = [];
   var pendingRequests = [];
-  if (requestsResult && requestsResult.ok === true && Array.isArray(requestsResult.requests)) {
-    pendingRequests = requestsResult.requests.filter(function(req) {
-      return String(req.status || '').toLowerCase() === 'pending';
-    });
+
+  if (includeExtras) {
+    var activityResult = handleListActivityLogsByUser_({ user_id: userId, limit: payload.limit || 10 });
+    // Keep dashboard tasks in sync with Activity pages (activity_logs-backed tasks).
+    var tasksResult = (typeof getActivityTasks === 'function')
+      ? getActivityTasks({ user_id: userId })
+      : handleListTasksByUser_({ user_id: userId, limit: payload.limit || 10 });
+
+    // Get pending requests (Absence and Overtime) for "All" mode calculations
+    var requestsResult = handleListRequestsByUser_({ user_id: userId });
+    if (requestsResult && requestsResult.ok === true && Array.isArray(requestsResult.requests)) {
+      pendingRequests = requestsResult.requests.filter(function(req) {
+        return String(req.status || '').toLowerCase() === 'pending';
+      });
+    }
+
+    activityLogs = activityResult && activityResult.ok === true ? activityResult.logs : [];
+    tasks = tasksResult && tasksResult.ok === true ? tasksResult.tasks : [];
   }
 
   return {
@@ -473,9 +552,9 @@ function handleGetStudentDashboard_(payload) {
     user: buildUserForClient_(userRecord.user, profile),
     profile: profile,
     total_completed_hours: totalCompletedHours,
-    time_logs: Array.isArray(logsResult.logs) ? logsResult.logs : [],
-    activity_logs: activityResult && activityResult.ok === true ? activityResult.logs : [],
-    tasks: tasksResult && tasksResult.ok === true ? tasksResult.tasks : [],
+    time_logs: logs,
+    activity_logs: activityLogs,
+    tasks: tasks,
     pending_requests: pendingRequests
   };
 }
@@ -1226,6 +1305,26 @@ function handleCreateTimeLog_(payload) {
         }
       }
       
+      // Self-heal (reverse): clear stale completed_at when total hours dropped below requirement.
+      if (profile.completed_at && totalOjtHours > 0 && completedHoursSoFar < totalOjtHours) {
+        Logger.log('DEBUG handleStartSession_ - Clearing stale completed_at for user ' + userId + ' (hours dropped below requirement)');
+        var profileSheetForRollback = getStudentOjtProfileSheet_();
+        var profileHeadersForRollback = getHeaders_(profileSheetForRollback);
+        var profileValuesForRollback = getSheetValues_(profileSheetForRollback);
+        var profileUserIdColForRollback = findColumnIndex_(profileHeadersForRollback, 'user_id');
+        var completedAtColForRollback = findColumnIndex_(profileHeadersForRollback, 'completed_at');
+
+        if (profileUserIdColForRollback > 0 && completedAtColForRollback > 0) {
+          for (var rbi = 1; rbi < profileValuesForRollback.length; rbi++) {
+            if (String(profileValuesForRollback[rbi][profileUserIdColForRollback - 1] || '').trim() === userId) {
+              profileSheetForRollback.getRange(rbi + 1, completedAtColForRollback).setValue('');
+              break;
+            }
+          }
+        }
+        profile.completed_at = '';
+      }
+
       // Block login if completed
       if (profile.completed_at) {
         return {
@@ -1430,6 +1529,7 @@ function handleDeleteTimeLog_(payload) {
   }
 
   sheet.deleteRow(rowIndex);
+  invalidateDashboardCacheForUser_(userId);
   return { ok: true, message: 'Time log deleted.' };
 }
 
@@ -1508,6 +1608,26 @@ function handleStartSession_(payload) {
             break;
           }
         }
+      }
+
+      // Self-heal (reverse): clear stale completed_at when total hours dropped below requirement.
+      if (profile.completed_at && totalOjtHours > 0 && completedHoursSoFar < totalOjtHours) {
+        Logger.log('DEBUG handleStartSession_ - Clearing stale completed_at for user ' + userId + ' (hours dropped below requirement)');
+        var profileSheetForRollback = getStudentOjtProfileSheet_();
+        var profileHeadersForRollback = getHeaders_(profileSheetForRollback);
+        var profileValuesForRollback = getSheetValues_(profileSheetForRollback);
+        var profileUserIdColForRollback = findColumnIndex_(profileHeadersForRollback, 'user_id');
+        var completedAtColForRollback = findColumnIndex_(profileHeadersForRollback, 'completed_at');
+
+        if (profileUserIdColForRollback > 0 && completedAtColForRollback > 0) {
+          for (var rbi = 1; rbi < profileValuesForRollback.length; rbi++) {
+            if (String(profileValuesForRollback[rbi][profileUserIdColForRollback - 1] || '').trim() === userId) {
+              profileSheetForRollback.getRange(rbi + 1, completedAtColForRollback).setValue('');
+              break;
+            }
+          }
+        }
+        profile.completed_at = '';
       }
       
       // Block login if completed
@@ -1776,6 +1896,7 @@ function handleEndSession_(payload) {
       created_at: String(sessValues[sessionRow - 1][findColumnIndex_(sessHeaders, 'created_at') - 1] || '')
     };
 
+    invalidateDashboardCacheForUser_(userId);
     return {
       ok: true,
       message: 'Session ended successfully.',

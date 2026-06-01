@@ -364,7 +364,7 @@
     ? Math.max(0, renderedCompletedHours + projectedAdditionalHours)
     : renderedCompletedHours;
   $: hoursCompleted = effectiveCompletedHours;
-  $: isCompleted = profile?.completed_at ? true : false;
+  $: isCompleted = totalOjtHours > 0 && renderedCompletedHours >= totalOjtHours;
   $: hoursRemaining = isCompleted ? 0 : Math.max(0, totalOjtHours - hoursCompleted);
   $: avgDailyHours = 8; // You can make this dynamic if needed
   $: remainingDurationParts = getWorkingDurationParts(hoursRemaining, avgDailyHours);
@@ -610,51 +610,17 @@
     const loadToken = ++dashboardLoadToken;
     loading = true;
     try {
-      const [dashboardResult, scheduleResult, activeSessionResult] = await Promise.allSettled([
-        getStudentDashboard(userId, { limit: 10 }),
-        callApiAction('get_intern_schedule', {
-          intern_user_id: userId,
-        }),
-        callApiAction('get_active_session', {
-          user_id: userId,
-        }),
-      ]);
-
-      if (loadToken !== dashboardLoadToken) return;
-      if (dashboardResult.status !== 'fulfilled') {
-        throw dashboardResult.reason;
-      }
-
-      const data = dashboardResult.value;
-
-      if (scheduleResult.status === 'fulfilled' && scheduleResult.value?.ok && scheduleResult.value?.schedule) {
-        const schedule = scheduleResult.value.schedule;
-        let parsedDaysOff = schedule.days_off;
-        if (typeof parsedDaysOff === 'string') {
-          try {
-            parsedDaysOff = JSON.parse(parsedDaysOff);
-          } catch {
-            parsedDaysOff = [0, 6];
-          }
-        }
-
-        internSchedule = {
-          shift_start: String(schedule.shift_start || '09:00'),
-          shift_end: String(schedule.shift_end || '17:00'),
-          days_off: normalizeDaysOff(parsedDaysOff),
-        };
-      } else if (scheduleResult.status === 'rejected') {
-        console.error('Failed to load intern schedule:', scheduleResult.reason);
-      }
-
-      if (activeSessionResult.status === 'fulfilled') {
-        activeSession = activeSessionResult.value?.ok && activeSessionResult.value.session
-          ? activeSessionResult.value.session
-          : null;
-      } else {
-        console.error('Failed to load active session:', activeSessionResult.reason);
-        activeSession = null;
-      }
+      const schedulePromise = callApiAction('get_intern_schedule', {
+        intern_user_id: userId,
+      });
+      const activeSessionPromise = callApiAction('get_active_session', {
+        user_id: userId,
+      });
+      const tasksPromise = callApiAction('list_tasks_by_user', {
+        user_id: userId,
+        limit: 10,
+      });
+      const data = await getStudentDashboard(userId, { limit: 10, include_extras: false });
 
       profile = data.profile;
       timeLogs = Array.isArray(data.time_logs) ? data.time_logs : [];
@@ -673,22 +639,7 @@
       }
 
       localStorage.removeItem('ojt_completed_hours');
-      tasks = (Array.isArray(data.tasks) ? data.tasks : [])
-        .map((task) => normalizeDashboardTask(task))
-        .filter((task) => {
-          const archivedPrevious = String(task.archived_previous_status || '').trim().toLowerCase();
-          const status = String(task.status || '').trim().toLowerCase();
-          return archivedPrevious !== 'archived' && status !== 'archived';
-        })
-        .sort((a, b) => {
-          const aDue = a?.due_date ? parseIsoDateOnly(a.due_date)?.getTime() || Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
-          const bDue = b?.due_date ? parseIsoDateOnly(b.due_date)?.getTime() || Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
-          if (aDue !== bDue) return aDue - bDue;
-          const aCreated = String(a?.created_at || '');
-          const bCreated = String(b?.created_at || '');
-          return bCreated.localeCompare(aCreated);
-        })
-        .slice(0, 10);
+      tasks = [];
       pendingRequests = Array.isArray(data.pending_requests) ? data.pending_requests : [];
 
       const timeLogActivities = buildTimeLogActivities(timeLogs);
@@ -704,6 +655,70 @@
       if (loadToken !== dashboardLoadToken) return;
       loading = false;
       void loadDashboardRequestContext(userId, timeLogActivities, loadToken);
+
+      void tasksPromise
+        .then((tasksResult) => {
+          if (loadToken !== dashboardLoadToken) return;
+          const rows = Array.isArray(tasksResult?.tasks) ? tasksResult.tasks : [];
+          tasks = rows
+            .map((task) => normalizeDashboardTask(task))
+            .filter((task) => {
+              const archivedPrevious = String(task.archived_previous_status || '').trim().toLowerCase();
+              const status = String(task.status || '').trim().toLowerCase();
+              return archivedPrevious !== 'archived' && status !== 'archived';
+            })
+            .sort((a, b) => {
+              const aDue = a?.due_date ? parseIsoDateOnly(a.due_date)?.getTime() || Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
+              const bDue = b?.due_date ? parseIsoDateOnly(b.due_date)?.getTime() || Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
+              if (aDue !== bDue) return aDue - bDue;
+              const aCreated = String(a?.created_at || '');
+              const bCreated = String(b?.created_at || '');
+              return bCreated.localeCompare(aCreated);
+            })
+            .slice(0, 10);
+        })
+        .catch((err) => {
+          if (loadToken !== dashboardLoadToken) return;
+          console.error('Failed to load dashboard tasks:', err);
+        });
+
+      void schedulePromise
+        .then((scheduleResult) => {
+          if (loadToken !== dashboardLoadToken) return;
+          if (!(scheduleResult?.ok && scheduleResult?.schedule)) return;
+          const schedule = scheduleResult.schedule;
+          let parsedDaysOff = schedule.days_off;
+          if (typeof parsedDaysOff === 'string') {
+            try {
+              parsedDaysOff = JSON.parse(parsedDaysOff);
+            } catch {
+              parsedDaysOff = [0, 6];
+            }
+          }
+
+          internSchedule = {
+            shift_start: String(schedule.shift_start || '09:00'),
+            shift_end: String(schedule.shift_end || '17:00'),
+            days_off: normalizeDaysOff(parsedDaysOff),
+          };
+        })
+        .catch((err) => {
+          if (loadToken !== dashboardLoadToken) return;
+          console.error('Failed to load intern schedule:', err);
+        });
+
+      void activeSessionPromise
+        .then((activeSessionResult) => {
+          if (loadToken !== dashboardLoadToken) return;
+          activeSession = activeSessionResult?.ok && activeSessionResult.session
+            ? activeSessionResult.session
+            : null;
+        })
+        .catch((err) => {
+          if (loadToken !== dashboardLoadToken) return;
+          console.error('Failed to load active session:', err);
+          activeSession = null;
+        });
     } catch (err) {
       if (loadToken !== dashboardLoadToken) return;
       errorMessage = err?.message || 'Failed to load dashboard.';

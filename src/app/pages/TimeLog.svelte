@@ -514,6 +514,12 @@
     };
   }
 
+  function setEntriesFromLogs(logs) {
+    entries = (Array.isArray(logs) ? logs : [])
+      .map(mapApiLogToEntry)
+      .sort((a, b) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime());
+  }
+
   async function loadEntriesFromApi() {
     const user = authApi.getCurrentUser();
     if (!user?.user_id) {
@@ -522,13 +528,43 @@
     }
     try {
       const logs = await authApi.listTimeLogsByUser(user.user_id);
-      entries = logs
-        .map(mapApiLogToEntry)
-        .sort((a, b) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime());
+      setEntriesFromLogs(logs);
       logSyncError = '';
     } catch (err) {
       logSyncError = err?.message || 'Unable to load time logs right now.';
     }
+  }
+
+  function applyScheduleFromResult(scheduleResult) {
+    if (!(scheduleResult && scheduleResult.ok && scheduleResult.schedule)) return;
+    const schedule = scheduleResult.schedule;
+    internSchedule.shift_start = schedule.shift_start || DEFAULT_TIME_IN;
+    internSchedule.shift_end = schedule.shift_end || DEFAULT_TIME_OUT;
+    if (typeof schedule.days_off === 'string') {
+      try {
+        internSchedule.days_off = JSON.parse(schedule.days_off) || [0, 6];
+      } catch {
+        internSchedule.days_off = [0, 6];
+      }
+    } else if (Array.isArray(schedule.days_off)) {
+      internSchedule.days_off = schedule.days_off;
+    } else {
+      internSchedule.days_off = [0, 6];
+    }
+  }
+
+  function applyActiveSessionFromResponse(response, userId) {
+    if (response && response.ok === true && response.session) {
+      const sessionDate = normalizeDateOnly(response.session.log_date);
+      if (sessionDate) date = sessionDate;
+      timeIn = normalizeTimeValue(response.session.time_in, timeIn);
+      timeOut = DEFAULT_TIME_OUT;
+      isLoggedIn = true;
+      saveLocalActiveSession(userId, date, timeIn);
+      return;
+    }
+    clearLocalActiveSession(userId);
+    isLoggedIn = false;
   }
 
   async function hasApprovedAbsenceRequestForDate_(userId, targetDate) {
@@ -1289,38 +1325,51 @@
     try {
       syncRequiredHoursFromAccount();
       
-      // Fetch intern's custom schedule
       const user = authApi.getCurrentUser();
       if (user?.user_id) {
-        try {
-          const scheduleResult = await authApi.callApiAction('get_intern_schedule', {
-            intern_user_id: user.user_id,
-          });
-          if (scheduleResult && scheduleResult.ok && scheduleResult.schedule) {
-            const schedule = scheduleResult.schedule;
-            internSchedule.shift_start = schedule.shift_start || DEFAULT_TIME_IN;
-            internSchedule.shift_end = schedule.shift_end || DEFAULT_TIME_OUT;
-            // Ensure days_off is an array - parse if it's a string
-            if (typeof schedule.days_off === 'string') {
-              try {
-                internSchedule.days_off = JSON.parse(schedule.days_off) || [0, 6];
-              } catch {
-                internSchedule.days_off = [0, 6];
-              }
-            } else if (Array.isArray(schedule.days_off)) {
-              internSchedule.days_off = schedule.days_off;
-            } else {
-              internSchedule.days_off = [0, 6];
-            }
-          }
-        } catch (err) {
-          console.error('Failed to load intern schedule:', err);
-          // Use defaults on error
+        const schedulePromise = authApi.callApiAction('get_intern_schedule', {
+          intern_user_id: user.user_id,
+        });
+        const logsPromise = authApi.listTimeLogsByUser(user.user_id);
+        const requestsPromise = authApi.callApiAction('list_requests_by_user', { user_id: user.user_id });
+        const activeSessionPromise = authApi.callApiAction('get_active_session', { user_id: user.user_id });
+
+        const [scheduleResult, logs, requestsResponse, activeSessionResponse] = await Promise.all([
+          schedulePromise.catch((err) => {
+            console.error('Failed to load intern schedule:', err);
+            return null;
+          }),
+          logsPromise.catch((err) => {
+            throw new Error(err?.message || 'Unable to load time logs right now.');
+          }),
+          requestsPromise.catch((err) => {
+            console.error('Failed to load requests:', err);
+            return null;
+          }),
+          activeSessionPromise.catch((err) => {
+            console.error('Failed to load active session:', err);
+            return null;
+          }),
+        ]);
+
+        applyScheduleFromResult(scheduleResult);
+        setEntriesFromLogs(logs);
+        logSyncError = '';
+
+        const requests = Array.isArray(requestsResponse?.requests) ? requestsResponse.requests : [];
+        approvedAbsenceAdjustmentDays = countApprovedAbsenceAdjustments(requests, getTodayDateOnly());
+
+        if (activeSessionResponse) {
+          applyActiveSessionFromResponse(activeSessionResponse, user.user_id);
+        } else {
+          await checkForActiveSession();
         }
+      } else {
+        entries = [];
+        approvedAbsenceAdjustmentDays = 0;
+        isLoggedIn = false;
       }
-      
-      await loadEntriesFromApi();
-      await loadApprovedAbsenceAdjustments();
+
       // Set default date after ensuring user is loaded
       syncDateToToday();
       const today = new Date();
@@ -1329,7 +1378,6 @@
       if (!exportMonth) {
         exportMonth = `${year}-${month}`;
       }
-      await checkForActiveSession();
       requestTlChartInit();
     } catch (err) {
       console.error('Error loading time log data:', err);
@@ -1440,6 +1488,10 @@
   $: currentUserId = String(authApi.getCurrentUser()?.user_id || '').trim();
   $: completedHoursStorageKey = currentUserId ? `ojt_completed_hours_${currentUserId}` : '';
   $: completedHours = INITIAL_COMPLETED_HOURS + entries.reduce((sum, entry) => sum + entry.hours, 0);
+  $: if (isCompleted && Number.isFinite(requiredHours) && requiredHours > 0 && completedHours < requiredHours) {
+    isCompleted = false;
+    completedAt = '';
+  }
   $: remainingHours = isCompleted ? 0 : Math.max(0, requiredHours - completedHours);
   $: progressPercent = isCompleted ? 100 : Math.min(100, Math.round((completedHours / requiredHours) * 100));
   $: progressStatus = isCompleted
