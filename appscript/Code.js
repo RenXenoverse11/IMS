@@ -21,8 +21,9 @@ var SUPERVISOR_ASSIGNMENTS_SHEET_ = 'supervisor_assignments';
 var SUPERVISOR_ASSIGNMENTS_HEADERS_ = ['assignment_id', 'supervisor_user_id', 'student_user_id', 'company', 'department', 'status', 'created_at'];
 var STUDENT_OJT_PROFILE_SHEET_ = 'student_ojt_profile';
 var STUDENT_OJT_PROFILE_HEADERS_ = ['user_id', 'total_ojt_hours', 'start_date', 'estimated_end_date', 'course', 'school', 'completed_at'];
-var REQUESTS_SHEET_ = 'override_requests';
-var REQUESTS_HEADERS_ = ['request_id', 'user_id', 'requester_name', 'requester_type', 'requester_date', 'requester_time', 'start_time', 'end_time', 'total_hours', 'reason', 'status', 'rejection_remarks', 'created_at', 'archive'];
+var REQUESTS_SHEET_ = 'requests';
+var LEGACY_REQUESTS_SHEETS_ = ['override_requests'];
+var REQUESTS_HEADERS_ = ['request_id', 'user_id', 'requester_name', 'request_type', 'request_date', 'request_time', 'start_time', 'end_time', 'total_hours', 'reason', 'status', 'rejection_remarks', 'created_at', 'archived', 'archived_previous_status'];
 var NOTIFICATIONS_SHEET_ = 'notifications';
 var NOTIFICATIONS_HEADERS_ = ['notification_id', 'user_id', 'title', 'description', 'type', 'related_id', 'is_read', 'created_at'];
 var USER_SETTINGS_SHEET_ = 'user_settings';
@@ -5132,7 +5133,164 @@ function getStudentOjtProfileSheet_() {
 }
 
 function getRequestsSheet_() {
-  return getOrCreateSheetWithHeaders_(REQUESTS_SHEET_, REQUESTS_HEADERS_);
+  var sheet = getOrCreateSheetWithHeaders_(REQUESTS_SHEET_, REQUESTS_HEADERS_);
+  migrateLegacyRequestsDataIfNeeded_(sheet);
+  normalizeRequestsSheetData_(sheet);
+  return sheet;
+}
+
+function migrateLegacyRequestsDataIfNeeded_(targetSheet) {
+  if (!targetSheet) {
+    return;
+  }
+
+  var legacySheetNames = Array.isArray(LEGACY_REQUESTS_SHEETS_) ? LEGACY_REQUESTS_SHEETS_ : [];
+  if (!legacySheetNames.length) {
+    return;
+  }
+
+  var targetValues = getSheetValues_(targetSheet);
+  if (!targetValues.length) {
+    return;
+  }
+
+  var targetHeaders = targetValues[0];
+  if (!Array.isArray(targetHeaders) || !targetHeaders.length) {
+    return;
+  }
+
+  var targetRequestIdColIndex = findColumnIndex_(targetHeaders, 'request_id');
+  if (targetRequestIdColIndex === 0) {
+    return;
+  }
+
+  var existingRequestIds = {};
+  for (var targetRowIndex = 1; targetRowIndex < targetValues.length; targetRowIndex++) {
+    var existingId = String(targetValues[targetRowIndex][targetRequestIdColIndex - 1] || '').trim();
+    if (existingId) {
+      existingRequestIds[existingId] = true;
+    }
+  }
+
+  var spreadsheet = getSpreadsheet_();
+  var rowsToAppend = [];
+
+  for (var sheetIndex = 0; sheetIndex < legacySheetNames.length; sheetIndex++) {
+    var legacySheetName = String(legacySheetNames[sheetIndex] || '').trim();
+    if (!legacySheetName || legacySheetName === REQUESTS_SHEET_) {
+      continue;
+    }
+
+    var legacySheet = spreadsheet.getSheetByName(legacySheetName);
+    if (!legacySheet) {
+      continue;
+    }
+
+    var legacyValues = getSheetValues_(legacySheet);
+    if (legacyValues.length < 2) {
+      continue;
+    }
+
+    var legacyHeaders = legacyValues[0];
+    var legacyNormalizedHeaders = legacyHeaders.map(function (header) {
+      return normalizeHeader_(header);
+    });
+
+    for (var legacyRowIndex = 1; legacyRowIndex < legacyValues.length; legacyRowIndex++) {
+      var sourceRow = legacyValues[legacyRowIndex];
+      var isBlank = sourceRow.every(function (cell) {
+        return String(cell || '').trim() === '';
+      });
+      if (isBlank) {
+        continue;
+      }
+
+      var sourceObject = {};
+      for (var colIndex = 0; colIndex < legacyNormalizedHeaders.length; colIndex++) {
+        sourceObject[legacyNormalizedHeaders[colIndex]] = sourceRow[colIndex];
+      }
+
+      var requestId = String(sourceObject.request_id || '').trim();
+      if (!requestId || existingRequestIds[requestId]) {
+        continue;
+      }
+
+      var targetRow = targetHeaders.map(function (header) {
+        var key = normalizeHeader_(header);
+        if (Object.prototype.hasOwnProperty.call(sourceObject, key)) {
+          return normalizeRequestCellForStorage_(key, sourceObject[key]);
+        }
+        return '';
+      });
+
+      rowsToAppend.push(targetRow);
+      existingRequestIds[requestId] = true;
+    }
+  }
+
+  if (rowsToAppend.length) {
+    targetSheet
+      .getRange(targetSheet.getLastRow() + 1, 1, rowsToAppend.length, targetHeaders.length)
+      .setValues(rowsToAppend);
+  }
+}
+
+function normalizeRequestCellForStorage_(key, value) {
+  var normalizedKey = String(key || '').trim().toLowerCase();
+
+  if (normalizedKey === 'request_date') {
+    return formatDateValue_(value);
+  }
+
+  if (normalizedKey === 'request_time' || normalizedKey === 'start_time' || normalizedKey === 'end_time') {
+    return normalizeTimeForCompare_(value);
+  }
+
+  return value;
+}
+
+function normalizeRequestsSheetData_(sheet) {
+  if (!sheet) {
+    return;
+  }
+
+  var values = getSheetValues_(sheet);
+  if (values.length < 2) {
+    return;
+  }
+
+  var headers = values[0];
+  var normalizedHeaders = headers.map(function (header) {
+    return normalizeHeader_(header);
+  });
+  var changed = false;
+
+  for (var rowIndex = 1; rowIndex < values.length; rowIndex++) {
+    var row = values[rowIndex];
+    for (var colIndex = 0; colIndex < normalizedHeaders.length; colIndex++) {
+      var key = normalizedHeaders[colIndex];
+      if (
+        key !== 'request_date' &&
+        key !== 'request_time' &&
+        key !== 'start_time' &&
+        key !== 'end_time'
+      ) {
+        continue;
+      }
+
+      var originalValue = row[colIndex];
+      var normalizedValue = normalizeRequestCellForStorage_(key, originalValue);
+
+      if (String(normalizedValue) !== String(originalValue)) {
+        row[colIndex] = normalizedValue;
+        changed = true;
+      }
+    }
+  }
+
+  if (changed) {
+    sheet.getRange(2, 1, values.length - 1, headers.length).setValues(values.slice(1));
+  }
 }
 
 function getNotificationsSheet_() {
@@ -5358,7 +5516,7 @@ function createId_(prefix) {
     'SES': { sheet: 'active_sessions', col: 'session_id', digits: 4, label: 'SES' },
     'ASG': { sheet: 'supervisor_assignments', col: 'assignment_id', digits: 4, label: 'ASG' },
     'NOTIF': { sheet: 'notifications', col: 'notification_id', digits: 4, label: 'NOT' },
-    'REQ': { sheet: 'requests', col: 'request_id', digits: 4, label: 'REQ' }
+    'REQ': { sheet: REQUESTS_SHEET_, col: 'request_id', digits: 4, label: 'REQ' }
   };
 
   // Add supervisor task ID sequence generator (SUP_0001...)
@@ -8001,7 +8159,7 @@ function migrateAllToSequentialIDs() {
     { sheet: 'active_sessions', cols: ['user_id'] },
     { sheet: 'supervisor_assignments', cols: ['supervisor_user_id', 'student_user_id'] },
     { sheet: 'student_ojt_profile', cols: ['user_id'] },
-    { sheet: 'requests', cols: ['user_id'] },
+    { sheet: REQUESTS_SHEET_, cols: ['user_id'] },
     { sheet: 'notifications', cols: ['user_id'] },
     { sheet: 'activity_logs', cols: ['user_id'] },
     { sheet: 'tasks', cols: ['user_id'] },
