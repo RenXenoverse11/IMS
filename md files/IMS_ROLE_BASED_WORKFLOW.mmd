@@ -1,0 +1,46 @@
+flowchart TD
+  A[Start] --> B[Create Account]
+  B --> C[Log In]
+  C --> D{Role Decision}
+
+  D -->|Intern| I0[Intern Home]
+  D -->|Supervisor| S0[Supervisor Home]
+
+  subgraph Intern_Pages [Intern Pages]
+    I1[Dashboard]
+    I2[Time Log]
+    I3[Projects]
+    I4[Requests]
+    I5[Activity Log]
+    I6[Documents]
+    I7[Settings]
+  end
+
+  subgraph Supervisor_Pages [Supervisor Pages]
+    S1[Supervisor Dashboard]
+    S2[Intern Management]
+    S3[Supervisor Time Log]
+    S4[Supervisor Projects]
+    S5[Requests Review]
+    S6[Activity]
+    S7[Settings]
+  end
+
+  I0 --> I1
+  I0 --> I2
+  I0 --> I3
+  I0 --> I4
+  I0 --> I5
+  I0 --> I6
+  I0 --> I7
+
+  S0 --> S1
+  S0 --> S2
+  S0 --> S3
+  S0 --> S4
+  S0 --> S5
+  S0 --> S6
+  S0 --> S7
+
+  I1 --> G[Ongoing Daily Use]
+  S1 --> G
