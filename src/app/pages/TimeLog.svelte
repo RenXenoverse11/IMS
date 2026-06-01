@@ -66,7 +66,7 @@
   let isOverrideRequestFormIncomplete = true;
 
   // Time Log History filter state
-  let timelogHistoryFilter = 'entries'; // 'entries' or 'overrides'
+  let timelogHistoryFilter = 'entries';
   let overrideRequests = [];
   let isLoadingOverrideRequests = false;
 
@@ -347,6 +347,23 @@
     if (!Number.isFinite(hours24)) return normalized;
     const hours12 = ((hours24 + 11) % 12) + 1;
     return `${String(hours12).padStart(2, '0')}:${minutes}`;
+  }
+
+  function formatCreatedAt(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return '-';
+    const normalized = raw.replace(' ', 'T');
+    const dt = new Date(normalized);
+    if (Number.isNaN(dt.getTime())) return raw.replace('T', ' ');
+    return new Intl.DateTimeFormat('en-US', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+    }).format(dt);
   }
 
   function formatMonthLabel(monthInput, includeYear = true) {
@@ -882,7 +899,7 @@
         if (String(logSyncError || '').toLowerCase().includes('no active session')) {
           clearLocalActiveSession(user.user_id);
           isLoggedIn = false;
-          logSyncError = 'No active session found. If this log was removed, submit a missing log request for the original date and time.';
+          logSyncError = 'No active session found. Please log in again to start a new session.';
         }
       }
       isLoggingOut = false;
@@ -891,7 +908,7 @@
       if (String(logSyncError || '').toLowerCase().includes('no active session')) {
         clearLocalActiveSession(user.user_id);
         isLoggedIn = false;
-        logSyncError = 'No active session found. If this log was removed, submit a missing log request for the original date and time.';
+        logSyncError = 'No active session found. Please log in again to start a new session.';
       }
       isLoggingOut = false;
     }
@@ -1485,7 +1502,7 @@
     { label: 'Total Hours Required', value: `${formatHours(requiredHours || 0)}h`, sub: 'Per internship agreement', icon: Target, tone: 'primary' },
     { label: 'Hours Completed', value: `${formatHours(completedHours || 0)}h`, sub: `${formatHours(remainingHours || 0)}h remaining`, icon: CheckCircle2, tone: 'success' },
     { label: 'Avg. Daily Hours', value: `${AVERAGE_DAILY_HOURS}h`, sub: 'Based on schedule', icon: Clock, tone: 'info' },
-    { label: 'Est. Completion', value: estimatedCompletionValue, sub: estimatedCompletionDuration === 'Completed' ? 'Target reached' : `${estimatedCompletionDuration} left`, icon: Calendar, tone: 'forecast' },
+    { label: estimatedCompletionDuration === 'Completed' ? 'Completed On' : 'Est. Completion', value: estimatedCompletionValue, sub: estimatedCompletionDuration === 'Completed' ? 'Target reached' : `${estimatedCompletionDuration} left`, icon: Calendar, tone: 'forecast' },
   ];
 </script>
 
@@ -1785,20 +1802,23 @@
           {/if}
         </button>
 
-        {#if !isLoggedIn}
+        {#if isCompleted && !isLoggedIn}
+          <div class="tl-status-pill tl-status-info">
+            <span class="tl-status-dot"></span> Internship completed. Logout is unavailable.
+          </div>
+        {:else if !isLoggedIn}
           <div class="tl-status-pill tl-status-amber">
             <span class="tl-status-dot"></span> Not logged in - use Time In first
           </div>
         {/if}
 
-        <button class="tl-override-btn tl-override-btn-block" type="button" on:click={openOverrideRequestModal}>
-          <Plus size={14} />
-          Request Missing Log
-        </button>
-
-        {#if logSyncError && !showOverrideRequestModal}
-          <div class="tl-error-message">
-            <AlertCircle size={16} />
+        {#if logSyncError}
+          <div class={isCompletionSuccessMessage(logSyncError) ? 'tl-success-message' : 'tl-error-message'}>
+            {#if isCompletionSuccessMessage(logSyncError)}
+              <CheckCircle2 size={16} />
+            {:else}
+              <AlertCircle size={16} />
+            {/if}
             <span>{logSyncError}</span>
           </div>
         {/if}
@@ -1827,49 +1847,21 @@
         <span class="tl-table-title">Logged Activity</span>
         <div class="tl-table-tools">
           <span class="tl-entry-count">
-            {#if timelogHistoryFilter === 'entries'}
-              {completedEntries.length} completed {completedEntries.length === 1 ? 'entry' : 'entries'}
-            {:else}
-              {overrideRequests.length} override {overrideRequests.length === 1 ? 'request' : 'requests'}
-            {/if}
+            {completedEntries.length} completed {completedEntries.length === 1 ? 'entry' : 'entries'}
           </span>
-          {#if timelogHistoryFilter === 'entries'}
-            <label class="tl-export-month">
-              <span>Month</span>
-              <input type="month" bind:value={exportMonth} />
-            </label>
-            <button class="tl-export-btn" type="button" on:click={exportAttendanceSheetPdf} disabled={isExportingAttendance || attendanceEntriesForExport.length === 0}>
-              {#if isExportingAttendance}
-                <span class="tl-spin"><Loader2 size={14} /></span>
-                Exporting...
-              {:else}
-                Export Attendance Sheet
-              {/if}
-            </button>
-          {/if}
+          <label class="tl-export-month">
+            <span>Month</span>
+            <input type="month" bind:value={exportMonth} />
+          </label>
+          <button class="tl-export-btn" type="button" on:click={exportAttendanceSheetPdf} disabled={isExportingAttendance || attendanceEntriesForExport.length === 0}>
+            {#if isExportingAttendance}
+              <span class="tl-spin"><Loader2 size={14} /></span>
+              Exporting...
+            {:else}
+              Export Attendance Sheet
+            {/if}
+          </button>
         </div>
-      </div>
-
-      <div class="tl-history-filters">
-        <button 
-          class="tl-filter-tab" 
-          class:tl-filter-active={timelogHistoryFilter === 'entries'}
-          on:click={() => timelogHistoryFilter = 'entries'}
-        >
-          Time Entries
-        </button>
-        <button 
-          class="tl-filter-tab" 
-          class:tl-filter-active={timelogHistoryFilter === 'overrides'}
-          on:click={() => {
-            timelogHistoryFilter = 'overrides';
-            if (overrideRequests.length === 0) {
-              loadOverrideRequests();
-            }
-          }}
-        >
-          Override Requests
-        </button>
       </div>
 
       <div class="tl-table-scroll">
@@ -1881,93 +1873,37 @@
               <th>Time In</th>
               <th>Time Out</th>
               <th>Hours</th>
-              <th>{timelogHistoryFilter === 'entries' ? 'Created' : 'Reason'}</th>
+              <th>Created</th>
               <th>Status</th>
               <th>Action</th>
             </tr>
           </thead>
           <tbody>
-            {#if timelogHistoryFilter === 'entries'}
-              {#each completedEntries as entry (entry.id)}
-                <tr>
-                  <td class="tl-td-primary">{formatTableDate(entry.date)}</td>
-                  <td><span class="tl-tag tl-tag-blue">TIME ENTRY</span></td>
-                  <td class="tl-mono">{entry.timeIn}</td>
-                  <td class="tl-mono">{entry.timeOut || '-'}</td>
-                  <td class="tl-mono tl-hours-val">{formatHours(entry.hours)}h</td>
-                  <td class="tl-mono tl-created-val">{entry.createdAt || '-'}</td>
-                  <td>
-                    <span class="tl-tag tl-tag-green">
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                      Recorded
-                    </span>
-                  </td>
-                  <td>
-                    <button class="tl-del-btn" type="button" on:click={() => handleDelete(entry.id)} aria-label="Delete time entry" title="Delete this entry">
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
-                    </button>
-                  </td>
-                </tr>
-              {/each}
-              {#if completedEntries.length === 0}
-                <tr>
-                  <td colspan="8" class="tl-empty-row">No time entries yet. Log in to start tracking your hours.</td>
-                </tr>
-              {/if}
-            {:else}
-              {#each overrideRequests as request (request.id)}
-                <tr>
-                  <td class="tl-td-primary">{formatTableDate(request.date)}</td>
-                  <td><span class="tl-tag tl-tag-purple">OVERRIDE</span></td>
-                  <td class="tl-mono">{request.timeIn}</td>
-                  <td class="tl-mono">{request.timeOut || '-'}</td>
-                  <td class="tl-mono tl-hours-val">{formatHours(request.hours)}h</td>
-                  <td class="tl-mono tl-status-val">
-                    <div class="tl-request-reason-tooltip" title={request.reason}>{request.reason || 'N/A'}</div>
-                  </td>
-                  <td>
-                    {#if request.status === 'approved'}
-                      <span class="tl-tag tl-tag-green">
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                        Approved
-                      </span>
-                    {:else if request.status === 'pending'}
-                      <span class="tl-tag tl-tag-amber">
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                        Pending
-                      </span>
-                    {:else if request.status === 'rejected'}
-                      <span class="tl-tag tl-tag-red">
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                        Rejected
-                      </span>
-                    {:else if request.status === 'archived' && request.archivedStatus === 'approved'}
-                      <span class="tl-tag tl-tag-green">
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                        Approved
-                      </span>
-                    {:else}
-                      <span class="tl-tag tl-tag-gray">{request.status || 'Unknown'}</span>
-                    {/if}
-                  </td>
-                  <td>
-                    <button class="tl-del-btn" type="button" on:click={() => handleDeleteOverride(request.id)} aria-label="Delete override request" title="Delete this override request" disabled={request.status === 'approved' || request.status === 'archived'}>
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
-                    </button>
-                  </td>
-                </tr>
-              {/each}
-              {#if overrideRequests.length === 0}
-                <tr>
-                  <td colspan="8" class="tl-empty-row">
-                    {#if isLoadingOverrideRequests}
-                      Loading override requests...
-                    {:else}
-                      No override requests yet.
-                    {/if}
-                  </td>
-                </tr>
-              {/if}
+            {#each completedEntries as entry (entry.id)}
+              <tr>
+                <td class="tl-td-primary">{formatTableDate(entry.date)}</td>
+                <td><span class="tl-tag tl-tag-blue">TIME ENTRY</span></td>
+                <td class="tl-mono">{entry.timeIn}</td>
+                <td class="tl-mono">{entry.timeOut || '-'}</td>
+                <td class="tl-mono tl-hours-val">{formatHours(entry.hours)}h</td>
+                <td class="tl-mono tl-created-val">{formatCreatedAt(entry.createdAt)}</td>
+                <td>
+                  <span class="tl-tag tl-tag-green">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                    Recorded
+                  </span>
+                </td>
+                <td>
+                  <button class="tl-del-btn" type="button" on:click={() => handleDelete(entry.id)} aria-label="Delete time entry" title="Delete this entry">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+                  </button>
+                </td>
+              </tr>
+            {/each}
+            {#if completedEntries.length === 0}
+              <tr>
+                <td colspan="8" class="tl-empty-row">No time entries yet. Log in to start tracking your hours.</td>
+              </tr>
             {/if}
           </tbody>
         </table>
@@ -2057,85 +1993,6 @@
               Deleting...
             {:else}
               Delete Entry
-            {/if}
-          </button>
-        </div>
-      </div>
-    </div>
-  {/if}
-
-  {#if showOverrideRequestModal}
-    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-    <div
-      class="tl-modal-overlay"
-      on:click|self={closeOverrideRequestModal}
-      role="button"
-      tabindex="0"
-      aria-label="Close override request dialog"
-    >
-      <div class="tl-modal" role="dialog" aria-modal="true" aria-labelledby="tl-override-title">
-        <div class="tl-modal-header">
-          <div>
-            <h2 id="tl-override-title" class="tl-modal-title">Request Missing Log</h2>
-            <p class="tl-modal-subtitle">Submit a time log override request to your supervisor</p>
-          </div>
-          <button class="tl-modal-close" on:click={closeOverrideRequestModal} aria-label="Close">×</button>
-        </div>
-        <div class="tl-modal-body">
-          {#if logSyncError}
-            <div class="tl-modal-error" role="alert" aria-live="polite">
-              <AlertCircle size={16} />
-              <span>{logSyncError}</span>
-            </div>
-          {/if}
-          <div class="tl-override-grid">
-            <div class="tl-field">
-              <label for="override-date">Date</label>
-              <input id="override-date" type="date" bind:value={overrideRequestForm.date} max={getTodayDateOnly()} required />
-            </div>
-            <div class="tl-field">
-              <label for="override-time-in">Time In</label>
-              <input id="override-time-in" type="time" bind:value={overrideRequestForm.timeIn} required />
-            </div>
-            <div class="tl-field">
-              <label for="override-time-out">Time Out</label>
-              <input id="override-time-out" type="time" bind:value={overrideRequestForm.timeOut} required />
-            </div>
-            <div class="tl-field">
-              <label for="override-duration" class="tl-label-text">Duration</label>
-              <div class="tl-duration-display">
-                <span class="tl-duration-value">{formatHours(calculateHours(overrideRequestForm.timeIn, overrideRequestForm.timeOut, overrideRequestIncludeLunch))}h</span>
-                <span class="tl-duration-label">hours</span>
-              </div>
-            </div>
-            <div class="tl-field tl-field-full">
-              <div class="tl-lunch-row">
-                <div class="tl-lunch-left">
-                  <span class="tl-lunch-icon">☕</span>
-                  <div>
-                    <div class="tl-lunch-label-simple">Include Lunch</div>
-                    <div class="tl-lunch-subtext">Not counted</div>
-                  </div>
-                </div>
-                <button type="button" class="tl-toggle-switch" class:tl-toggle-on={overrideRequestIncludeLunch} on:click={handleOverrideLunchToggle} aria-label="Toggle include lunch">
-                  <span class="tl-toggle-knob" class:tl-knob-on={overrideRequestIncludeLunch}></span>
-                </button>
-              </div>
-            </div>
-            <div class="tl-field tl-field-full">
-              <label for="override-reason">Reason</label>
-              <textarea id="override-reason" bind:value={overrideRequestForm.reason} rows="4" placeholder="Explain why you need a manual time log entry..." required></textarea>
-            </div>
-          </div>
-        </div>
-        <div class="tl-modal-footer">
-          <button class="tl-modal-cancel" on:click={closeOverrideRequestModal} disabled={isSubmittingOverrideRequest}>Cancel</button>
-          <button class="tl-modal-delete tl-modal-submit" on:click={submitOverrideRequest} disabled={isSubmittingOverrideRequest || isOverrideRequestFormIncomplete}>
-            {#if isSubmittingOverrideRequest}
-              <span class="tl-spin"><Loader2 size={14} /></span>
-              Submitting...
-            {:else}
-              Submit Request
             {/if}
           </button>
         </div>
@@ -2431,7 +2288,7 @@
   /* Three column row */
   .tl-three-col {
     display: grid;
-    grid-template-columns: 1fr 1fr 1.4fr;
+    grid-template-columns: 1fr 1fr 1fr;
     gap: 14px;
     align-items: stretch;
   }
@@ -2602,6 +2459,11 @@
     border: 1px solid rgba(22,163,74,0.2);
     color: var(--tl-green);
   }
+  .tl-status-info {
+    background: rgba(148, 163, 184, 0.14);
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    color: #cbd5e1;
+  }
   .tl-lunch-row {
     display: flex;
     align-items: center;
@@ -2624,9 +2486,7 @@
   }
   :global(.dark) .tl-lunch-icon { background: rgba(245,158,11,0.15); }
   .tl-lunch-label { font-size: 13px; font-weight: 500; color: var(--tl-text); }
-  .tl-lunch-label-simple { font-size: 13px; font-weight: 600; color: var(--tl-text); }
   .tl-lunch-sub   { font-size: 11px; color: var(--tl-text2); }
-  .tl-lunch-subtext { font-size: 11px; color: var(--tl-text2); }
   .tl-toggle-switch {
     width: 44px; height: 24px;
     background: var(--tl-border2);
@@ -2707,33 +2567,6 @@
     justify-content: flex-end;
   }
 
-  .tl-history-filters {
-    display: flex;
-    gap: 2px;
-    padding: 8px 22px 0 22px;
-    border-bottom: 1px solid var(--tl-border);
-    background: var(--tl-surface2);
-  }
-  .tl-filter-tab {
-    padding: 10px 16px;
-    background: transparent;
-    border: none;
-    border-bottom: 2px solid transparent;
-    color: var(--tl-text2);
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-  .tl-filter-tab:hover:not(.tl-filter-active) {
-    color: var(--tl-text);
-  }
-  .tl-filter-active {
-    color: var(--tl-accent);
-    border-bottom-color: var(--tl-accent);
-  }
   .tl-export-month {
     display: inline-flex;
     align-items: center;
@@ -2781,31 +2614,6 @@
   .tl-export-btn:disabled {
     opacity: 0.55;
     cursor: not-allowed;
-  }
-  .tl-override-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 7px;
-    height: 34px;
-    padding: 0 14px;
-    border-radius: 8px;
-    border: 1px solid var(--tl-border);
-    background: var(--tl-surface2);
-    color: var(--tl-text);
-    font-family: 'DM Sans', inherit;
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.15s ease;
-  }
-  .tl-override-btn:hover {
-    border-color: var(--tl-accent2);
-    color: var(--tl-accent);
-  }
-  .tl-override-btn-block {
-    width: 100%;
-    margin-top: 12px;
   }
 
   .tl-attendance-print-root {
@@ -2948,21 +2756,6 @@
   }
   .tl-tag-blue  { background: var(--tl-accent-glow); color: var(--tl-accent2); }
   .tl-tag-green { background: var(--tl-green-dim);  color: var(--tl-green); }
-  .tl-tag-purple { background: var(--tl-purple-dim); color: var(--tl-purple); }
-  .tl-tag-amber { background: var(--tl-amber-dim); color: var(--tl-amber); }
-  .tl-tag-red { background: var(--tl-red-dim); color: var(--tl-red); }
-  .tl-tag-gray { background: rgba(100, 116, 139, 0.12); color: var(--tl-text2); }
-  .tl-request-reason-tooltip {
-    max-width: 200px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 12px;
-    color: var(--tl-text2);
-  }
-  .tl-status-val {
-    font-size: 12px !important;
-  }
   .tl-del-btn {
     width: 28px; height: 28px;
     border-radius: 6px;
@@ -3031,12 +2824,6 @@
     margin: 0 0 4px; 
     letter-spacing: -0.3px;
   }
-  .tl-modal-subtitle {
-    font-size: 13px;
-    color: var(--tl-text2);
-    margin: 0;
-    font-weight: 400;
-  }
   .tl-modal-close {
     background: none; border: none;
     font-size: 16px; color: var(--tl-text2);
@@ -3048,12 +2835,6 @@
   .tl-modal-close:hover { background: var(--tl-surface2); color: var(--tl-text); }
   .tl-modal-body { padding: 24px 24px; }
   .tl-modal-msg { font-size: 14px; color: var(--tl-text); font-weight: 500; margin: 0 0 16px; }
-  .tl-override-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 16px;
-  }
-  .tl-field-full { grid-column: 1 / -1; }
   .tl-field {
     display: flex;
     flex-direction: column;
@@ -3065,11 +2846,6 @@
     color: var(--tl-text);
     text-transform: uppercase;
     letter-spacing: 0.04em;
-  }
-  .tl-label-text {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--tl-text);
   }
   .tl-field input[type="date"],
   .tl-field input[type="time"] {
@@ -3087,27 +2863,6 @@
     outline: none;
     border-color: var(--tl-accent);
     box-shadow: 0 0 0 3px var(--tl-accent-glow);
-  }
-  .tl-duration-display {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 12px;
-    background: var(--tl-surface2);
-    border-radius: 8px;
-    border: 1px solid var(--tl-border);
-    min-height: 40px;
-  }
-  .tl-duration-value {
-    font-size: 18px;
-    font-weight: 700;
-    color: var(--tl-accent);
-    letter-spacing: -0.3px;
-  }
-  .tl-duration-label {
-    font-size: 12px;
-    color: var(--tl-text2);
-    font-weight: 500;
   }
   .tl-modal-preview {
     background: var(--tl-surface2);
@@ -3166,6 +2921,23 @@
     flex-shrink: 0;
     margin-top: 2px;
   }
+  .tl-success-message {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 14px;
+    margin-top: 12px;
+    border-radius: var(--tl-radius-sm);
+    background: rgba(34, 197, 94, 0.12);
+    border: 1px solid rgba(34, 197, 94, 0.28);
+    color: var(--tl-green);
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  .tl-success-message :global(svg) {
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
   .tl-modal-footer {
     display: flex; gap: 10px;
     padding: 16px 24px;
@@ -3190,10 +2962,6 @@
     color: #fff;
     box-shadow: 0 4px 12px var(--tl-red-dim);
   }
-  .tl-modal-submit {
-    background: var(--tl-accent);
-    box-shadow: 0 4px 12px var(--tl-accent-glow);
-  }
   .tl-modal-delete:hover { opacity: 0.9; transform: translateY(-1px); }
   .tl-modal-cancel:disabled,
   .tl-modal-delete:disabled {
@@ -3201,30 +2969,6 @@
     cursor: not-allowed;
   }
   .tl-modal-delete:disabled { transform: none; box-shadow: none; }
-  .tl-field textarea {
-    width: 100%;
-    resize: vertical;
-    min-height: 110px;
-    border-radius: 8px;
-    border: 1px solid var(--tl-border);
-    background: var(--tl-surface);
-    color: var(--tl-text);
-    padding: 10px 12px;
-    font: inherit;
-    font-size: 14px;
-    font-family: 'DM Sans', inherit;
-    line-height: 1.5;
-    transition: all 0.2s;
-  }
-  .tl-field textarea:focus {
-    outline: none;
-    border-color: var(--tl-accent);
-    box-shadow: 0 0 0 3px var(--tl-accent-glow);
-  }
-  .tl-field textarea::placeholder {
-    color: var(--tl-text3);
-  }
-
   /* ---- NEW SKELETON STYLES ---- */
   .skeleton, .skeleton-text, .skeleton-icon, .skeleton-field, .skeleton-btn, .skeleton-chart, .skeleton-progress-track, .skeleton-icon-sm {
     position: relative;

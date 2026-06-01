@@ -4697,10 +4697,6 @@ function validateSubmittedTimeMatchesServerNow_(submittedTime, label) {
     return '';
   }
 
-  if (submittedMinutes > nowMinutes + TIME_LOG_SERVER_TIME_TOLERANCE_MINUTES_) {
-    return label.charAt(0).toUpperCase() + label.slice(1) + ' time cannot be in the future.';
-  }
-
   return '';
 }
 
