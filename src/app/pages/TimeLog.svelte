@@ -1983,7 +1983,7 @@
           </div>
           <div class="tl-attendance-meta-row">
             <span class="tl-attendance-meta-label">Company/Department:</span>
-            <span class="tl-attendance-meta-value">Globe ISOC</span>
+            <span class="tl-attendance-meta-value">GLOBE ISOC</span>
           </div>
         </div>
 

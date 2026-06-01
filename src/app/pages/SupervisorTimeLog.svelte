@@ -811,6 +811,15 @@
   $: selectedStudentDaysOff = normalizeDaysOff(selectedStudent?.days_off);
   $: selectedStudentShiftStart = normalizeTimeValue(selectedStudent?.shift_start, '09:00');
   $: selectedStudentShiftEnd = normalizeTimeValue(selectedStudent?.shift_end, '17:00');
+  $: sortedLogs = logs
+    .slice()
+    .sort((a, b) => {
+      const dateCompare = new Date(b.log_date).getTime() - new Date(a.log_date).getTime();
+      if (dateCompare !== 0) return dateCompare;
+      const timeCompare = String(b.time_in || '').localeCompare(String(a.time_in || ''));
+      if (timeCompare !== 0) return timeCompare;
+      return String(b.createdAt || b.timelog_id || '').localeCompare(String(a.createdAt || a.timelog_id || ''));
+    });
   $: exportMonth = exportMonth || getCurrentMonthInput();
   $: attendanceEntriesForExport = logs
     .sort((a, b) => new Date(a.log_date).getTime() - new Date(b.log_date).getTime())
@@ -1138,7 +1147,7 @@
                     </tr>
                   </thead>
                   <tbody>
-                    {#each logs as row (`${row.user_id || 'intern'}-${row.timelog_id}`)}
+                    {#each sortedLogs as row (`${row.user_id || 'intern'}-${row.timelog_id}`)}
                       <tr>
                         <td data-label="Date">
                         <div class="log-date-cell">
@@ -1314,8 +1323,8 @@
               <span class="stl-attendance-meta-value">{selectedStudent?.full_name || ''}</span>
             </div>
             <div class="stl-attendance-meta-row">
-              <span class="stl-attendance-meta-label">Company Name:</span>
-              <span class="stl-attendance-meta-value">{'\u00A0'}</span>
+              <span class="stl-attendance-meta-label">Company/Department:</span>
+              <span class="stl-attendance-meta-value">GLOBE ISOC</span>
             </div>
             <div class="stl-attendance-meta-row">
               <span class="stl-attendance-meta-label">Name of Representative:</span>
