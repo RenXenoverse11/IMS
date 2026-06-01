@@ -1864,7 +1864,7 @@
           </div>
         {/if}
 
-        {#if logSyncError}
+        {#if logSyncError && isInlineLoginError(logSyncError)}
           <div class={isCompletionSuccessMessage(logSyncError) ? 'tl-success-message' : 'tl-error-message'}>
             {#if isCompletionSuccessMessage(logSyncError)}
               <CheckCircle2 size={16} />
