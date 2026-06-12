@@ -15,6 +15,7 @@ Welcome to the official documentation for IMS. Use the links below to navigate t
 | [Supervisor Guide](supervisor-guide.md) | Intern management, approvals, projects, and task assignment |
 | [Roles & Permissions](roles-permissions.md) | Feature access by role |
 | [FAQ](faq.md) | Common questions and troubleshooting |
+| [Database Diagram](database-diagram.md) | ERD and schema reference for all 18 tables |
 
 ---
 

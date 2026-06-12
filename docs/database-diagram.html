@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IMS — Database Diagram</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      min-height: 100vh;
+    }
+
+    header {
+      background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 60%, #3b82f6 100%);
+      padding: 24px 36px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+
+    .header-left h1 { font-size: 20px; font-weight: 700; color: #fff; letter-spacing: -0.02em; }
+    .header-left p  { margin-top: 3px; font-size: 12px; color: rgba(255,255,255,0.68); }
+
+    .legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 11.5px; }
+    .legend-item { display: flex; align-items: center; gap: 6px; color: rgba(255,255,255,0.82); }
+    .legend-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+
+    .layout { display: flex; min-height: calc(100vh - 88px); }
+
+    .sidebar {
+      width: 200px; flex-shrink: 0;
+      background: #1e293b;
+      border-right: 1px solid rgba(255,255,255,0.06);
+      padding: 16px 0;
+      position: sticky; top: 0;
+      height: calc(100vh - 88px);
+      overflow-y: auto;
+    }
+
+    .sidebar h2 { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: #64748b; padding: 0 14px 10px; }
+    .sidebar-group { margin-bottom: 14px; }
+    .sidebar-group-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; padding: 3px 14px; color: #475569; }
+    .sidebar a { display: block; padding: 4px 14px; font-size: 11.5px; color: #94a3b8; text-decoration: none; font-family: 'Courier New', monospace; transition: background 0.15s, color 0.15s; }
+    .sidebar a:hover { background: rgba(255,255,255,0.05); color: #e2e8f0; }
+
+    .main { flex: 1; min-width: 0; padding: 24px 28px; overflow-x: auto; }
+
+    .section-label {
+      font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
+      color: #3b82f6; margin-bottom: 12px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .section-label::after { content: ''; flex: 1; height: 1px; background: rgba(59,130,246,0.2); }
+
+    .tables-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr)); gap: 14px; margin-bottom: 32px; }
+
+    .table-card {
+      background: #1e293b;
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 9px; overflow: hidden;
+      transition: border-color 0.18s, box-shadow 0.18s;
+    }
+    .table-card:hover { border-color: rgba(59,130,246,0.4); box-shadow: 0 0 0 1px rgba(59,130,246,0.12), 0 6px 20px rgba(0,0,0,0.22); }
+
+    .table-card-header {
+      padding: 9px 12px;
+      display: flex; align-items: center; justify-content: space-between;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .table-card-name { font-size: 12.5px; font-weight: 700; color: #f1f5f9; font-family: 'Courier New', monospace; }
+    .table-card-tag { font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
+
+    .tag-auth    { background: rgba(124,58,237,0.2);  color: #a78bfa; }
+    .tag-ojt     { background: rgba(37,99,235,0.2);   color: #93c5fd; }
+    .tag-time    { background: rgba(217,119,6,0.2);   color: #fbbf24; }
+    .tag-request { background: rgba(220,38,38,0.2);   color: #fca5a5; }
+    .tag-project { background: rgba(5,150,105,0.2);   color: #6ee7b7; }
+    .tag-task    { background: rgba(6,182,212,0.2);   color: #67e8f9; }
+    .tag-doc     { background: rgba(245,158,11,0.2);  color: #fde68a; }
+    .tag-notify  { background: rgba(99,102,241,0.2);  color: #c7d2fe; }
+
+    .table-card-body { padding: 4px 0; }
+
+    .col-row { display: flex; align-items: center; gap: 7px; padding: 2.5px 12px; font-size: 11px; }
+    .col-row:hover { background: rgba(255,255,255,0.03); }
+
+    .col-badge { font-size: 8.5px; font-weight: 700; padding: 1px 4px; border-radius: 3px; min-width: 20px; text-align: center; flex-shrink: 0; }
+    .pk  { background: rgba(250,204,21,0.22); color: #fde047; }
+    .fk  { background: rgba(59,130,246,0.22); color: #93c5fd; }
+    .sp  { min-width: 20px; }
+
+    .col-name { color: #cbd5e1; font-family: 'Courier New', monospace; flex: 1; }
+    .col-type { color: #475569; font-size: 10px; text-align: right; }
+
+    .erd-wrap { background: #1e293b; border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; padding: 24px; overflow-x: auto; margin-bottom: 32px; }
+    .mermaid svg { max-width: 100%; }
+
+    .rel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 8px; margin-bottom: 32px; }
+    .rel-row { display: flex; align-items: center; gap: 8px; padding: 7px 12px; background: #1e293b; border: 1px solid rgba(255,255,255,0.06); border-radius: 7px; font-size: 11.5px; }
+    .rel-from, .rel-to { font-family: 'Courier New', monospace; font-weight: 700; color: #93c5fd; font-size: 11px; }
+    .rel-col  { font-family: 'Courier New', monospace; color: #64748b; font-size: 10px; flex: 1; text-align: center; }
+    .rel-card { color: #475569; font-size: 10px; min-width: 50px; text-align: right; }
+
+    .notes-box { background: #1e293b; border: 1px solid rgba(250,204,21,0.15); border-left: 3px solid #fde047; border-radius: 8px; padding: 14px 16px; margin-bottom: 32px; }
+    .notes-box h3 { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #fde047; margin-bottom: 10px; }
+    .notes-box ul { list-style: none; display: flex; flex-direction: column; gap: 7px; }
+    .notes-box li { font-size: 12px; color: #94a3b8; padding-left: 14px; position: relative; }
+    .notes-box li::before { content: '·'; position: absolute; left: 0; color: #fde047; }
+    .notes-box code { font-family: 'Courier New', monospace; background: rgba(255,255,255,0.07); padding: 1px 4px; border-radius: 3px; font-size: 11px; color: #e2e8f0; }
+
+    footer { text-align: center; color: #334155; font-size: 10.5px; padding: 16px 0 28px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <h1>IMS — Database Diagram</h1>
+    <p>Internship Management System v1.2 &nbsp;·&nbsp; 25 sheets &nbsp;·&nbsp; Google Sheets / Apps Script backend</p>
+  </div>
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#a78bfa"></div> Auth</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#93c5fd"></div> OJT</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#fbbf24"></div> Time</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#fca5a5"></div> Requests</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#6ee7b7"></div> Projects</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#67e8f9"></div> Tasks</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#fde68a"></div> Docs</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#c7d2fe"></div> Notify</div>
+  </div>
+</header>
+
+<div class="layout">
+  <nav class="sidebar">
+    <h2>25 Tables</h2>
+
+    <div class="sidebar-group">
+      <div class="sidebar-group-label">Auth</div>
+      <a href="#t-users">users</a>
+      <a href="#t-user-settings">user_settings</a>
+    </div>
+
+    <div class="sidebar-group">
+      <div class="sidebar-group-label">OJT</div>
+      <a href="#t-ojt">student_ojt_profile</a>
+      <a href="#t-assignments">supervisor_assignments</a>
+      <a href="#t-schedules">intern_schedules</a>
+    </div>
+
+    <div class="sidebar-group">
+      <div class="sidebar-group-label">Time</div>
+      <a href="#t-sessions">active_sessions</a>
+    </div>
+
+    <div class="sidebar-group">
+      <div class="sidebar-group-label">Requests</div>
+      <a href="#t-requests">requests</a>
+    </div>
+
+    <div class="sidebar-group">
+      <div class="sidebar-group-label">Notifications</div>
+      <a href="#t-notifications">notifications</a>
+    </div>
+
+    <div class="sidebar-group">
+      <div class="sidebar-group-label">Tasks (Intern)</div>
+      <a href="#t-activity-logs">activity_logs</a>
+      <a href="#t-act-attachments">act_attachments</a>
+      <a href="#t-worklogs">activity_worklogs</a>
+      <a href="#t-wl-attach">worklogs_attachment</a>
+      <a href="#t-recent">recent_activities</a>
+    </div>
+
+    <div class="sidebar-group">
+      <div class="sidebar-group-label">Tasks (Supervisor)</div>
+      <a href="#t-sup-task">supervisor_task</a>
+      <a href="#t-sup-attch">supervisor_attch</a>
+    </div>
+
+    <div class="sidebar-group">
+      <div class="sidebar-group-label">Projects</div>
+      <a href="#t-proj-intern">proj_intern</a>
+      <a href="#t-proj-supervisor">proj_supervisor</a>
+      <a href="#t-proj-activity">proj_activity</a>
+      <a href="#t-proj-folders">proj_folders</a>
+      <a href="#t-milestones">milestone_intern</a>
+      <a href="#t-submissions">submission_intern</a>
+      <a href="#t-feedback">feedback_intern</a>
+    </div>
+
+    <div class="sidebar-group">
+      <div class="sidebar-group-label">Documents</div>
+      <a href="#t-documents">documents</a>
+      <a href="#t-doc-folders">document_folders</a>
+    </div>
+  </nav>
+
+  <main class="main">
+
+    <!-- AUTH -->
+    <div class="section-label">Auth &amp; Identity</div>
+    <div class="tables-grid">
+
+      <div class="table-card" id="t-users">
+        <div class="table-card-header"><span class="table-card-name">users</span><span class="table-card-tag tag-auth">Auth</span></div>
+        <div class="table-card-body">
+          <div class="col-row"><span class="col-badge pk">PK</span><span class="col-name">user_id</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">full_name</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">email</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">password_hash</span><span class="col-type">SHA-256 hex</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">department</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">status</span><span class="col-type">active | inactive</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">role</span><span class="col-type">Student | Supervisor</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">created_at</span><span class="col-type">datetime</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">email_verified</span><span class="col-type">boolean</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">otp_hash</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">otp_expires_at</span><span class="col-type">datetime</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">otp_attempts</span><span class="col-type">integer</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">otp_last_sent_at</span><span class="col-type">datetime</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">profile_photo_url</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">profile_photo_file_id</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">profile_photo_updated_at</span><span class="col-type">datetime</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">phone</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">updated_at</span><span class="col-type">datetime</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">first_login_date</span><span class="col-type">datetime</span></div>
+        </div>
+      </div>
+
+      <div class="table-card" id="t-user-settings">
+        <div class="table-card-header"><span class="table-card-name">user_settings</span><span class="table-card-tag tag-notify">Notify</span></div>
+        <div class="table-card-body">
+          <div class="col-row"><span class="col-badge pk">PK</span><span class="col-badge fk" style="margin-left:2px">FK</span><span class="col-name">user_id</span><span class="col-type">→ users</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">settings_json</span><span class="col-type">json object</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">updated_at</span><span class="col-type">datetime</span></div>
+          <div style="padding:6px 12px 6px; font-size:10px; color:#475569; border-top:1px solid rgba(255,255,255,0.05); margin-top:4px">
+            settings_json keys:<br>
+            document_uploads · request_status_updates<br>
+            inactive_student_alert · time_log_reminder
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- OJT -->
+    <div class="section-label">OJT Profile &amp; Assignments</div>
+    <div class="tables-grid">
+
+      <div class="table-card" id="t-ojt">
+        <div class="table-card-header"><span class="table-card-name">student_ojt_profile</span><span class="table-card-tag tag-ojt">OJT</span></div>
+        <div class="table-card-body">
+          <div class="col-row"><span class="col-badge pk">PK</span><span class="col-badge fk" style="margin-left:2px">FK</span><span class="col-name">user_id</span><span class="col-type">→ users</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">total_ojt_hours</span><span class="col-type">integer</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">start_date</span><span class="col-type">date</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">estimated_end_date</span><span class="col-type">date</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">course</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">school</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">completed_at</span><span class="col-type">datetime</span></div>
+        </div>
+      </div>
+
+      <div class="table-card" id="t-assignments">
+        <div class="table-card-header"><span class="table-card-name">supervisor_assignments</span><span class="table-card-tag tag-ojt">OJT</span></div>
+        <div class="table-card-body">
+          <div class="col-row"><span class="col-badge pk">PK</span><span class="col-name">assignment_id</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">supervisor_user_id</span><span class="col-type">→ users</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">student_user_id</span><span class="col-type">→ users</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">company</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">department</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">status</span><span class="col-type">active | inactive</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">created_at</span><span class="col-type">datetime</span></div>
+        </div>
+      </div>
+
+      <div class="table-card" id="t-schedules">
+        <div class="table-card-header"><span class="table-card-name">intern_schedules</span><span class="table-card-tag tag-ojt">OJT</span></div>
+        <div class="table-card-body">
+          <div class="col-row"><span class="col-badge pk">PK</span><span class="col-name">schedule_id</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">intern_id</span><span class="col-type">→ users</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">supervisor_id</span><span class="col-type">→ users</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">days_off</span><span class="col-type">json int[] e.g. [0,6]</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">shift_start</span><span class="col-type">HH:MM</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">shift_end</span><span class="col-type">HH:MM</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">created_at</span><span class="col-type">datetime</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">updated_at</span><span class="col-type">datetime</span></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- TIME -->
+    <div class="section-label">Time Tracking</div>
+    <div class="tables-grid">
+
+      <div class="table-card" id="t-sessions">
+        <div class="table-card-header"><span class="table-card-name">active_sessions</span><span class="table-card-tag tag-time">Time</span></div>
+        <div class="table-card-body">
+          <div class="col-row"><span class="col-badge pk">PK</span><span class="col-name">session_id</span><span class="col-type">string (SES_…)</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">user_id</span><span class="col-type">→ users</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">log_date</span><span class="col-type">date</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">time_in</span><span class="col-type">HH:MM</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">time_out</span><span class="col-type">HH:MM</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">hours_rendered</span><span class="col-type">float</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">actual_rendered_hours</span><span class="col-type">float</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">created_at</span><span class="col-type">datetime</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">notes</span><span class="col-type">string</span></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- REQUESTS -->
+    <div class="section-label">Requests</div>
+    <div class="tables-grid">
+
+      <div class="table-card" id="t-requests">
+        <div class="table-card-header"><span class="table-card-name">requests</span><span class="table-card-tag tag-request">Request</span></div>
+        <div class="table-card-body">
+          <div class="col-row"><span class="col-badge pk">PK</span><span class="col-name">request_id</span><span class="col-type">string (REQ-…)</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">user_id</span><span class="col-type">→ users</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">requester_name</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">request_type</span><span class="col-type">Absence | Overtime | Time Log Override | Absence Retraction</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">request_date</span><span class="col-type">date</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">request_time</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">start_time</span><span class="col-type">HH:MM</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">end_time</span><span class="col-type">HH:MM</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">total_hours</span><span class="col-type">float</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">reason</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">status</span><span class="col-type">Pending | Approved | Rejected | Expired | Archived</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">rejection_remarks</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">created_at</span><span class="col-type">datetime</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">archived</span><span class="col-type">boolean</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">archived_previous_status</span><span class="col-type">string</span></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- NOTIFICATIONS -->
+    <div class="section-label">Notifications</div>
+    <div class="tables-grid">
+
+      <div class="table-card" id="t-notifications">
+        <div class="table-card-header"><span class="table-card-name">notifications</span><span class="table-card-tag tag-notify">Notify</span></div>
+        <div class="table-card-body">
+          <div class="col-row"><span class="col-badge pk">PK</span><span class="col-name">notification_id</span><span class="col-type">string (NOT_…)</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">user_id</span><span class="col-type">→ users</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">title</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">description</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">type</span><span class="col-type">request | doc_upload…</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">related_id</span><span class="col-type">request_id etc.</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">is_read</span><span class="col-type">boolean</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">created_at</span><span class="col-type">datetime</span></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- TASKS INTERN -->
+    <div class="section-label">Tasks — Intern Side</div>
+    <div class="tables-grid">
+
+      <div class="table-card" id="t-activity-logs">
+        <div class="table-card-header"><span class="table-card-name">activity_logs</span><span class="table-card-tag tag-task">Tasks</span></div>
+        <div class="table-card-body">
+          <div class="col-row"><span class="col-badge pk">PK</span><span class="col-name">id</span><span class="col-type">string (ACT_…)</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">user_id</span><span class="col-type">→ users (assignee)</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">assigned_by</span><span class="col-type">→ users</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">task_name</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">description</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">due_date</span><span class="col-type">date</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">status</span><span class="col-type">Pending | In Progress | Completed | Overdue</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">checklist</span><span class="col-type">json [{label, done}]</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">archived_previous_status</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">created_at</span><span class="col-type">datetime</span></div>
+        </div>
+      </div>
+
+      <div class="table-card" id="t-act-attachments">
+        <div class="table-card-header"><span class="table-card-name">act_attachments</span><span class="table-card-tag tag-task">Tasks</span></div>
+        <div class="table-card-body">
+          <div class="col-row"><span class="col-badge pk">PK</span><span class="col-name">id</span><span class="col-type">string (ATT_…)</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">task_id</span><span class="col-type">→ activity_logs</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">user_id</span><span class="col-type">→ users</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">file_type</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">file_size</span><span class="col-type">string (MB)</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">file_name</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">link</span><span class="col-type">Google Drive URL</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">uploaded_at</span><span class="col-type">datetime</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">uploaded_by</span><span class="col-type">→ users</span></div>
+        </div>
+      </div>
+
+      <div class="table-card" id="t-worklogs">
+        <div class="table-card-header"><span class="table-card-name">activity_worklogs</span><span class="table-card-tag tag-task">Tasks</span></div>
+        <div class="table-card-body">
+          <div class="col-row"><span class="col-badge pk">PK</span><span class="col-name">task_id</span><span class="col-type">string (WL_…)</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">user_id</span><span class="col-type">→ users</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">task</span><span class="col-type">worklog title</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">notes</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">learnings</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">date</span><span class="col-type">date</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">status</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">created_at</span><span class="col-type">datetime</span></div>
+        </div>
+      </div>
+
+      <div class="table-card" id="t-wl-attach">
+        <div class="table-card-header"><span class="table-card-name">worklogs_attachment</span><span class="table-card-tag tag-task">Tasks</span></div>
+        <div class="table-card-body">
+          <div class="col-row"><span class="col-badge pk">PK</span><span class="col-name">attachment_id</span><span class="col-type">string (WLA_…)</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">task_id</span><span class="col-type">→ activity_worklogs</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">user_id</span><span class="col-type">→ users</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">file_type</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">file_size</span><span class="col-type">string (MB)</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">file_name</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">link</span><span class="col-type">Google Drive URL</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">uploaded_at</span><span class="col-type">datetime</span></div>
+        </div>
+      </div>
+
+      <div class="table-card" id="t-recent">
+        <div class="table-card-header"><span class="table-card-name">recent_activities</span><span class="table-card-tag tag-task">Tasks</span></div>
+        <div class="table-card-body">
+          <div class="col-row"><span class="col-badge pk">PK</span><span class="col-name">id</span><span class="col-type">string (ACT-…)</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">user</span><span class="col-type">email address</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">message</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">timestamp</span><span class="col-type">datetime</span></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- TASKS SUPERVISOR -->
+    <div class="section-label">Tasks — Supervisor Side</div>
+    <div class="tables-grid">
+
+      <div class="table-card" id="t-sup-task">
+        <div class="table-card-header"><span class="table-card-name">supervisor_task</span><span class="table-card-tag tag-task">Tasks</span></div>
+        <div class="table-card-body">
+          <div class="col-row"><span class="col-badge pk">PK</span><span class="col-name">sup_taskid</span><span class="col-type">string (SUP_…)</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">created_by</span><span class="col-type">→ users</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">source_activity_id</span><span class="col-type">→ activity_logs</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">source_owner_user_id</span><span class="col-type">→ users</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">task</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">description</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">due_date</span><span class="col-type">date</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">status</span><span class="col-type">Pending | In Progress | Completed | Overdue</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">assigned_to</span><span class="col-type">json [user_id]</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">daily_checklist</span><span class="col-type">json [{label, done}]</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">source_type</span><span class="col-type">intern | supervisor</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">source_owner_email</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">supervisor_archived</span><span class="col-type">boolean</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">created_at</span><span class="col-type">datetime</span></div>
+        </div>
+      </div>
+
+      <div class="table-card" id="t-sup-attch">
+        <div class="table-card-header"><span class="table-card-name">supervisor_attch</span><span class="table-card-tag tag-task">Tasks</span></div>
+        <div class="table-card-body">
+          <div class="col-row"><span class="col-badge pk">PK</span><span class="col-name">supattch_id</span><span class="col-type">string (SUPA_…)</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">suptask_id</span><span class="col-type">→ supervisor_task</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">user_id</span><span class="col-type">→ users</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">file_type</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">file_size</span><span class="col-type">string (MB)</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">file_name</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">link</span><span class="col-type">Google Drive URL</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">uploaded_at</span><span class="col-type">datetime</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">uploaded_by</span><span class="col-type">→ users</span></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- PROJECTS -->
+    <div class="section-label">Projects</div>
+    <div class="tables-grid">
+
+      <div class="table-card" id="t-proj-intern">
+        <div class="table-card-header"><span class="table-card-name">proj_intern</span><span class="table-card-tag tag-project">Project</span></div>
+        <div class="table-card-body">
+          <div class="col-row"><span class="col-badge pk">PK</span><span class="col-name">proj_id</span><span class="col-type">string (PROJ_…)</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">created_by</span><span class="col-type">→ users</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">proj_name</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">priority</span><span class="col-type">High | Medium | Low</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">status</span><span class="col-type">Not Started | In Progress | Completed</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">members</span><span class="col-type">csv of user_id</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">supervisor</span><span class="col-type">csv of user_id</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">start_date</span><span class="col-type">date</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">end_date</span><span class="col-type">date</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">description</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">archived_previous_status</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">created_at</span><span class="col-type">datetime</span></div>
+        </div>
+      </div>
+
+      <div class="table-card" id="t-proj-supervisor">
+        <div class="table-card-header"><span class="table-card-name">proj_supervisor</span><span class="table-card-tag tag-project">Project</span></div>
+        <div class="table-card-body">
+          <div class="col-row"><span class="col-badge pk">PK</span><span class="col-name">projsupervisor_id</span><span class="col-type">string (PROJSUP_…)</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">proj_id</span><span class="col-type">→ proj_intern</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">created_by</span><span class="col-type">→ users</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">proj_name</span><span class="col-type">string (denormalized)</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">priority / status</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">members / supervisor</span><span class="col-type">csv of user_id</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">supervisor_archived</span><span class="col-type">boolean</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">start_date / end_date</span><span class="col-type">date</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">created_at</span><span class="col-type">datetime</span></div>
+        </div>
+      </div>
+
+      <div class="table-card" id="t-proj-activity">
+        <div class="table-card-header"><span class="table-card-name">proj_activity</span><span class="table-card-tag tag-project">Project</span></div>
+        <div class="table-card-body">
+          <div class="col-row"><span class="col-badge pk">PK</span><span class="col-name">activity_id</span><span class="col-type">string (PACT_…)</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">proj_id</span><span class="col-type">→ proj_intern</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">created_by</span><span class="col-type">→ users</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">proj_name</span><span class="col-type">string (denormalized)</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">type</span><span class="col-type">project | member | file…</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">activity_text</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">created_at</span><span class="col-type">datetime</span></div>
+        </div>
+      </div>
+
+      <div class="table-card" id="t-proj-folders">
+        <div class="table-card-header"><span class="table-card-name">proj_folders</span><span class="table-card-tag tag-project">Project</span></div>
+        <div class="table-card-body">
+          <div class="col-row"><span class="col-badge pk">PK</span><span class="col-name">folder_id</span><span class="col-type">string (FOLDER_…)</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">proj_id</span><span class="col-type">→ proj_intern</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">created_by</span><span class="col-type">→ users</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">folder_name</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">gdrive_link</span><span class="col-type">Google Drive URL</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">created_at</span><span class="col-type">datetime</span></div>
+        </div>
+      </div>
+
+      <div class="table-card" id="t-milestones">
+        <div class="table-card-header"><span class="table-card-name">milestone_intern</span><span class="table-card-tag tag-project">Project</span></div>
+        <div class="table-card-body">
+          <div class="col-row"><span class="col-badge pk">PK</span><span class="col-name">milestone_id</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">proj_id</span><span class="col-type">→ proj_intern</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">created_by</span><span class="col-type">→ users</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">milestone</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">status</span><span class="col-type">Not Started | In Progress | Done</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">date</span><span class="col-type">date</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">done</span><span class="col-type">boolean</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">linked_files</span><span class="col-type">json</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">created_at</span><span class="col-type">datetime</span></div>
+        </div>
+      </div>
+
+      <div class="table-card" id="t-submissions">
+        <div class="table-card-header"><span class="table-card-name">submission_intern</span><span class="table-card-tag tag-project">Project</span></div>
+        <div class="table-card-body">
+          <div class="col-row"><span class="col-badge pk">PK</span><span class="col-name">submission_id</span><span class="col-type">string (SUB_…)</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">proj_id</span><span class="col-type">→ proj_intern</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">folder_id</span><span class="col-type">→ proj_folders</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">uploaded_by</span><span class="col-type">→ users</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">gdrive</span><span class="col-type">Google Drive URL</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">kind</span><span class="col-type">file | link</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">file_name / file_type / file_size</span><span class="col-type">string / float</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">link_label / link_url</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">uploaded_at</span><span class="col-type">datetime</span></div>
+        </div>
+      </div>
+
+      <div class="table-card" id="t-feedback">
+        <div class="table-card-header"><span class="table-card-name">feedback_intern</span><span class="table-card-tag tag-project">Project</span></div>
+        <div class="table-card-body">
+          <div class="col-row"><span class="col-badge pk">PK</span><span class="col-name">feedback_id</span><span class="col-type">string (FEED_…)</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">proj_id</span><span class="col-type">→ proj_intern</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">parent_id</span><span class="col-type">→ feedback_intern (self)</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">commenter_id</span><span class="col-type">→ users</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">commenter_role</span><span class="col-type">Student | Supervisor</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">comment_text</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">created_at</span><span class="col-type">datetime</span></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- DOCUMENTS -->
+    <div class="section-label">Documents</div>
+    <div class="tables-grid">
+
+      <div class="table-card" id="t-documents">
+        <div class="table-card-header"><span class="table-card-name">documents</span><span class="table-card-tag tag-doc">Docs</span></div>
+        <div class="table-card-body">
+          <div class="col-row"><span class="col-badge pk">PK</span><span class="col-name">id</span><span class="col-type">string (doc…)</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">user_id</span><span class="col-type">→ users (owner)</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">created_by</span><span class="col-type">→ users</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">name</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">folder</span><span class="col-type">string (path)</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">type</span><span class="col-type">pdf | png | docx…</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">size</span><span class="col-type">string (MB)</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">url</span><span class="col-type">Google Drive URL</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">is_link</span><span class="col-type">boolean</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">access_level</span><span class="col-type">private | everyone | specific | everyone_except</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">shared_with</span><span class="col-type">json []</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">file_id</span><span class="col-type">Drive file ID</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">category</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">uploaded_date / created_date / updated_date</span><span class="col-type">date</span></div>
+        </div>
+      </div>
+
+      <div class="table-card" id="t-doc-folders">
+        <div class="table-card-header"><span class="table-card-name">document_folders</span><span class="table-card-tag tag-doc">Docs</span></div>
+        <div class="table-card-body">
+          <div class="col-row"><span class="col-badge pk">PK</span><span class="col-name">folder_id</span><span class="col-type">string (fld_…)</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">user_id</span><span class="col-type">→ users (owner)</span></div>
+          <div class="col-row"><span class="col-badge fk">FK</span><span class="col-name">created_by</span><span class="col-type">→ users</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">folder_name</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">path</span><span class="col-type">string</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">is_default</span><span class="col-type">boolean</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">created_date / updated_date</span><span class="col-type">date</span></div>
+          <div class="col-row"><span class="col-badge sp"></span><span class="col-name">created_by_name</span><span class="col-type">string (denormalized)</span></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ERD -->
+    <div class="section-label">Entity Relationship Diagram</div>
+    <div class="erd-wrap">
+      <div class="mermaid">
+erDiagram
+    users ||--o| user_settings : "configures"
+    users ||--o| student_ojt_profile : "has OJT profile"
+    users }o--o{ supervisor_assignments : "supervisor"
+    users }o--o{ supervisor_assignments : "student"
+    users ||--o{ intern_schedules : "intern_id"
+    users ||--o{ active_sessions : "clocks in/out"
+    users ||--o{ requests : "submits"
+    users ||--o{ notifications : "receives"
+    users ||--o{ activity_logs : "assigned_to"
+    users ||--o{ activity_logs : "assigned_by"
+    users ||--o{ activity_worklogs : "logs work"
+    users ||--o{ supervisor_task : "creates"
+    users ||--o{ documents : "owns"
+    users ||--o{ document_folders : "creates"
+    users ||--o{ proj_intern : "creates"
+    users ||--o{ proj_folders : "creates"
+    users ||--o{ submission_intern : "uploads"
+    users ||--o{ feedback_intern : "posts"
+    users ||--o{ milestone_intern : "creates"
+
+    activity_logs ||--o{ act_attachments : "has attachments"
+    activity_logs ||--o{ activity_worklogs : "has worklogs"
+    activity_worklogs ||--o{ worklogs_attachment : "has attachments"
+    supervisor_task ||--o{ supervisor_attch : "has attachments"
+    activity_logs ||--o| supervisor_task : "sourced from"
+
+    proj_intern ||--o{ proj_supervisor : "mirrored as"
+    proj_intern ||--o{ proj_activity : "activity feed"
+    proj_intern ||--o{ proj_folders : "has folders"
+    proj_intern ||--o{ milestone_intern : "has milestones"
+    proj_intern ||--o{ feedback_intern : "has feedback"
+    proj_intern ||--o{ submission_intern : "has submissions"
+    proj_folders ||--o{ submission_intern : "stores"
+    feedback_intern ||--o{ feedback_intern : "replies"
+      </div>
+    </div>
+
+    <!-- FK MAP -->
+    <div class="section-label">Foreign Key Map</div>
+    <div class="rel-grid">
+      <div class="rel-row"><span class="rel-from">student_ojt_profile</span><span class="rel-col">user_id →</span><span class="rel-to">users</span><span class="rel-card">1–1</span></div>
+      <div class="rel-row"><span class="rel-from">user_settings</span><span class="rel-col">user_id →</span><span class="rel-to">users</span><span class="rel-card">1–1</span></div>
+      <div class="rel-row"><span class="rel-from">supervisor_assignments</span><span class="rel-col">supervisor_user_id →</span><span class="rel-to">users</span><span class="rel-card">many–many</span></div>
+      <div class="rel-row"><span class="rel-from">supervisor_assignments</span><span class="rel-col">student_user_id →</span><span class="rel-to">users</span><span class="rel-card">many–many</span></div>
+      <div class="rel-row"><span class="rel-from">intern_schedules</span><span class="rel-col">intern_id →</span><span class="rel-to">users</span><span class="rel-card">1–1</span></div>
+      <div class="rel-row"><span class="rel-from">intern_schedules</span><span class="rel-col">supervisor_id →</span><span class="rel-to">users</span><span class="rel-card">many–1</span></div>
+      <div class="rel-row"><span class="rel-from">active_sessions</span><span class="rel-col">user_id →</span><span class="rel-to">users</span><span class="rel-card">many–1</span></div>
+      <div class="rel-row"><span class="rel-from">requests</span><span class="rel-col">user_id →</span><span class="rel-to">users</span><span class="rel-card">many–1</span></div>
+      <div class="rel-row"><span class="rel-from">notifications</span><span class="rel-col">user_id →</span><span class="rel-to">users</span><span class="rel-card">many–1</span></div>
+      <div class="rel-row"><span class="rel-from">activity_logs</span><span class="rel-col">user_id / assigned_by →</span><span class="rel-to">users</span><span class="rel-card">many–1</span></div>
+      <div class="rel-row"><span class="rel-from">act_attachments</span><span class="rel-col">task_id →</span><span class="rel-to">activity_logs</span><span class="rel-card">many–1</span></div>
+      <div class="rel-row"><span class="rel-from">activity_worklogs</span><span class="rel-col">task_id →</span><span class="rel-to">activity_logs</span><span class="rel-card">many–1</span></div>
+      <div class="rel-row"><span class="rel-from">worklogs_attachment</span><span class="rel-col">task_id →</span><span class="rel-to">activity_worklogs</span><span class="rel-card">many–1</span></div>
+      <div class="rel-row"><span class="rel-from">supervisor_task</span><span class="rel-col">source_activity_id →</span><span class="rel-to">activity_logs</span><span class="rel-card">1–1</span></div>
+      <div class="rel-row"><span class="rel-from">supervisor_attch</span><span class="rel-col">suptask_id →</span><span class="rel-to">supervisor_task</span><span class="rel-card">many–1</span></div>
+      <div class="rel-row"><span class="rel-from">proj_supervisor</span><span class="rel-col">proj_id →</span><span class="rel-to">proj_intern</span><span class="rel-card">1–1 mirror</span></div>
+      <div class="rel-row"><span class="rel-from">proj_activity</span><span class="rel-col">proj_id →</span><span class="rel-to">proj_intern</span><span class="rel-card">many–1</span></div>
+      <div class="rel-row"><span class="rel-from">proj_folders</span><span class="rel-col">proj_id →</span><span class="rel-to">proj_intern</span><span class="rel-card">many–1</span></div>
+      <div class="rel-row"><span class="rel-from">milestone_intern</span><span class="rel-col">proj_id →</span><span class="rel-to">proj_intern</span><span class="rel-card">many–1</span></div>
+      <div class="rel-row"><span class="rel-from">submission_intern</span><span class="rel-col">proj_id →</span><span class="rel-to">proj_intern</span><span class="rel-card">many–1</span></div>
+      <div class="rel-row"><span class="rel-from">submission_intern</span><span class="rel-col">folder_id →</span><span class="rel-to">proj_folders</span><span class="rel-card">many–1</span></div>
+      <div class="rel-row"><span class="rel-from">feedback_intern</span><span class="rel-col">proj_id →</span><span class="rel-to">proj_intern</span><span class="rel-card">many–1</span></div>
+      <div class="rel-row"><span class="rel-from">feedback_intern</span><span class="rel-col">parent_id →</span><span class="rel-to">feedback_intern</span><span class="rel-card">self-ref</span></div>
+      <div class="rel-row"><span class="rel-from">documents</span><span class="rel-col">user_id →</span><span class="rel-to">users</span><span class="rel-card">many–1</span></div>
+      <div class="rel-row"><span class="rel-from">document_folders</span><span class="rel-col">user_id →</span><span class="rel-to">users</span><span class="rel-card">many–1</span></div>
+    </div>
+
+    <!-- NOTES -->
+    <div class="notes-box">
+      <h3>Design Notes</h3>
+      <ul>
+        <li><strong>OTP stored inline in <code>users</code>:</strong> No separate OTP table. Fields <code>otp_hash</code>, <code>otp_expires_at</code>, <code>otp_attempts</code>, and <code>otp_last_sent_at</code> live directly on the user row.</li>
+        <li><strong>Dual task tables:</strong> <code>activity_logs</code> is the intern's task view; <code>supervisor_task</code> is the supervisor's. They link via <code>source_activity_id</code> — <code>source_type = "intern"</code> when a supervisor creates a task from an intern activity.</li>
+        <li><strong>Dual project tables:</strong> <code>proj_intern</code> is the canonical record. <code>proj_supervisor</code> mirrors it and adds a <code>supervisor_archived</code> flag per supervisor. <code>poj_supervisor</code> (typo sheet) is a legacy copy of the same structure.</li>
+        <li><strong>Members &amp; supervisor columns</strong> in projects are comma-separated <code>user_id</code> strings — no separate join table.</li>
+        <li><strong><code>recent_activities</code></strong> uses an email address (not <code>user_id</code>) as the user key — lightweight feed separate from the full task system.</li>
+        <li><strong><code>user_settings</code></strong> stores all notification preferences as one <code>settings_json</code> object with keys: <code>document_uploads</code>, <code>request_status_updates</code>, <code>inactive_student_alert</code>, <code>time_log_reminder</code>.</li>
+        <li><strong>No enforced FK constraints:</strong> Google Sheets has no native foreign keys. All referential integrity is maintained in GAS server-side code.</li>
+      </ul>
+    </div>
+
+    <footer>IMS v1.2 &nbsp;·&nbsp; 25 sheets &nbsp;·&nbsp; Schema from Official DB xlsx &nbsp;·&nbsp; Backend: Google Sheets / Apps Script</footer>
+
+  </main>
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'dark',
+    er: { useMaxWidth: true, layoutDirection: 'TB' },
+    themeVariables: {
+      background: '#1e293b',
+      primaryColor: '#1e3a8a',
+      primaryTextColor: '#e2e8f0',
+      primaryBorderColor: '#2563eb',
+      lineColor: '#475569',
+      secondaryColor: '#0f172a',
+      tertiaryColor: '#334155',
+    }
+  });
+</script>
+
+</body>
+</html>
