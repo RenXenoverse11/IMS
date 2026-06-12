@@ -15,12 +15,14 @@
     "gas:open": "npx clasp -P appscript -I appscript open",
     "push:gas": "npm run gas:push",
     "deploy:gas": "npm run gas:push",
-    "release:gas": "npm run gas:deploy"
+    "release:gas": "npm run gas:deploy",
+    "generate:pdf": "node scripts/generate-pdf.mjs"
   },
   "devDependencies": {
     "@google/clasp": "^3.0.6",
     "@sveltejs/vite-plugin-svelte": "^7.0.0",
     "@tailwindcss/postcss": "^4.1.4",
+    "puppeteer-core": "^25.1.0",
     "svelte": "^5.53.12",
     "tailwindcss": "^4.1.4",
     "tw-animate-css": "^1.3.0",

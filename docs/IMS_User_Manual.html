@@ -1,0 +1,1035 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IMS User Manual — v1.2</title>
+  <style>
+    /* ── Fonts ── */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+    /* ── Reset ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ── Page / Print Setup ── */
+    @page {
+      size: A4;
+      margin: 20mm 18mm 22mm 18mm;
+    }
+
+    html { font-size: 10pt; }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 10pt;
+      line-height: 1.65;
+      color: #1e293b;
+      background: #fff;
+    }
+
+    /* ── Cover Page ── */
+    .cover {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 60px 48px;
+      background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 55%, #3b82f6 100%);
+      color: #fff;
+      page-break-after: always;
+      break-after: page;
+    }
+
+    .cover-eyebrow {
+      font-size: 8.5pt;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.65);
+      margin-bottom: 18px;
+    }
+
+    .cover h1 {
+      font-size: 32pt;
+      font-weight: 700;
+      line-height: 1.1;
+      letter-spacing: -0.02em;
+      margin-bottom: 14px;
+    }
+
+    .cover-subtitle {
+      font-size: 13pt;
+      color: rgba(255,255,255,0.82);
+      max-width: 420px;
+      line-height: 1.55;
+      margin-bottom: 48px;
+    }
+
+    .cover-meta {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 9pt;
+      color: rgba(255,255,255,0.6);
+      border-top: 1px solid rgba(255,255,255,0.18);
+      padding-top: 24px;
+    }
+
+    .cover-meta span { color: rgba(255,255,255,0.85); }
+
+    /* ── TOC Page ── */
+    .toc-page {
+      page-break-after: always;
+      break-after: page;
+      padding: 32px 0 0;
+    }
+
+    .toc-title {
+      font-size: 16pt;
+      font-weight: 700;
+      color: #0f172a;
+      margin-bottom: 24px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #2563eb;
+    }
+
+    .toc-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .toc-list li {
+      display: flex;
+      align-items: baseline;
+      gap: 0;
+    }
+
+    .toc-list a {
+      color: #1e293b;
+      text-decoration: none;
+      font-size: 10pt;
+    }
+
+    .toc-list a:hover { color: #2563eb; }
+
+    .toc-section > a {
+      font-weight: 600;
+      font-size: 10.5pt;
+      padding: 5px 0 3px;
+      display: block;
+    }
+
+    .toc-sub {
+      padding-left: 18px;
+    }
+
+    .toc-sub a {
+      color: #475569;
+      font-size: 9.5pt;
+      padding: 2px 0;
+      display: block;
+    }
+
+    .toc-dots {
+      flex: 1;
+      border-bottom: 1px dotted #cbd5e1;
+      margin: 0 8px 4px;
+      min-width: 20px;
+    }
+
+    .toc-page-num {
+      font-size: 9pt;
+      color: #64748b;
+      white-space: nowrap;
+    }
+
+    /* ── Section wrapper ── */
+    .section {
+      page-break-before: always;
+      break-before: page;
+      padding-top: 8px;
+    }
+
+    /* ── Headings ── */
+    h1, h2, h3, h4 {
+      page-break-after: avoid;
+      break-after: avoid;
+    }
+
+    h1 {
+      font-size: 20pt;
+      font-weight: 700;
+      color: #0f172a;
+      letter-spacing: -0.02em;
+      border-bottom: 2px solid #2563eb;
+      padding-bottom: 8px;
+      margin-bottom: 20px;
+    }
+
+    h2 {
+      font-size: 13.5pt;
+      font-weight: 700;
+      color: #1e3a8a;
+      margin-top: 28px;
+      margin-bottom: 10px;
+    }
+
+    h2::before {
+      content: '';
+      display: inline-block;
+      width: 4px;
+      height: 1em;
+      background: #2563eb;
+      border-radius: 2px;
+      margin-right: 8px;
+      vertical-align: middle;
+      position: relative;
+      top: -1px;
+    }
+
+    h3 {
+      font-size: 11pt;
+      font-weight: 600;
+      color: #1e293b;
+      margin-top: 20px;
+      margin-bottom: 8px;
+    }
+
+    h4 {
+      font-size: 10pt;
+      font-weight: 600;
+      color: #334155;
+      margin-top: 14px;
+      margin-bottom: 6px;
+    }
+
+    /* ── Body text ── */
+    p {
+      margin-bottom: 10px;
+      color: #334155;
+    }
+
+    /* ── Tables ── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0 18px;
+      font-size: 9.5pt;
+      page-break-inside: avoid;
+    }
+
+    thead tr {
+      background: #1e3a8a;
+      color: #fff;
+    }
+
+    thead th {
+      padding: 7px 12px;
+      text-align: left;
+      font-weight: 600;
+      font-size: 9pt;
+      letter-spacing: 0.03em;
+    }
+
+    tbody tr:nth-child(even) { background: #f8fafc; }
+    tbody tr:nth-child(odd)  { background: #ffffff; }
+
+    tbody td {
+      padding: 6px 12px;
+      border-bottom: 1px solid #e2e8f0;
+      color: #334155;
+      vertical-align: top;
+    }
+
+    /* center checkmark columns */
+    tbody td:not(:first-child) { text-align: center; }
+    table.feature-table tbody td:first-child { text-align: left; }
+
+    /* ── Unordered / Ordered lists ── */
+    ul, ol {
+      margin: 6px 0 12px 20px;
+      color: #334155;
+    }
+
+    li {
+      margin-bottom: 4px;
+      line-height: 1.6;
+    }
+
+    li > ul, li > ol {
+      margin-top: 4px;
+      margin-bottom: 2px;
+    }
+
+    /* ── Callout / note box ── */
+    .note {
+      background: #eff6ff;
+      border-left: 3px solid #3b82f6;
+      border-radius: 0 6px 6px 0;
+      padding: 10px 14px;
+      margin: 12px 0;
+      font-size: 9.5pt;
+      color: #1e40af;
+      page-break-inside: avoid;
+    }
+
+    .note strong { color: #1d4ed8; }
+
+    /* ── Code / mono ── */
+    code {
+      font-family: 'JetBrains Mono', 'Courier New', monospace;
+      font-size: 8.5pt;
+      background: #f1f5f9;
+      padding: 1px 5px;
+      border-radius: 3px;
+      color: #0f172a;
+    }
+
+    /* ── Badge chips ── */
+    .badge {
+      display: inline-block;
+      padding: 1px 7px;
+      border-radius: 999px;
+      font-size: 8pt;
+      font-weight: 600;
+    }
+
+    .badge-blue   { background: #dbeafe; color: #1d4ed8; }
+    .badge-green  { background: #dcfce7; color: #166534; }
+    .badge-amber  { background: #fef9c3; color: #854d0e; }
+    .badge-red    { background: #fee2e2; color: #991b1b; }
+    .badge-gray   { background: #f1f5f9; color: #475569; }
+
+    /* ── Step indicator ── */
+    .steps {
+      counter-reset: steps;
+      list-style: none;
+      margin-left: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .steps li {
+      counter-increment: steps;
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+
+    .steps li::before {
+      content: counter(steps);
+      min-width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: #2563eb;
+      color: #fff;
+      font-size: 8.5pt;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    /* ── Divider ── */
+    hr {
+      border: none;
+      border-top: 1px solid #e2e8f0;
+      margin: 20px 0;
+    }
+
+    /* ── Role columns ── */
+    .role-columns {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin: 14px 0;
+    }
+
+    .role-card {
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 14px;
+      page-break-inside: avoid;
+    }
+
+    .role-card h4 {
+      margin-top: 0;
+      color: #1e3a8a;
+      border-bottom: 1px solid #e2e8f0;
+      padding-bottom: 6px;
+      margin-bottom: 8px;
+    }
+
+    .role-card ul { margin-left: 16px; }
+
+    /* ── Section header band ── */
+    .section-header {
+      background: linear-gradient(90deg, #eff6ff, #f8fafc);
+      border-left: 4px solid #2563eb;
+      border-radius: 0 6px 6px 0;
+      padding: 10px 16px;
+      margin-bottom: 18px;
+      page-break-after: avoid;
+    }
+
+    .section-header p {
+      margin: 0;
+      font-size: 9.5pt;
+      color: #475569;
+    }
+
+    /* ── Print tweaks ── */
+    @media print {
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      a { color: inherit; text-decoration: none; }
+      .cover { min-height: 0; height: 100vh; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════
+     COVER PAGE
+══════════════════════════════════════ -->
+<div class="cover">
+  <div class="cover-eyebrow">Official Documentation</div>
+  <h1>Internship<br>Management<br>System</h1>
+  <p class="cover-subtitle">
+    Complete user guide for tracking OJT attendance, monitoring intern progress,
+    and managing supervisor approvals in one secure platform.
+  </p>
+  <div class="cover-meta">
+    <div>Version &nbsp;<span>1.2</span></div>
+    <div>Roles covered &nbsp;<span>Intern · Supervisor</span></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     TABLE OF CONTENTS
+══════════════════════════════════════ -->
+<div class="toc-page">
+  <div class="toc-title">Table of Contents</div>
+  <ul class="toc-list">
+    <li class="toc-section"><a href="#overview">1. Overview</a></li>
+
+    <li class="toc-section"><a href="#getting-started">2. Getting Started</a></li>
+    <li class="toc-sub"><a href="#creating-account">Creating an Account</a></li>
+    <li class="toc-sub"><a href="#logging-in">Logging In</a></li>
+    <li class="toc-sub"><a href="#forgot-password">Forgot Password</a></li>
+
+    <li class="toc-section"><a href="#intern-guide">3. Intern Guide</a></li>
+    <li class="toc-sub"><a href="#intern-dashboard">Dashboard</a></li>
+    <li class="toc-sub"><a href="#time-log">Time Log</a></li>
+    <li class="toc-sub"><a href="#activity-log">Activity Log</a></li>
+    <li class="toc-sub"><a href="#requests">Requests</a></li>
+    <li class="toc-sub"><a href="#documents">Documents</a></li>
+    <li class="toc-sub"><a href="#intern-settings">Settings</a></li>
+
+    <li class="toc-section"><a href="#supervisor-guide">4. Supervisor Guide</a></li>
+    <li class="toc-sub"><a href="#supervisor-dashboard">Dashboard</a></li>
+    <li class="toc-sub"><a href="#intern-management">Intern Management</a></li>
+    <li class="toc-sub"><a href="#projects">Projects</a></li>
+    <li class="toc-sub"><a href="#timelog-review">Time Log Review</a></li>
+    <li class="toc-sub"><a href="#activity-management">Activity Log Management</a></li>
+    <li class="toc-sub"><a href="#requests-review">Requests Review</a></li>
+
+    <li class="toc-section"><a href="#roles-permissions">5. Roles &amp; Permissions</a></li>
+    <li class="toc-section"><a href="#faq">6. Frequently Asked Questions</a></li>
+  </ul>
+</div>
+
+<!-- ══════════════════════════════════════
+     1. OVERVIEW
+══════════════════════════════════════ -->
+<div class="section" id="overview">
+  <h1>1. Overview</h1>
+
+  <div class="section-header">
+    <p>The <strong>Internship Management System (IMS)</strong> is a web-based platform for managing On-the-Job Training (OJT) programs in a telecom-grade internship environment.</p>
+  </div>
+
+  <p>IMS brings together everything needed to run a structured internship program — from daily attendance and progress tracking to formal request approvals and document management — in one secure, role-based platform.</p>
+
+  <div class="role-columns">
+    <div class="role-card">
+      <h4>Intern</h4>
+      <ul>
+        <li>Log daily attendance (clock in/out)</li>
+        <li>Track OJT hours and progress</li>
+        <li>Submit absence and overtime requests</li>
+        <li>Upload and manage documents</li>
+        <li>View assigned tasks</li>
+      </ul>
+    </div>
+    <div class="role-card">
+      <h4>Supervisor</h4>
+      <ul>
+        <li>Monitor all assigned interns</li>
+        <li>Approve or reject requests</li>
+        <li>Assign tasks and manage projects</li>
+        <li>Review and correct time logs</li>
+        <li>Configure intern schedules</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>Supported Departments</h2>
+  <table>
+    <thead><tr><th>Department</th><th>Code</th></tr></thead>
+    <tbody>
+      <tr><td>International NOC</td><td>ISOC</td></tr>
+      <tr><td>Regional Service Center</td><td>RSC</td></tr>
+      <tr><td>Customer Network &amp; Facilities Management</td><td>CNFM</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ══════════════════════════════════════
+     2. GETTING STARTED
+══════════════════════════════════════ -->
+<div class="section" id="getting-started">
+  <h1>2. Getting Started</h1>
+
+  <h2 id="creating-account">Creating an Account</h2>
+  <p>Registration uses a guided multi-step flow. Steps vary by role.</p>
+
+  <h3>Step 1 — Account Details</h3>
+  <table>
+    <thead><tr><th>Field</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Name</strong></td><td>Your full name</td></tr>
+      <tr><td><strong>Email</strong></td><td>A valid email you can access — required for OTP verification</td></tr>
+      <tr><td><strong>Password</strong></td><td>Minimum 8 characters</td></tr>
+      <tr><td><strong>Confirm Password</strong></td><td>Must match the password above</td></tr>
+      <tr><td><strong>Role</strong></td><td>Select <strong>Intern</strong> or <strong>Supervisor</strong></td></tr>
+      <tr><td><strong>Department</strong></td><td>Supervisors only — select ISOC, RSC, or CNFM</td></tr>
+    </tbody>
+  </table>
+  <p>Click <strong>Continue</strong>. Supervisors skip to email verification. Interns proceed to OJT Setup.</p>
+
+  <h3>Step 2 — OJT Setup (Intern only)</h3>
+  <table>
+    <thead><tr><th>Field</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Total OJT Hours</strong></td><td>Required hours from your school (e.g., 500)</td></tr>
+      <tr><td><strong>Start Date</strong></td><td>Your official OJT start date</td></tr>
+      <tr><td><strong>Department</strong></td><td>The department you are assigned to</td></tr>
+      <tr><td><strong>Course</strong></td><td>Your degree program — type to search</td></tr>
+      <tr><td><strong>School</strong></td><td>Your university — type to search</td></tr>
+    </tbody>
+  </table>
+  <p>Click <strong>Complete Signup</strong>.</p>
+
+  <h3>Step 3 — Email Verification</h3>
+  <ol class="steps">
+    <li>A <strong>6-digit OTP</strong> is sent to your registered email address.</li>
+    <li>Enter the code in the <strong>OTP Code</strong> field.</li>
+    <li>Click <strong>Verify OTP</strong>.</li>
+    <li>If the code expires, click <strong>Resend OTP</strong> to get a new one.</li>
+  </ol>
+  <div class="note">OTP codes are time-limited — verify promptly after receiving the email.</div>
+
+  <h3>Step 4 — Account Ready</h3>
+  <p>A success screen confirms your account is active. Click <strong>Go to Login</strong>.</p>
+
+  <h2 id="logging-in">Logging In</h2>
+  <ol class="steps">
+    <li>Open the IMS login page.</li>
+    <li>Enter your registered <strong>Email</strong> and <strong>Password</strong>.</li>
+    <li>Click <strong>Log In</strong>.</li>
+    <li>You are redirected to your role-specific dashboard automatically.</li>
+  </ol>
+
+  <h2 id="forgot-password">Forgot Password</h2>
+  <ol class="steps">
+    <li>On the login page, enter your email address in the Email field.</li>
+    <li>Click <strong>Forgot Password?</strong></li>
+    <li>If an account exists for that email, recovery instructions are sent.</li>
+  </ol>
+</div>
+
+<!-- ══════════════════════════════════════
+     3. INTERN GUIDE
+══════════════════════════════════════ -->
+<div class="section" id="intern-guide">
+  <h1>3. Intern Guide</h1>
+
+  <h2 id="intern-dashboard">Dashboard</h2>
+  <div class="section-header">
+    <p>Your home page — a live overview of your OJT progress and recent activity.</p>
+  </div>
+
+  <h3>Welcome Banner</h3>
+  <p>Displays your name, <strong>Intern</strong> role badge, department, course, and school. The <strong>Rendered / Projected</strong> toggle in the top-right controls which hours count toward your progress:</p>
+  <table>
+    <thead><tr><th>Mode</th><th>What it counts</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Rendered</strong></td><td>Submitted time logs plus any session currently active</td></tr>
+      <tr><td><strong>Projected</strong></td><td>Rendered hours plus future approved and pending overtime/absence requests</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Stat Cards</h3>
+  <table>
+    <thead><tr><th>Card</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Hours Needed</strong></td><td>Your total required OJT hours</td></tr>
+      <tr><td><strong>Hours Completed</strong></td><td>Hours logged so far; updates live during an active session</td></tr>
+      <tr><td><strong>Hours Remaining</strong></td><td>Hours left until your OJT is finished</td></tr>
+      <tr><td><strong>Working Days Needed</strong></td><td>Estimated working days remaining based on an 8-hour day</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Progress Bar</h3>
+  <p>Shows your completion percentage. The footer displays hours remaining versus total required. Once you reach 100%, it displays <em>Completed</em>.</p>
+
+  <h3>Estimated End Date</h3>
+  <p>A projected OJT completion date calculated from your start date, remaining hours, and schedule. After completion this changes to <strong>Completed On</strong> showing your actual finish date.</p>
+
+  <h3>Recent Activity</h3>
+  <p>A feed of your latest log-in, log-out, and request decision events. Click <strong>View</strong> on a request event to jump to that request on the Requests page.</p>
+
+  <h3>Assigned Tasks</h3>
+  <p>Lists up to 10 tasks assigned by your supervisor, sorted by due date. Click <strong>View</strong> to open the task in the Activity Log.</p>
+
+  <hr>
+
+  <h2 id="time-log">Time Log</h2>
+  <div class="section-header">
+    <p>Record your daily attendance by clocking in and out.</p>
+  </div>
+
+  <h3>Clocking In</h3>
+  <ol class="steps">
+    <li>Navigate to <strong>Time Log</strong> from the sidebar.</li>
+    <li>Select the <strong>Date</strong> (defaults to today).</li>
+    <li>Set your <strong>Time In</strong>.</li>
+    <li>Toggle <strong>Lunch Break</strong> if you want a lunch period deducted.</li>
+    <li>Click <strong>Log In</strong> — your session starts.</li>
+  </ol>
+  <div class="note">If you leave and return to IMS during an active session, elapsed time continues accumulating and is shown live on your Dashboard.</div>
+
+  <h3>Clocking Out</h3>
+  <ol class="steps">
+    <li>With an active session running, set your <strong>Time Out</strong>.</li>
+    <li>Click <strong>Log Out</strong> — the entry is saved and hours are added to your total.</li>
+  </ol>
+
+  <h3>Time Log History</h3>
+  <table>
+    <thead><tr><th>Column</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>Date</td><td>Day of the entry</td></tr>
+      <tr><td>Time In</td><td>Clock-in time</td></tr>
+      <tr><td>Time Out</td><td>Clock-out time</td></tr>
+      <tr><td>Total Hours</td><td>Hours worked that day</td></tr>
+      <tr><td>Status</td><td><span class="badge badge-green">Recorded</span> for all saved entries</td></tr>
+    </tbody>
+  </table>
+  <p>Use the filter tabs to switch between <strong>Entries</strong> (regular logs) and <strong>Override Requests</strong> (corrections).</p>
+
+  <h3>Override Request</h3>
+  <p>Submit this when you missed a clock-in or clock-out, or need to correct an existing entry.</p>
+  <ol class="steps">
+    <li>Click <strong>Request Override</strong> in the Time Log page.</li>
+    <li>Enter the correct <strong>Date</strong>, <strong>Time In</strong>, <strong>Time Out</strong>, and a <strong>Reason</strong>.</li>
+    <li>Submit — your supervisor will approve or reject the correction.</li>
+  </ol>
+
+  <h3>Exporting Attendance</h3>
+  <p>Click <strong>Export Attendance</strong>, select a month, and a PDF of your time log is downloaded automatically.</p>
+
+  <hr>
+
+  <h2 id="activity-log">Activity Log</h2>
+  <div class="section-header">
+    <p>View tasks and work logs assigned to you by your supervisor.</p>
+  </div>
+  <ul>
+    <li>Expand any entry to see full details, attachments, and notes.</li>
+    <li>Tasks show their status, priority, and due date.</li>
+    <li>Clicking a task from <strong>Dashboard → Assigned Tasks</strong> opens the Activity Log with that task highlighted.</li>
+  </ul>
+
+  <hr>
+
+  <h2 id="requests">Requests</h2>
+  <div class="section-header">
+    <p>Formally notify your supervisor of absences or extra hours worked.</p>
+  </div>
+
+  <h3>Request Types</h3>
+  <table>
+    <thead><tr><th>Type</th><th>When to use</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Absence</strong></td><td>A planned or past day you could not attend your internship</td></tr>
+      <tr><td><strong>Overtime</strong></td><td>Extra hours worked beyond your regular schedule that should count toward your OJT total</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Submitting a Request</h3>
+  <ol class="steps">
+    <li>Navigate to <strong>Requests</strong>.</li>
+    <li>Click <strong>New Request</strong>.</li>
+    <li>Select the <strong>Request Type</strong>.</li>
+    <li>Set the <strong>Date</strong> and fill in required details.</li>
+    <li>Click <strong>Submit</strong>.</li>
+  </ol>
+
+  <h3>Request Statuses</h3>
+  <table>
+    <thead><tr><th>Status</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td><span class="badge badge-amber">Pending</span></td><td>Submitted — awaiting supervisor review</td></tr>
+      <tr><td><span class="badge badge-green">Approved</span></td><td>Accepted — hours are factored into your OJT progress</td></tr>
+      <tr><td><span class="badge badge-red">Rejected</span></td><td>Declined — does not affect your hours</td></tr>
+      <tr><td><span class="badge badge-gray">Expired</span></td><td>Request date passed without a decision</td></tr>
+      <tr><td><span class="badge badge-gray">Archived</span></td><td>Manually moved to archive by you</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Managing Requests</h3>
+  <ul>
+    <li><strong>Archive</strong> — move a resolved request out of the active list.</li>
+    <li><strong>Bulk archive</strong> — select multiple requests and archive them at once.</li>
+    <li><strong>Delete</strong> — permanently removes an archived request. This cannot be undone.</li>
+  </ul>
+
+  <hr>
+
+  <h2 id="documents">Documents</h2>
+  <div class="section-header">
+    <p>Your personal file storage within IMS for OJT-related documents.</p>
+  </div>
+
+  <h3>Uploading Files</h3>
+  <ol class="steps">
+    <li>Navigate to <strong>Documents</strong>.</li>
+    <li>Click <strong>Upload</strong> and select a file — or <strong>Add Link</strong> to attach a URL.</li>
+    <li>Choose a destination folder (defaults to <em>My Documents</em> root).</li>
+    <li>Confirm the upload.</li>
+  </ol>
+
+  <h3>Managing Folders</h3>
+  <table>
+    <thead><tr><th>Action</th><th>How</th></tr></thead>
+    <tbody>
+      <tr><td>Create folder</td><td>Click <strong>New Folder</strong>, enter a name, confirm</td></tr>
+      <tr><td>Navigate into folder</td><td>Click the folder name</td></tr>
+      <tr><td>Rename folder</td><td>Use the rename action next to the folder</td></tr>
+      <tr><td>Delete folder</td><td>Use the delete action next to the folder</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Sharing Documents</h3>
+  <p>Click the <strong>Share</strong> icon on any file and choose a visibility mode:</p>
+  <table>
+    <thead><tr><th>Mode</th><th>Who can see the file</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Private</strong></td><td>Only you</td></tr>
+      <tr><td><strong>Everyone</strong></td><td>All users in the system</td></tr>
+      <tr><td><strong>Specific users</strong></td><td>Search and select individual users</td></tr>
+      <tr><td><strong>Everyone except</strong></td><td>All users except selected individuals</td></tr>
+    </tbody>
+  </table>
+  <p>Copy the share link from the dialog to send directly to someone.</p>
+
+  <hr>
+
+  <h2 id="intern-settings">Settings</h2>
+
+  <h3>Profile</h3>
+  <p>Update your <strong>Full Name</strong>, <strong>Email</strong>, <strong>Phone</strong>, and <strong>Department</strong>. Upload a <strong>Profile Photo</strong> (JPEG, PNG, WebP, or GIF; max 5 MB). Click <strong>Save Changes</strong>.</p>
+
+  <h3>Security</h3>
+  <p>Enter your current password and a new password (minimum 8 characters) to update your login credentials.</p>
+
+  <h3>Notifications</h3>
+  <table>
+    <thead><tr><th>Notification</th><th>Triggers when</th></tr></thead>
+    <tbody>
+      <tr><td>Status Updates</td><td>A supervisor approves or rejects your request</td></tr>
+      <tr><td>Document Uploads</td><td>A document is shared with you</td></tr>
+      <tr><td>Time Log</td><td>Reminders related to your attendance</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Supervisors</h3>
+  <p>Displays supervisors assigned to oversee your OJT. If this list is empty, ask your supervisor to assign you from their Intern Management page.</p>
+</div>
+
+<!-- ══════════════════════════════════════
+     4. SUPERVISOR GUIDE
+══════════════════════════════════════ -->
+<div class="section" id="supervisor-guide">
+  <h1>4. Supervisor Guide</h1>
+
+  <h2 id="supervisor-dashboard">Dashboard</h2>
+  <div class="section-header">
+    <p>A consolidated view of all interns you supervise and any pending actions requiring your attention.</p>
+  </div>
+
+  <h3>Pending Requests Panel</h3>
+  <p>Shows all unreviewed Absence and Overtime requests from your assigned interns. New requests appear here immediately when submitted — use it as your daily action queue.</p>
+
+  <h3>Intern Status Table</h3>
+  <table>
+    <thead><tr><th>Column</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>Name</td><td>Intern's full name</td></tr>
+      <tr><td>Course / School</td><td>Academic background</td></tr>
+      <tr><td>Hours Completed</td><td>OJT hours logged so far</td></tr>
+      <tr><td>Hours Required</td><td>Total OJT hours required</td></tr>
+      <tr><td>Progress</td><td>Percentage toward completion</td></tr>
+      <tr><td>Today's Time In/Out</td><td>Clock-in and out times for today (if logged)</td></tr>
+      <tr><td>Estimated End Date</td><td>Projected OJT completion date</td></tr>
+    </tbody>
+  </table>
+  <p><strong>Status filter</strong> — narrow the list to <em>All</em>, <em>Active</em>, or <em>Inactive</em> interns.</p>
+
+  <hr>
+
+  <h2 id="intern-management">Intern Management</h2>
+
+  <h3>Assigning Interns</h3>
+  <p>Go to <strong>Intern Management</strong> and assign interns to your supervision. An intern not assigned to any supervisor will not appear on any supervisor's dashboard.</p>
+
+  <h3>Setting an Intern's Schedule</h3>
+  <p>Each intern can have a custom schedule that affects time log defaults, working day calculations, and absence/overtime hour projections.</p>
+  <table>
+    <thead><tr><th>Field</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Shift Start</strong></td><td>Expected daily start time (e.g., 09:00)</td></tr>
+      <tr><td><strong>Shift End</strong></td><td>Expected daily end time (e.g., 17:00)</td></tr>
+      <tr><td><strong>Days Off</strong></td><td>Days when the intern does not work (default: Sunday and Saturday)</td></tr>
+    </tbody>
+  </table>
+
+  <hr>
+
+  <h2 id="projects">Projects</h2>
+  <ol class="steps">
+    <li>Navigate to <strong>Projects</strong>.</li>
+    <li>Click <strong>New Project</strong>.</li>
+    <li>Enter a project name, description, and optional deadline.</li>
+    <li>Open the project and use the assign controls to add interns.</li>
+  </ol>
+  <p>Each project shows associated tasks, their statuses, and which interns are working on them.</p>
+
+  <hr>
+
+  <h2 id="timelog-review">Time Log Review</h2>
+
+  <h3>Viewing an Intern's Time Log</h3>
+  <p>Select an intern from the list in the supervisor Time Log page to see their full attendance history: all recorded log-in/log-out entries, daily totals, and override requests.</p>
+
+  <h3>Reviewing Override Requests</h3>
+  <ol class="steps">
+    <li>Open an intern's Time Log.</li>
+    <li>Switch to the <strong>Override Requests</strong> tab.</li>
+    <li>Review the submitted date, times, and reason.</li>
+    <li>Click <strong>Approve</strong> or <strong>Reject</strong>.</li>
+  </ol>
+  <table>
+    <thead><tr><th>Decision</th><th>Effect</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Approved</strong></td><td>Corrected entry is added to the intern's time log and hour total</td></tr>
+      <tr><td><strong>Rejected</strong></td><td>Original record stands; intern is notified</td></tr>
+    </tbody>
+  </table>
+
+  <hr>
+
+  <h2 id="activity-management">Activity Log Management</h2>
+
+  <h3>Creating a Task</h3>
+  <ol class="steps">
+    <li>Navigate to <strong>Activity Log</strong>.</li>
+    <li>Click <strong>New Task</strong>.</li>
+    <li>Fill in title, description, assigned intern(s), due date, and priority.</li>
+    <li>Save — the task appears on the intern's Dashboard and Activity Log.</li>
+  </ol>
+
+  <h3>Task Statuses</h3>
+  <table>
+    <thead><tr><th>Status</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td><span class="badge badge-amber">Pending</span></td><td>Not yet started</td></tr>
+      <tr><td><span class="badge badge-blue">In Progress</span></td><td>Actively being worked on</td></tr>
+      <tr><td><span class="badge badge-green">Completed</span></td><td>Finished</td></tr>
+      <tr><td><span class="badge badge-red">Overdue</span></td><td>Past due date and not completed</td></tr>
+    </tbody>
+  </table>
+
+  <hr>
+
+  <h2 id="requests-review">Requests Review</h2>
+  <p>Navigate to <strong>Requests</strong> to review all pending intern requests. Click <strong>Approve</strong> or <strong>Reject</strong> on each card.</p>
+
+  <table>
+    <thead><tr><th>Decision</th><th>Effect on intern's hours</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Approve Overtime</strong></td><td>Adds hours to the intern's projected total</td></tr>
+      <tr><td><strong>Approve Absence</strong></td><td>Deducts equivalent hours from the intern's projected total</td></tr>
+      <tr><td><strong>Reject</strong></td><td>No change to hours; intern is notified via their activity feed</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ══════════════════════════════════════
+     5. ROLES & PERMISSIONS
+══════════════════════════════════════ -->
+<div class="section" id="roles-permissions">
+  <h1>5. Roles &amp; Permissions</h1>
+
+  <p>Your role is selected during registration and cannot be changed afterward.</p>
+
+  <table class="feature-table">
+    <thead>
+      <tr>
+        <th style="text-align:left">Feature</th>
+        <th>Intern</th>
+        <th>Supervisor</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td colspan="3" style="background:#eff6ff;color:#1e3a8a;font-weight:600;font-size:9pt;padding:5px 12px;">Dashboard</td></tr>
+      <tr><td>View own OJT progress dashboard</td><td>✓</td><td>—</td></tr>
+      <tr><td>View intern overview dashboard</td><td>—</td><td>✓</td></tr>
+      <tr><td>Rendered / Projected progress toggle</td><td>✓</td><td>—</td></tr>
+
+      <tr><td colspan="3" style="background:#eff6ff;color:#1e3a8a;font-weight:600;font-size:9pt;padding:5px 12px;">Time Log</td></tr>
+      <tr><td>Clock in / clock out</td><td>✓</td><td>—</td></tr>
+      <tr><td>View own time log history</td><td>✓</td><td>—</td></tr>
+      <tr><td>Submit override requests</td><td>✓</td><td>—</td></tr>
+      <tr><td>Export attendance PDF</td><td>✓</td><td>—</td></tr>
+      <tr><td>View intern time log records</td><td>—</td><td>✓</td></tr>
+      <tr><td>Approve / reject override requests</td><td>—</td><td>✓</td></tr>
+
+      <tr><td colspan="3" style="background:#eff6ff;color:#1e3a8a;font-weight:600;font-size:9pt;padding:5px 12px;">Activity Log</td></tr>
+      <tr><td>View assigned tasks</td><td>✓</td><td>—</td></tr>
+      <tr><td>Create and assign tasks to interns</td><td>—</td><td>✓</td></tr>
+      <tr><td>Update task status</td><td>—</td><td>✓</td></tr>
+
+      <tr><td colspan="3" style="background:#eff6ff;color:#1e3a8a;font-weight:600;font-size:9pt;padding:5px 12px;">Requests</td></tr>
+      <tr><td>Submit absence / overtime requests</td><td>✓</td><td>—</td></tr>
+      <tr><td>View own request history</td><td>✓</td><td>—</td></tr>
+      <tr><td>Approve / reject intern requests</td><td>—</td><td>✓</td></tr>
+
+      <tr><td colspan="3" style="background:#eff6ff;color:#1e3a8a;font-weight:600;font-size:9pt;padding:5px 12px;">Documents</td></tr>
+      <tr><td>Upload and manage own documents</td><td>✓</td><td>✓</td></tr>
+      <tr><td>Create and manage folders</td><td>✓</td><td>✓</td></tr>
+      <tr><td>Share documents with other users</td><td>✓</td><td>✓</td></tr>
+
+      <tr><td colspan="3" style="background:#eff6ff;color:#1e3a8a;font-weight:600;font-size:9pt;padding:5px 12px;">Projects</td></tr>
+      <tr><td>View assigned projects</td><td>✓</td><td>—</td></tr>
+      <tr><td>Create and manage projects</td><td>—</td><td>✓</td></tr>
+      <tr><td>Assign interns to projects</td><td>—</td><td>✓</td></tr>
+
+      <tr><td colspan="3" style="background:#eff6ff;color:#1e3a8a;font-weight:600;font-size:9pt;padding:5px 12px;">Intern Management</td></tr>
+      <tr><td>Assign interns to own supervision</td><td>—</td><td>✓</td></tr>
+      <tr><td>Configure intern schedules</td><td>—</td><td>✓</td></tr>
+
+      <tr><td colspan="3" style="background:#eff6ff;color:#1e3a8a;font-weight:600;font-size:9pt;padding:5px 12px;">Settings</td></tr>
+      <tr><td>Update own profile and photo</td><td>✓</td><td>✓</td></tr>
+      <tr><td>Change own password</td><td>✓</td><td>✓</td></tr>
+      <tr><td>Configure notification preferences</td><td>✓</td><td>✓</td></tr>
+      <tr><td>View assigned supervisors list</td><td>✓</td><td>—</td></tr>
+      <tr><td>Inactive student alert notification</td><td>—</td><td>✓</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ══════════════════════════════════════
+     6. FAQ
+══════════════════════════════════════ -->
+<div class="section" id="faq">
+  <h1>6. Frequently Asked Questions</h1>
+
+  <h2>Account &amp; Login</h2>
+
+  <h3>I entered the correct password but cannot log in.</h3>
+  <p>Double-check that your email address is typed correctly — passwords are case-sensitive. If you still cannot log in, use <strong>Forgot Password?</strong> on the login page.</p>
+
+  <h3>My OTP expired before I could verify my email.</h3>
+  <p>On the Verify Email step, click <strong>Resend OTP</strong>. A new 6-digit code will be sent to your registered email address.</p>
+
+  <h3>Can I change my role after registering?</h3>
+  <p>No. Role selection is permanent at registration. Create a new account with the correct role if needed.</p>
+
+  <h3>I don't see my supervisor in Settings → Supervisors.</h3>
+  <p>Your supervisor must assign you from their <strong>Intern Management</strong> page. Contact your supervisor and ask them to complete the assignment.</p>
+
+  <hr>
+
+  <h2>OJT Hours &amp; Dashboard</h2>
+
+  <h3>My hours look lower than expected on the dashboard.</h3>
+  <p>Check whether you have an active session still running. Hours from an active session count live but are only saved permanently after you clock out. Also confirm your Total OJT Hours and Start Date are set correctly from your signup.</p>
+
+  <h3>What is the difference between Rendered and Projected progress?</h3>
+  <p><strong>Rendered</strong> counts only submitted time log hours plus any currently active session. <strong>Projected</strong> adds pending and approved future overtime/absence requests on top. Switch to Projected to see your estimated progress once pending requests are resolved.</p>
+
+  <h3>My estimated end date seems too far in the future.</h3>
+  <p>The estimate is based on remaining hours divided by an 8-hour working day, skipping your assigned days off. If your daily hours differ or you have many absence requests pending, the estimate adjusts once those are resolved.</p>
+
+  <hr>
+
+  <h2>Time Log</h2>
+
+  <h3>I forgot to clock out yesterday. What do I do?</h3>
+  <p>Submit an <strong>Override Request</strong> from the Time Log page. Enter the correct date, actual time in and out, and a brief reason. Your supervisor will review and approve the correction.</p>
+
+  <h3>Can I edit a time log entry directly?</h3>
+  <p>Existing entries cannot be edited directly. Submit an Override Request to correct any entry.</p>
+
+  <h3>What does the lunch break toggle deduct?</h3>
+  <p>It deducts a standard lunch period from the total hours for that session. Enable it if your internship schedule includes an unpaid lunch break that should not count toward OJT hours.</p>
+
+  <hr>
+
+  <h2>Requests</h2>
+
+  <h3>I submitted an overtime request but my projected hours did not change.</h3>
+  <p>Switch the Dashboard toggle to <strong>Projected</strong> — only the Projected view reflects future approved/pending requests. The Rendered view updates only when you actually log the hours.</p>
+
+  <h3>What happens to an Expired request?</h3>
+  <p>Expired requests had their date pass before a supervisor decision was made. They no longer affect any hour calculations and can be archived or deleted.</p>
+
+  <h3>Can I delete a Pending request?</h3>
+  <p>Archive it first, then use the delete action on the archived item. Deletion is permanent.</p>
+
+  <hr>
+
+  <h2>Documents</h2>
+
+  <h3>Can I recover a deleted document?</h3>
+  <p>No — deletions are permanent. Download or back up important files before removing them.</p>
+
+  <h3>I shared a document but the recipient cannot see it.</h3>
+  <p>Open the Share dialog and confirm the visibility mode includes the recipient. If you used <em>Specific users</em>, verify the correct user was selected. If you used <em>Everyone except</em>, check they were not accidentally added to the exclusion list.</p>
+
+  <hr>
+
+  <h2>Supervisor-Specific</h2>
+
+  <h3>An intern does not appear on my dashboard.</h3>
+  <p>Go to <strong>Intern Management</strong> and assign that intern to your supervision. Only assigned interns appear on your dashboard.</p>
+
+  <h3>I changed an intern's schedule but their estimated end date did not update.</h3>
+  <p>The estimate recalculates the next time the intern's dashboard loads. Ask the intern to refresh their page.</p>
+
+  <hr>
+  <p style="text-align:center;color:#94a3b8;font-size:9pt;margin-top:32px;">
+    IMS v1.2 &nbsp;·&nbsp; For support, contact your system administrator.
+  </p>
+</div>
+
+</body>
+</html>
