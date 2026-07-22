@@ -864,7 +864,7 @@
             {@const ojtEndDateDisplay = formatDateObject(projectedEndDate)}
             {@const estimatedCompletionRaw = firstNonEmptyText(student?.estimated_end_date, student?.estimated_completion_date, student?.estimated_completion, student?.projected_completion_date, student?.expected_completion_date)}
             {@const statusText = getCurrentStatusLabel(student, remaining, projectedEndDate, daysLeft)}
-            {@const hasSchedule = !!(student?.schedule?.days_off || student?.days_off)}
+            {@const hasSchedule = Boolean(getSavedSchedule(student))}
             <article class="assigned-card">
               <div class="card-header-row">
                 <div class="assigned-info">
@@ -888,17 +888,15 @@
                   </div>
                 </div>
                 <div class="card-actions">
-                  {#if hasSchedule}
                     <button
                       class="btn-action"
                       type="button"
                       on:click={() => openEditScheduleModal(student)}
-                      title="Edit this intern's schedule"
-                      aria-label="Edit this intern's schedule"
+                      title={hasSchedule ? "Edit this intern's schedule" : "Set this intern's schedule"}
+                      aria-label={hasSchedule ? "Edit this intern's schedule" : "Set this intern's schedule"}
                     >
-                      ✎ Edit Schedule
+                      {hasSchedule ? 'Edit Schedule' : 'Set Schedule'}
                     </button>
-                  {/if}
                   <button 
                     class="btn-remove" 
                     type="button" 
@@ -1002,7 +1000,7 @@
               {:else}
                 <div class="intern-list-modal">
                   {#each filteredAvailable as student (student.user_id)}
-                    {@const hasSchedule = !!(student?.schedule?.days_off || student?.days_off)}
+                    {@const hasSchedule = Boolean(getSavedSchedule(student))}
                     {@const createdBy = String(student?.schedule?.created_by || '')}
                     {@const currentUserId = String(currentUser?.user_id || '')}
                     {@const isPrimary = !createdBy || createdBy === currentUserId}
